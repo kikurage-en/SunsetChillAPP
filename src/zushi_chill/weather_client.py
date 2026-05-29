@@ -1,0 +1,252 @@
+from __future__ import annotations
+
+import json
+import logging
+import math
+import time
+from collections.abc import Mapping
+from datetime import date, datetime, timedelta
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
+from zoneinfo import ZoneInfo
+
+from zushi_chill.constants import RAIN_WEATHER_CODES
+from zushi_chill.models import WeatherSummary
+
+LOGGER = logging.getLogger(__name__)
+
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+HOURLY_FIELDS = (
+    "temperature_2m",
+    "relative_humidity_2m",
+    "apparent_temperature",
+    "precipitation_probability",
+    "precipitation",
+    "weather_code",
+    "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
+    "visibility",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "wind_gusts_10m",
+)
+
+class WeatherDataError(RuntimeError):
+    """Raised when weather data cannot be fetched or parsed safely."""
+
+
+class OpenMeteoClient:
+    def __init__(self, *, timeout: int = 20, retries: int = 3, backoff_seconds: float = 1.0):
+        self.timeout = timeout
+        self.retries = retries
+        self.backoff_seconds = backoff_seconds
+
+    def fetch_forecast(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        timezone: str,
+        target_date: date | None = None,
+    ) -> dict[str, Any]:
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone,
+            "wind_speed_unit": "ms",
+            "hourly": ",".join(HOURLY_FIELDS),
+            "daily": "sunset",
+        }
+        if target_date is None:
+            params["forecast_days"] = 1
+        else:
+            date_value = target_date.isoformat()
+            params["start_date"] = date_value
+            params["end_date"] = date_value
+        url = f"{OPEN_METEO_URL}?{urlencode(params)}"
+        last_error: Exception | None = None
+
+        for attempt in range(1, self.retries + 1):
+            try:
+                with urlopen(url, timeout=self.timeout) as response:
+                    if response.status >= 400:
+                        body = response.read().decode("utf-8", errors="replace")
+                        raise WeatherDataError(
+                            f"Open-Meteo returned HTTP {response.status}: {body}"
+                        )
+                    return json.loads(response.read().decode("utf-8"))
+            except (
+                HTTPError,
+                URLError,
+                TimeoutError,
+                json.JSONDecodeError,
+                WeatherDataError,
+            ) as exc:
+                last_error = _fetch_error(exc)
+                LOGGER.warning(
+                    "Open-Meteo fetch failed on attempt %s/%s: %s",
+                    attempt,
+                    self.retries,
+                    last_error,
+                )
+                if attempt < self.retries:
+                    time.sleep(self.backoff_seconds * (2 ** (attempt - 1)))
+
+        raise WeatherDataError(
+            f"Open-Meteo fetch failed after {self.retries} attempts"
+        ) from last_error
+
+
+def parse_forecast(
+    payload: Mapping[str, Any],
+    *,
+    location_name: str,
+    latitude: float,
+    longitude: float,
+    timezone: str,
+    run_time: datetime | None = None,
+    allow_missing_fields: set[str] | frozenset[str] | None = None,
+) -> WeatherSummary:
+    hourly = payload.get("hourly")
+    daily = payload.get("daily")
+    if not isinstance(hourly, Mapping) or not isinstance(daily, Mapping):
+        raise WeatherDataError("Open-Meteo payload must contain hourly and daily objects")
+
+    times_raw = hourly.get("time")
+    sunsets_raw = daily.get("sunset")
+    if not isinstance(times_raw, list) or not times_raw:
+        raise WeatherDataError("hourly.time is missing or empty")
+    if not isinstance(sunsets_raw, list) or not sunsets_raw:
+        raise WeatherDataError("daily.sunset is missing or empty")
+
+    tz = ZoneInfo(timezone)
+    times = [_parse_local_datetime(value, tz, "hourly.time") for value in times_raw]
+    sunset_time = _parse_local_datetime(sunsets_raw[0], tz, "daily.sunset")
+    window_start = sunset_time - timedelta(minutes=90)
+    window_end = sunset_time + timedelta(minutes=30)
+    indexes = _target_window_indexes(times, window_start, window_end)
+    if not indexes:
+        raise WeatherDataError("No hourly rows found in the sunset target window")
+
+    allow_missing_fields = allow_missing_fields or frozenset()
+    unknown_allowed_fields = set(allow_missing_fields) - set(HOURLY_FIELDS)
+    if unknown_allowed_fields:
+        raise WeatherDataError(
+            "Unknown ALLOW_MISSING_HOURLY_FIELDS entries: "
+            + ", ".join(sorted(unknown_allowed_fields))
+        )
+
+    values = {
+        field: _values_for_indexes(
+            hourly,
+            field,
+            indexes,
+            len(times),
+            allow_missing=field in allow_missing_fields,
+        )
+        for field in HOURLY_FIELDS
+    }
+    run_time = datetime.now(tz) if run_time is None else run_time.astimezone(tz)
+
+    return WeatherSummary(
+        date=sunset_time.date().isoformat(),
+        run_time=run_time.strftime("%H:%M"),
+        location_name=location_name,
+        latitude=latitude,
+        longitude=longitude,
+        sunset_time=sunset_time,
+        target_window_start=window_start,
+        target_window_end=window_end,
+        temperature_2m=_mean(values["temperature_2m"]),
+        apparent_temperature=_mean(values["apparent_temperature"]),
+        relative_humidity_2m=_mean(values["relative_humidity_2m"]),
+        precipitation_probability=max(values["precipitation_probability"]),
+        precipitation=sum(values["precipitation"]),
+        weather_code=_representative_weather_code(values["weather_code"]),
+        cloud_cover=_mean(values["cloud_cover"]),
+        cloud_cover_low=_mean(values["cloud_cover_low"]),
+        cloud_cover_mid=_mean(values["cloud_cover_mid"]),
+        cloud_cover_high=_mean(values["cloud_cover_high"]),
+        visibility=min(values["visibility"]),
+        wind_speed_10m=_mean(values["wind_speed_10m"]),
+        wind_direction_10m=_circular_mean_degrees(values["wind_direction_10m"]),
+        wind_gusts_10m=max(values["wind_gusts_10m"]),
+    )
+
+
+def _fetch_error(exc: Exception) -> Exception:
+    if isinstance(exc, HTTPError):
+        body = exc.read().decode("utf-8", errors="replace")
+        return WeatherDataError(f"Open-Meteo returned HTTP {exc.code}: {body}")
+    return exc
+
+
+def _parse_local_datetime(value: Any, tz: ZoneInfo, field_name: str) -> datetime:
+    if not isinstance(value, str):
+        raise WeatherDataError(f"{field_name} must contain ISO datetime strings")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise WeatherDataError(f"{field_name} contains invalid datetime: {value}") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=tz)
+    return parsed.astimezone(tz)
+
+
+def _target_window_indexes(
+    times: list[datetime], window_start: datetime, window_end: datetime
+) -> list[int]:
+    indexes = []
+    for index, item_time in enumerate(times):
+        item_end = item_time + timedelta(hours=1)
+        if item_time < window_end and item_end > window_start:
+            indexes.append(index)
+    return indexes
+
+
+def _values_for_indexes(
+    hourly: Mapping[str, Any],
+    field: str,
+    indexes: list[int],
+    expected_len: int,
+    *,
+    allow_missing: bool = False,
+) -> list[float]:
+    raw_values = hourly.get(field)
+    if not isinstance(raw_values, list) or len(raw_values) != expected_len:
+        raise WeatherDataError(f"hourly.{field} is missing or length does not match hourly.time")
+    selected = [raw_values[i] for i in indexes]
+    if any(value is None for value in selected) and not allow_missing:
+        raise WeatherDataError(f"hourly.{field} contains missing data in target window")
+    selected = [value for value in selected if value is not None]
+    if not selected:
+        raise WeatherDataError(f"hourly.{field} contains no usable data in target window")
+    try:
+        return [float(value) for value in selected]
+    except (TypeError, ValueError) as exc:
+        raise WeatherDataError(f"hourly.{field} contains non-numeric data") from exc
+
+
+def _mean(values: list[float]) -> float:
+    return round(sum(values) / len(values), 1)
+
+
+def _circular_mean_degrees(values: list[float]) -> float:
+    sin_sum = sum(math.sin(math.radians(value)) for value in values)
+    cos_sum = sum(math.cos(math.radians(value)) for value in values)
+    if abs(sin_sum) < 1e-12 and abs(cos_sum) < 1e-12:
+        return round(values[-1] % 360, 1)
+    angle = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
+    return round(angle, 1)
+
+
+def _representative_weather_code(values: list[float]) -> int:
+    codes = [int(value) for value in values]
+    rain_codes = [code for code in codes if code in RAIN_WEATHER_CODES]
+    if rain_codes:
+        return max(rain_codes)
+    return max(codes)

@@ -1,0 +1,85 @@
+name: Daily Zushi Chill Index
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # 13:00 JST
+    - cron: "0 8 * * *" # 17:00 JST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "LINE送信せずログだけ出す"
+        required: false
+        default: "false"
+      date:
+        description: "対象日 YYYY-MM-DD"
+        required: false
+        default: ""
+      run_time:
+        description: "実行時刻 HH:MM"
+        required: false
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      STORAGE_BACKEND: ${{ secrets.STORAGE_BACKEND || 'csv' }}
+      CSV_PATH: ${{ secrets.CSV_PATH || 'logs/chill_predictions.csv' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run lint
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest
+
+      - name: Run chill index
+        env:
+          LOCATION_NAME: ${{ secrets.LOCATION_NAME }}
+          LATITUDE: ${{ secrets.LATITUDE }}
+          LONGITUDE: ${{ secrets.LONGITUDE }}
+          TIMEZONE: ${{ secrets.TIMEZONE || 'Asia/Tokyo' }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TARGET_ID: ${{ secrets.LINE_TARGET_ID }}
+          GOOGLE_FORM_URL: ${{ secrets.GOOGLE_FORM_URL }}
+          GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
+          GOOGLE_SHEETS_WORKSHEET: ${{ secrets.GOOGLE_SHEETS_WORKSHEET || 'predictions' }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ALLOW_MISSING_HOURLY_FIELDS: ${{ secrets.ALLOW_MISSING_HOURLY_FIELDS || '' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          RUN_DATE: ${{ github.event.inputs.date || '' }}
+          RUN_TIME: ${{ github.event.inputs.run_time || '' }}
+          SCHEDULE: ${{ github.event.schedule || '' }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
+        run: |
+          args=()
+          if [ -z "$RUN_TIME" ]; then
+            case "$SCHEDULE" in
+              "0 4 * * *") RUN_TIME="13:00" ;;
+              "0 8 * * *") RUN_TIME="17:00" ;;
+            esac
+          fi
+          if [ -n "$RUN_DATE" ]; then
+            args+=(--date "$RUN_DATE")
+          fi
+          if [ -n "$RUN_TIME" ]; then
+            args+=(--run-time "$RUN_TIME")
+          fi
+          python -m zushi_chill.main "${args[@]}"
+
+      - name: Upload CSV log
+        if: always() && env.STORAGE_BACKEND == 'csv'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chill-predictions
+          path: ${{ env.CSV_PATH }}
+          if-no-files-found: ignore
