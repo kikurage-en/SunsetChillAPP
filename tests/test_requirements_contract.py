@@ -97,6 +97,7 @@ def test_github_actions_schedule_and_manual_dispatch_are_configured():
     assert "SCHEDULE: ${{ github.event.schedule || '' }}" in workflow
     assert '"0 4 * * *") RUN_TIME="13:00"' in workflow
     assert '"0 8 * * *") RUN_TIME="17:00"' in workflow
+    assert 'RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"' in workflow
     assert "python -m zushi_chill.main" in workflow
 
 

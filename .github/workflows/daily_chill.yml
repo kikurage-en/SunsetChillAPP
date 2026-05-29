@@ -71,6 +71,9 @@ jobs:
               "0 8 * * *") RUN_TIME="17:00" ;;
             esac
           fi
+          if [ -z "$RUN_TIME" ]; then
+            RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"
+          fi
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           echo "RUN_TIME=$RUN_TIME" >> "$GITHUB_ENV"
           echo "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/${RUN_TIME/:/}.jpg" >> "$GITHUB_ENV"
