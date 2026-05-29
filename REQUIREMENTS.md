@@ -382,12 +382,12 @@ LINE_TARGET_ID=
 
 GitHub ActionsではUTCで指定する。
 
-GitHub Actionsの毎時00分台はscheduleイベントが遅延またはドロップされる場合があるため、実行は7分ずらし、LINE本文とログの `run_time` は 13:00 / 17:00 として扱う。
+GitHub Actionsのscheduleイベントは遅延またはドロップされる場合があるため、各通知時刻に3回の起動機会を設ける。LINE本文とログの `run_time` は 13:00 / 17:00 として扱い、同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信しない。
 
 | 表示時刻 | Actions実行時刻 |
 | ---- | ----------- |
-| 13:00 | 04:07 UTC   |
-| 17:00 | 08:07 UTC   |
+| 13:00 | 04:07 / 04:22 / 04:37 UTC |
+| 17:00 | 08:07 / 08:22 / 08:37 UTC |
 
 ### 6.1.3 LINE投稿フォーマット
 
@@ -519,8 +519,8 @@ name: Daily Zushi Chill Index
 
 on:
   schedule:
-    - cron: "7 4 * * *"  # 13:07 JST, displayed as 13:00
-    - cron: "7 8 * * *"  # 17:07 JST, displayed as 17:00
+    - cron: "7,22,37 4 * * *"  # 13:07/13:22/13:37 JST, displayed as 13:00
+    - cron: "7,22,37 8 * * *"  # 17:07/17:22/17:37 JST, displayed as 17:00
   workflow_dispatch:
 
 jobs:

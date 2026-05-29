@@ -2,8 +2,8 @@ name: Daily Zushi Chill Index
 
 on:
   schedule:
-    - cron: "7 4 * * *" # 13:07 JST, displayed as 13:00
-    - cron: "7 8 * * *" # 17:07 JST, displayed as 17:00
+    - cron: "7,22,37 4 * * *" # 13:07/13:22/13:37 JST, displayed as 13:00
+    - cron: "7,22,37 8 * * *" # 17:07/17:22/17:37 JST, displayed as 17:00
   workflow_dispatch:
     inputs:
       manual_mode:
@@ -31,6 +31,9 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+    concurrency:
+      group: daily-zushi-chill-${{ github.ref }}
+      cancel-in-progress: false
     env:
       STORAGE_BACKEND: ${{ secrets.STORAGE_BACKEND || 'csv' }}
       CSV_PATH: ${{ secrets.CSV_PATH || 'logs/chill_predictions.csv' }}
@@ -67,8 +70,8 @@ jobs:
           fi
           if [ -z "$RUN_TIME" ]; then
             case "$SCHEDULE" in
-              "7 4 * * *") RUN_TIME="13:00" ;;
-              "7 8 * * *") RUN_TIME="17:00" ;;
+              "7,22,37 4 * * *") RUN_TIME="13:00" ;;
+              "7,22,37 8 * * *") RUN_TIME="17:00" ;;
             esac
           fi
           if [ -z "$RUN_TIME" ]; then

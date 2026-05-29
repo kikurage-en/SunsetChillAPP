@@ -277,6 +277,30 @@ def test_line_success_updates_saved_record_as_sent(monkeypatch):
     assert fake_storage.records[-1].error_message == ""
 
 
+def test_duplicate_sent_record_skips_weather_storage_and_line(monkeypatch):
+    fake_storage = MemoryStorage(already_sent=True)
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setattr(main_module, "OpenMeteoClient", FailIfCalledWeatherClient)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
+
+    assert exit_code == 0
+    assert fake_storage.has_sent_queries == [
+        {
+            "date": "2026-06-01",
+            "run_time": "17:00",
+            "location_name": "逗子海岸",
+        }
+    ]
+    assert fake_storage.records == []
+    assert fake_line_client.sent_messages == []
+
+
 def test_line_success_can_attach_live_camera_image_from_base_url(monkeypatch):
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()
@@ -325,8 +349,10 @@ def test_line_success_logs_when_storage_update_fails(monkeypatch, caplog):
 
 
 class MemoryStorage:
-    def __init__(self):
+    def __init__(self, *, already_sent=False):
         self.records = []
+        self.already_sent = already_sent
+        self.has_sent_queries = []
 
     def save(self, record):
         self.records.append(record)
@@ -337,8 +363,15 @@ class MemoryStorage:
         else:
             self.records.append(record)
 
+    def has_sent(self, **kwargs):
+        self.has_sent_queries.append(kwargs)
+        return self.already_sent
+
 
 class FailingStorage:
+    def has_sent(self, **kwargs):
+        return False
+
     def save(self, record):
         raise RuntimeError("storage unavailable")
 
@@ -355,6 +388,9 @@ class ReplaceFailingStorage:
 
     def replace_latest(self, record):
         raise RuntimeError("replace failed")
+
+    def has_sent(self, **kwargs):
+        return False
 
 
 class FakeLineClient:

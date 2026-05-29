@@ -123,6 +123,42 @@ def test_csv_storage_replaces_only_matching_run_time(tmp_path, sample_summary):
     assert rows[1]["chill_score"] == "89"
 
 
+def test_csv_storage_detects_sent_record(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    storage = CsvStorage(path)
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+
+    storage.save(PredictionRecord(summary=sample_summary, scores=scores, line_sent=False))
+
+    assert (
+        storage.has_sent(
+            date="2026-06-01",
+            run_time="13:00",
+            location_name="逗子海岸",
+        )
+        is False
+    )
+
+    storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
+
+    assert (
+        storage.has_sent(
+            date="2026-06-01",
+            run_time="13:00",
+            location_name="逗子海岸",
+        )
+        is True
+    )
+    assert (
+        storage.has_sent(
+            date="2026-06-01",
+            run_time="17:00",
+            location_name="逗子海岸",
+        )
+        is False
+    )
+
+
 def test_google_sheets_storage_appends_with_header(sample_summary):
     fake_service = FakeSheetsService(get_values=[], sheet_titles=["predictions"])
     storage = GoogleSheetsStorage(
@@ -270,6 +306,57 @@ def test_google_sheets_storage_appends_when_run_time_does_not_match(sample_summa
         "17:00",
         "逗子海岸",
     ]
+
+
+def test_google_sheets_storage_detects_sent_record():
+    sent_row = [""] * len(CSV_COLUMNS)
+    sent_row[0:3] = ["2026-06-01", "17:00", "逗子海岸"]
+    sent_row[CSV_COLUMNS.index("line_sent")] = "TRUE"
+    fake_service = FakeSheetsService(
+        get_values=[CSV_COLUMNS, sent_row],
+        sheet_titles=["predictions"],
+    )
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet-id",
+        worksheet="predictions",
+        service_account_json="{}",
+    )
+    storage._service = fake_service
+
+    assert (
+        storage.has_sent(
+            date="2026-06-01",
+            run_time="17:00",
+            location_name="逗子海岸",
+        )
+        is True
+    )
+    assert fake_service.last_get["range"] == "'predictions'!A:AC"
+
+
+def test_google_sheets_storage_ignores_unsent_record():
+    unsent_row = [""] * len(CSV_COLUMNS)
+    unsent_row[0:3] = ["2026-06-01", "17:00", "逗子海岸"]
+    unsent_row[CSV_COLUMNS.index("line_sent")] = "FALSE"
+    fake_service = FakeSheetsService(
+        get_values=[CSV_COLUMNS, unsent_row],
+        sheet_titles=["predictions"],
+    )
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet-id",
+        worksheet="predictions",
+        service_account_json="{}",
+    )
+    storage._service = fake_service
+
+    assert (
+        storage.has_sent(
+            date="2026-06-01",
+            run_time="17:00",
+            location_name="逗子海岸",
+        )
+        is False
+    )
 
 
 def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):

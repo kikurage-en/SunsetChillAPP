@@ -73,11 +73,11 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は以下で実行されます。
 
-- 04:07 UTC: 13:07 JST（LINE本文とログの `run_time` は 13:00）
-- 08:07 UTC: 17:07 JST（LINE本文とログの `run_time` は 17:00）
+- 04:07 / 04:22 / 04:37 UTC: 13:07 / 13:22 / 13:37 JST（LINE本文とログの `run_time` は 13:00）
+- 08:07 / 08:22 / 08:37 UTC: 17:07 / 17:22 / 17:37 JST（LINE本文とログの `run_time` は 17:00）
 - `workflow_dispatch`: GitHub UI から手動実行
 
-定期実行では、GitHub Actions の毎時00分台の混雑を避けるため実行時刻を7分ずらしています。Actions の起動が数分遅れても通知本文とログの `run_time` が `13:00` / `17:00` になるように `--run-time` を自動指定します。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
+定期実行では、GitHub Actions のscheduleイベント欠落に備えて各通知時刻に3回の起動機会を設けています。Actions の起動が数分遅れても通知本文とログの `run_time` が `13:00` / `17:00` になるように `--run-time` を自動指定します。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
 
 LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 

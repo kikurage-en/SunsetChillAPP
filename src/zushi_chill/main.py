@@ -30,6 +30,20 @@ def main(argv: list[str] | None = None) -> int:
         tz = ZoneInfo(settings.timezone)
         run_time = _resolve_run_time(args.date, args.run_time, tz)
         dry_run = args.dry_run or settings.dry_run
+        storage = storage_from_settings(settings)
+
+        if not dry_run and storage.has_sent(
+            date=run_time.date().isoformat(),
+            run_time=run_time.strftime("%H:%M"),
+            location_name=settings.location_name,
+        ):
+            logging.getLogger(__name__).info(
+                "LINE already sent for %s %s %s; skipping duplicate run",
+                run_time.date().isoformat(),
+                run_time.strftime("%H:%M"),
+                settings.location_name,
+            )
+            return 0
 
         payload = _load_payload(args, settings, run_time)
         summary = parse_forecast(
@@ -51,7 +65,6 @@ def main(argv: list[str] | None = None) -> int:
             settings.live_camera_image_base_url,
             build_capture_relative_path(run_time),
         )
-        storage = storage_from_settings(settings)
 
         if dry_run:
             record = PredictionRecord(summary=summary, scores=scores, line_sent=False)

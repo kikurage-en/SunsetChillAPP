@@ -44,8 +44,10 @@ def test_prediction_log_columns_match_requirements():
 def test_github_actions_schedule_and_manual_dispatch_are_configured():
     workflow = Path(".github/workflows/daily_chill.yml").read_text(encoding="utf-8")
 
-    assert 'cron: "7 4 * * *"' in workflow
-    assert 'cron: "7 8 * * *"' in workflow
+    assert 'cron: "7,22,37 4 * * *"' in workflow
+    assert 'cron: "7,22,37 8 * * *"' in workflow
+    assert "group: daily-zushi-chill-${{ github.ref }}" in workflow
+    assert "cancel-in-progress: false" in workflow
     assert "workflow_dispatch:" in workflow
     assert "manual_mode:" in workflow
     assert "type: choice" in workflow
@@ -95,8 +97,8 @@ def test_github_actions_schedule_and_manual_dispatch_are_configured():
     )
     assert "LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}" in workflow
     assert "SCHEDULE: ${{ github.event.schedule || '' }}" in workflow
-    assert '"7 4 * * *") RUN_TIME="13:00"' in workflow
-    assert '"7 8 * * *") RUN_TIME="17:00"' in workflow
+    assert '"7,22,37 4 * * *") RUN_TIME="13:00"' in workflow
+    assert '"7,22,37 8 * * *") RUN_TIME="17:00"' in workflow
     assert 'RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"' in workflow
     assert "python -m zushi_chill.main" in workflow
 

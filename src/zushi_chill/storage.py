@@ -48,6 +48,9 @@ class Storage(Protocol):
     def replace_latest(self, record: PredictionRecord) -> None:
         pass
 
+    def has_sent(self, *, date: str, run_time: str, location_name: str) -> bool:
+        pass
+
 
 class CsvStorage:
     def __init__(self, path: str | Path):
@@ -89,6 +92,21 @@ class CsvStorage:
             writer.writeheader()
             writer.writerows(rows)
 
+    def has_sent(self, *, date: str, run_time: str, location_name: str) -> bool:
+        if not self.path.exists():
+            return False
+        self._has_expected_header()
+        with self.path.open(encoding="utf-8", newline="") as file:
+            rows = list(csv.DictReader(file))
+        for row in reversed(rows):
+            if (
+                row.get("date") == date
+                and row.get("run_time") == run_time
+                and row.get("location_name") == location_name
+            ):
+                return _is_truthy(row.get("line_sent", ""))
+        return False
+
     def _has_expected_header(self) -> bool:
         if not self.path.exists() or self.path.stat().st_size == 0:
             return False
@@ -126,6 +144,25 @@ class GoogleSheetsStorage:
             valueInputOption="RAW",
             body={"values": [_record_values(record)]},
         ).execute()
+
+    def has_sent(self, *, date: str, run_time: str, location_name: str) -> bool:
+        self._ensure_header()
+        result = (
+            self._service_client()
+            .spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.spreadsheet_id,
+                range=_sheet_range(self.worksheet, f"A:{_column_letter(len(CSV_COLUMNS))}"),
+            )
+            .execute()
+        )
+        values = result.get("values", [])
+        line_sent_index = CSV_COLUMNS.index("line_sent")
+        for row in reversed(values[1:]):
+            if len(row) >= 3 and row[:3] == [date, run_time, location_name]:
+                return len(row) > line_sent_index and _is_truthy(str(row[line_sent_index]))
+        return False
 
     def _service_client(self):
         if self._service is not None:
@@ -269,3 +306,7 @@ def _column_letter(index: int) -> str:
 def _sheet_range(worksheet: str, cell_range: str) -> str:
     escaped = worksheet.replace("'", "''")
     return f"'{escaped}'!{cell_range}"
+
+
+def _is_truthy(value: str) -> bool:
+    return value.strip().lower() in {"true", "1", "yes", "y"}
