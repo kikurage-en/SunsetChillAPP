@@ -35,6 +35,7 @@ jobs:
       STORAGE_BACKEND: ${{ secrets.STORAGE_BACKEND || 'csv' }}
       CSV_PATH: ${{ secrets.CSV_PATH || 'logs/chill_predictions.csv' }}
       LIVE_CAMERA_URL: ${{ secrets.LIVE_CAMERA_URL || 'https://www.youtube.com/watch?v=Q5AAi9KOjG0' }}
+      LIVE_CAMERA_VIDEO_ID: ${{ secrets.LIVE_CAMERA_VIDEO_ID || 'Q5AAi9KOjG0' }}
       LIVE_CAMERA_IMAGE_BASE_URL: ${{ secrets.LIVE_CAMERA_IMAGE_BASE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
     steps:
       - uses: actions/checkout@v4
@@ -79,22 +80,37 @@ jobs:
           mkdir -p "public/$(dirname "$LIVE_CAMERA_IMAGE_RELATIVE_PATH")"
           IMAGE_PATH="public/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
           set +e
-          STREAM_URL="$(yt-dlp --no-playlist --format "best[ext=mp4]/best" --get-url "$LIVE_CAMERA_URL" | head -n 1)"
+          STREAM_URL="$(yt-dlp --no-playlist --format "best[protocol^=m3u8]/best" --get-url "$LIVE_CAMERA_URL" 2>yt-dlp-error.log | head -n 1)"
           YT_DLP_STATUS=$?
           set -e
           if [ "$YT_DLP_STATUS" -ne 0 ]; then
+            cat yt-dlp-error.log
             echo "::warning::Live camera stream URL could not be resolved"
-            exit 0
           fi
           if [ -z "$STREAM_URL" ]; then
+            cat yt-dlp-error.log
             echo "::warning::Live camera stream URL could not be resolved"
+          fi
+          if [ -n "$STREAM_URL" ] && ffmpeg -hide_banner -loglevel error -y -i "$STREAM_URL" -frames:v 1 "$IMAGE_PATH"; then
+            echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
             exit 0
           fi
-          if ffmpeg -hide_banner -loglevel error -y -i "$STREAM_URL" -frames:v 1 "$IMAGE_PATH"; then
-            echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
-          else
-            echo "::warning::Live camera image capture failed"
-          fi
+
+          echo "::warning::Falling back to YouTube live thumbnail"
+          for thumbnail_url in \
+            "https://i.ytimg.com/vi/$LIVE_CAMERA_VIDEO_ID/maxresdefault_live.jpg" \
+            "https://i.ytimg.com/vi/$LIVE_CAMERA_VIDEO_ID/hqdefault_live.jpg" \
+            "https://i.ytimg.com/vi/$LIVE_CAMERA_VIDEO_ID/maxresdefault.jpg" \
+            "https://i.ytimg.com/vi/$LIVE_CAMERA_VIDEO_ID/hqdefault.jpg"
+          do
+            if curl --fail --location --silent --show-error --output "$IMAGE_PATH" "$thumbnail_url"; then
+              echo "Captured fallback thumbnail: $thumbnail_url"
+              echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+
+          echo "::warning::Live camera image capture failed"
 
       - name: Configure Pages
         if: env.LIVE_CAMERA_IMAGE_URL != ''

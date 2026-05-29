@@ -60,12 +60,17 @@ def test_github_actions_schedule_and_manual_dispatch_are_configured():
     assert "run: pytest" in workflow
     assert "CSV_PATH: ${{ secrets.CSV_PATH || 'logs/chill_predictions.csv' }}" in workflow
     assert "LIVE_CAMERA_URL:" in workflow
+    assert "LIVE_CAMERA_VIDEO_ID:" in workflow
     assert "LIVE_CAMERA_IMAGE_BASE_URL:" in workflow
     assert 'LIVE_CAMERA_IMAGE_BASE_URL: ""' in workflow
     assert "echo \"Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}\"" in workflow
     assert "Capture live camera image" in workflow
     assert "yt-dlp --no-playlist" in workflow
     assert "ffmpeg -hide_banner" in workflow
+    assert "Falling back to YouTube live thumbnail" in workflow
+    assert "maxresdefault_live.jpg" in workflow
+    assert "hqdefault_live.jpg" in workflow
+    assert "curl --fail --location --silent --show-error" in workflow
     assert "uses: actions/configure-pages@v5" in workflow
     assert "uses: actions/upload-pages-artifact@v3" in workflow
     assert "uses: actions/deploy-pages@v4" in workflow
@@ -116,6 +121,7 @@ def test_readme_documents_runtime_configuration():
         "LINE_CHANNEL_ACCESS_TOKEN=...",
         "LINE_TARGET_ID=...",
         "LIVE_CAMERA_URL=https://www.youtube.com/watch?v=Q5AAi9KOjG0",
+        "LIVE_CAMERA_VIDEO_ID=Q5AAi9KOjG0",
         "LIVE_CAMERA_IMAGE_BASE_URL=https://<owner>.github.io/<repo>",
         "LIVE_CAMERA_IMAGE_URL=",
         "LIVE_CAMERA_PREVIEW_IMAGE_URL=",
@@ -179,6 +185,7 @@ def test_readme_documents_live_camera_pages_flow():
         "LINE本文に続けて画像メッセージも送信",
         "画像URLはLINEから取得できるHTTPS URL",
         "GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg`",
+        "YouTubeのライブサムネイルを取得してフォールバック",
         "取得に成功した場合のみ",
         "Sourceを「GitHub Actions」",
     ]:
