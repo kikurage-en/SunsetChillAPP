@@ -20,6 +20,7 @@ def test_line_message_contains_required_fields(sample_summary):
     assert "Sunset期待度：90 / 100（S）" in message
     assert "日没：18:51" in message
     assert "対象時間帯：17:21〜19:21" in message
+    assert "以下は対象時間帯の予測値を集計したものです。" in message
     assert "体感温度（平均）：" in message
     assert "湿度（平均）：" in message
     assert "風（平均）：" in message
@@ -49,6 +50,7 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
     assert "時点" not in message
     assert "発表" not in message
     assert "対象時間帯" in message
+    assert "予測値を集計" in message
     assert "検証メモ" in message
     assert "実際の空模様" in message
 

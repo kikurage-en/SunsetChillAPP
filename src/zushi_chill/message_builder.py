@@ -39,6 +39,7 @@ Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）
 
 日没：{summary.sunset_time.strftime("%H:%M")}
 対象時間帯：{summary.target_window_start.strftime("%H:%M")}〜{summary.target_window_end.strftime("%H:%M")}
+以下は対象時間帯の予測値を集計したものです。
 体感温度（平均）：{summary.apparent_temperature:.1f}℃
 湿度（平均）：{summary.relative_humidity_2m:.0f}%
 風（平均）：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
