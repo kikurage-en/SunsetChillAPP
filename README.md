@@ -72,7 +72,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 定期実行では、Actions の起動が数分遅れても通知本文とログの `run_time` が `13:00` / `17:00` になるように `--run-time` を自動指定します。
 
-手動実行では `dry_run`、`date`、`run_time` を指定できます。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
+手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` ではLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 
 `STORAGE_BACKEND=csv` の場合、CSV は `CSV_PATH`（未指定時は `logs/chill_predictions.csv`）に保存され、Actions Artifact としてアップロードされます。`STORAGE_BACKEND=google_sheets` の場合は Google Sheets へ保存し、CSV Artifact は作成しません。
 

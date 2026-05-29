@@ -6,10 +6,14 @@ on:
     - cron: "0 8 * * *" # 17:00 JST
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "LINE送信せずログだけ出す"
+      manual_mode:
+        description: "手動テスト種別"
         required: false
-        default: "false"
+        type: choice
+        default: "dry_run"
+        options:
+          - dry_run
+          - send_line
       date:
         description: "対象日 YYYY-MM-DD"
         required: false
@@ -55,7 +59,7 @@ jobs:
           GOOGLE_SHEETS_WORKSHEET: ${{ secrets.GOOGLE_SHEETS_WORKSHEET || 'predictions' }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ALLOW_MISSING_HOURLY_FIELDS: ${{ secrets.ALLOW_MISSING_HOURLY_FIELDS || '' }}
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.manual_mode != 'send_line' && 'true' || 'false' }}
           RUN_DATE: ${{ github.event.inputs.date || '' }}
           RUN_TIME: ${{ github.event.inputs.run_time || '' }}
           SCHEDULE: ${{ github.event.schedule || '' }}

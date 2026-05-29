@@ -47,7 +47,10 @@ def test_github_actions_schedule_and_manual_dispatch_are_configured():
     assert 'cron: "0 4 * * *"' in workflow
     assert 'cron: "0 8 * * *"' in workflow
     assert "workflow_dispatch:" in workflow
-    assert "dry_run:" in workflow
+    assert "manual_mode:" in workflow
+    assert "type: choice" in workflow
+    assert "default: \"dry_run\"" in workflow
+    assert "- send_line" in workflow
     assert "python-version: \"3.12\"" in workflow
     assert 'run: pip install -e ".[dev]"' in workflow
     assert "run: ruff check ." in workflow
@@ -60,6 +63,11 @@ def test_github_actions_schedule_and_manual_dispatch_are_configured():
     assert "TIMEZONE: ${{ secrets.TIMEZONE || 'Asia/Tokyo' }}" in workflow
     assert (
         "ALLOW_MISSING_HOURLY_FIELDS: ${{ secrets.ALLOW_MISSING_HOURLY_FIELDS || '' }}"
+        in workflow
+    )
+    assert (
+        "DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && "
+        "github.event.inputs.manual_mode != 'send_line' && 'true' || 'false' }}"
         in workflow
     )
     assert "LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}" in workflow
