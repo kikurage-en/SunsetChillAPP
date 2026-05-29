@@ -32,21 +32,22 @@ def build_line_message(
     google_form_url: str = "",
 ) -> str:
     comment = scores.comment or build_comment(summary, scores)
-    return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}時点】
+    return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}発表】
 
 Chill指数：{scores.chill_score} / 100（{scores.chill_label}）
 Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）
 
 日没：{summary.sunset_time.strftime("%H:%M")}
-体感温度：{summary.apparent_temperature:.1f}℃
-湿度：{summary.relative_humidity_2m:.0f}%
-風：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
-突風：{summary.wind_gusts_10m:.1f}m/s
-降水確率：{summary.precipitation_probability:.0f}%
-低層雲：{summary.cloud_cover_low:.0f}%
-中層雲：{summary.cloud_cover_mid:.0f}%
-高層雲：{summary.cloud_cover_high:.0f}%
-視程：{summary.visibility / 1000:.1f}km
+対象時間帯：{summary.target_window_start.strftime("%H:%M")}〜{summary.target_window_end.strftime("%H:%M")}
+体感温度（平均）：{summary.apparent_temperature:.1f}℃
+湿度（平均）：{summary.relative_humidity_2m:.0f}%
+風（平均）：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
+突風（最大）：{summary.wind_gusts_10m:.1f}m/s
+降水確率（最大）：{summary.precipitation_probability:.0f}%
+低層雲（平均）：{summary.cloud_cover_low:.0f}%
+中層雲（平均）：{summary.cloud_cover_mid:.0f}%
+高層雲（平均）：{summary.cloud_cover_high:.0f}%
+視程（最小）：{summary.visibility / 1000:.1f}km
 
 コメント：
 {comment}

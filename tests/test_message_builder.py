@@ -15,19 +15,20 @@ def test_line_message_contains_required_fields(sample_summary):
         google_form_url="https://forms.example/test",
     )
 
-    assert "【逗子サンセットチル指数｜2026-06-01 13:00時点】" in message
+    assert "【逗子サンセットチル指数｜2026-06-01 13:00発表】" in message
     assert "Chill指数：88 / 100（S）" in message
     assert "Sunset期待度：90 / 100（S）" in message
     assert "日没：18:51" in message
-    assert "体感温度：" in message
-    assert "湿度：" in message
-    assert "風：" in message
-    assert "突風：" in message
-    assert "降水確率：" in message
-    assert "低層雲：" in message
-    assert "中層雲：" in message
-    assert "高層雲：" in message
-    assert "視程：" in message
+    assert "対象時間帯：17:21〜19:21" in message
+    assert "体感温度（平均）：" in message
+    assert "湿度（平均）：" in message
+    assert "風（平均）：" in message
+    assert "突風（最大）：" in message
+    assert "降水確率（最大）：" in message
+    assert "低層雲（平均）：" in message
+    assert "中層雲（平均）：" in message
+    assert "高層雲（平均）：" in message
+    assert "視程（最小）：" in message
     assert "コメント：" in message
     assert "検証メモ：" in message
     assert "Googleフォーム：" in message
@@ -45,6 +46,9 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
 
     assert "予報" not in message
     assert "確実" not in message
+    assert "時点" not in message
+    assert "発表" in message
+    assert "対象時間帯" in message
     assert "検証メモ" in message
     assert "実際の空模様" in message
 
