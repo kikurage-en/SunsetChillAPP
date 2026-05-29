@@ -15,7 +15,7 @@ def test_line_message_contains_required_fields(sample_summary):
         google_form_url="https://forms.example/test",
     )
 
-    assert "【逗子サンセットチル指数｜2026-06-01 13:00発表】" in message
+    assert "【逗子サンセットチル指数｜2026-06-01 13:00】" in message
     assert "Chill指数：88 / 100（S）" in message
     assert "Sunset期待度：90 / 100（S）" in message
     assert "日没：18:51" in message
@@ -47,7 +47,7 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
     assert "予報" not in message
     assert "確実" not in message
     assert "時点" not in message
-    assert "発表" in message
+    assert "発表" not in message
     assert "対象時間帯" in message
     assert "検証メモ" in message
     assert "実際の空模様" in message

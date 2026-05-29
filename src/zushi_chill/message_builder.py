@@ -32,7 +32,7 @@ def build_line_message(
     google_form_url: str = "",
 ) -> str:
     comment = scores.comment or build_comment(summary, scores)
-    return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}発表】
+    return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
 
 Chill指数：{scores.chill_score} / 100（{scores.chill_label}）
 Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）

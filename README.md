@@ -70,7 +70,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 - 08:00 UTC: 17:00 JST
 - `workflow_dispatch`: GitHub UI から手動実行
 
-定期実行では、Actions の起動が数分遅れても通知本文とログの `run_time` が `13:00` / `17:00` になるように `--run-time` を自動指定します。LINE本文ではこの時刻を発表時刻として表示し、各種数値は日没90分前から日没30分後までの対象時間帯を集計した値として表示します。
+定期実行では、Actions の起動が数分遅れても通知本文とログの `run_time` が `13:00` / `17:00` になるように `--run-time` を自動指定します。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯を集計した値として表示します。
 
 手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` ではLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 

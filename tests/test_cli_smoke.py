@@ -39,7 +39,7 @@ def test_python_module_cli_dry_run_with_fixture(tmp_path):
     )
 
     assert result.returncode == 0
-    assert "逗子サンセットチル指数｜2026-06-01 13:00発表" in result.stdout
+    assert "逗子サンセットチル指数｜2026-06-01 13:00" in result.stdout
     assert "対象時間帯：17:21〜19:21" in result.stdout
     assert "https://forms.example/cli" in result.stdout
 
