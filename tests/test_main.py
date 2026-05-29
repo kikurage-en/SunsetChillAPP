@@ -277,6 +277,33 @@ def test_line_success_updates_saved_record_as_sent(monkeypatch):
     assert fake_storage.records[-1].error_message == ""
 
 
+def test_line_success_can_attach_live_camera_image_from_base_url(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_BASE_URL", "https://pages.example/SunsetChillAPP")
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
+
+    assert exit_code == 0
+    assert fake_line_client.sent_messages == [
+        {
+            "text": fake_line_client.sent_messages[0]["text"],
+            "image_url": "https://pages.example/SunsetChillAPP/live-camera/2026-06-01/1700.jpg",
+            "preview_image_url": (
+                "https://pages.example/SunsetChillAPP/live-camera/2026-06-01/1700.jpg"
+            ),
+        }
+    ]
+    assert fake_storage.records[-1].line_sent is True
+
+
 def test_line_success_logs_when_storage_update_fails(monkeypatch, caplog):
     fake_weather_client = FakeWeatherClient()
     fake_storage = ReplaceFailingStorage()
@@ -337,5 +364,16 @@ class FakeLineClient:
 
     def push_text(self, message):
         self.sent_messages.append(message)
+        if self.error is not None:
+            raise self.error
+
+    def push_text_with_image(self, message, *, image_url, preview_image_url=None):
+        self.sent_messages.append(
+            {
+                "text": message,
+                "image_url": image_url,
+                "preview_image_url": preview_image_url,
+            }
+        )
         if self.error is not None:
             raise self.error

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from zushi_chill.config import ConfigError, Settings
 from zushi_chill.line_client import LineClient
+from zushi_chill.live_camera import build_capture_relative_path, build_capture_url
 from zushi_chill.message_builder import build_comment, build_line_message
 from zushi_chill.models import PredictionRecord
 from zushi_chill.scoring import calculate_scores
@@ -46,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
             comment=build_comment(summary, scores_without_comment),
         )
         message = build_line_message(summary, scores, google_form_url=settings.google_form_url)
+        live_camera_image_url = settings.live_camera_image_url or build_capture_url(
+            settings.live_camera_image_base_url,
+            build_capture_relative_path(run_time),
+        )
         storage = storage_from_settings(settings)
 
         if dry_run:
@@ -58,10 +63,19 @@ def main(argv: list[str] | None = None) -> int:
         storage.save(pending_record)
         try:
             settings.require_line()
-            LineClient(
+            line_client = LineClient(
                 channel_access_token=settings.line_channel_access_token,
                 target_id=settings.line_target_id,
-            ).push_text(message)
+            )
+            if live_camera_image_url:
+                line_client.push_text_with_image(
+                    message,
+                    image_url=live_camera_image_url,
+                    preview_image_url=settings.live_camera_preview_image_url
+                    or live_camera_image_url,
+                )
+            else:
+                line_client.push_text(message)
         except Exception as exc:
             failed_record = PredictionRecord(
                 summary=summary,

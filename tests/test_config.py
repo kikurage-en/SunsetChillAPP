@@ -83,6 +83,9 @@ def test_settings_strips_string_environment_values(monkeypatch):
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", " token ")
     monkeypatch.setenv("LINE_TARGET_ID", " group-id ")
     monkeypatch.setenv("GOOGLE_FORM_URL", " https://forms.example/test ")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_BASE_URL", " https://pages.example/repo ")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_URL", " https://pages.example/repo/live.jpg ")
+    monkeypatch.setenv("LIVE_CAMERA_PREVIEW_IMAGE_URL", " https://pages.example/repo/preview.jpg ")
     monkeypatch.setenv("CSV_PATH", " logs/test.csv ")
     monkeypatch.setenv("GOOGLE_SHEETS_SPREADSHEET_ID", " sheet-id ")
     monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", ' {"type":"service_account"} ')
@@ -93,6 +96,9 @@ def test_settings_strips_string_environment_values(monkeypatch):
     assert settings.line_channel_access_token == "token"
     assert settings.line_target_id == "group-id"
     assert settings.google_form_url == "https://forms.example/test"
+    assert settings.live_camera_image_base_url == "https://pages.example/repo"
+    assert settings.live_camera_image_url == "https://pages.example/repo/live.jpg"
+    assert settings.live_camera_preview_image_url == "https://pages.example/repo/preview.jpg"
     assert settings.csv_path == "logs/test.csv"
     assert settings.google_sheets_spreadsheet_id == "sheet-id"
     assert settings.google_service_account_json == '{"type":"service_account"}'

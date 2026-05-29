@@ -45,6 +45,9 @@ class Settings:
     dry_run: bool
     log_level: str
     allow_missing_hourly_fields: frozenset[str]
+    live_camera_image_base_url: str = ""
+    live_camera_image_url: str = ""
+    live_camera_preview_image_url: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -103,6 +106,9 @@ class Settings:
             dry_run=_bool_from_env(_env("DRY_RUN", "")),
             log_level=log_level,
             allow_missing_hourly_fields=allow_missing_hourly_fields,
+            live_camera_image_base_url=_env("LIVE_CAMERA_IMAGE_BASE_URL", ""),
+            live_camera_image_url=_env("LIVE_CAMERA_IMAGE_URL", ""),
+            live_camera_preview_image_url=_env("LIVE_CAMERA_PREVIEW_IMAGE_URL", ""),
         )
 
     def require_line(self) -> None:

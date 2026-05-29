@@ -23,12 +23,19 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
     env:
       STORAGE_BACKEND: ${{ secrets.STORAGE_BACKEND || 'csv' }}
       CSV_PATH: ${{ secrets.CSV_PATH || 'logs/chill_predictions.csv' }}
+      LIVE_CAMERA_URL: ${{ secrets.LIVE_CAMERA_URL || 'https://www.youtube.com/watch?v=Q5AAi9KOjG0' }}
+      LIVE_CAMERA_IMAGE_BASE_URL: ${{ secrets.LIVE_CAMERA_IMAGE_BASE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,13 +45,70 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev]" yt-dlp
 
       - name: Run lint
         run: ruff check .
 
       - name: Run tests
         run: pytest
+
+      - name: Resolve run timestamp
+        env:
+          INPUT_RUN_DATE: ${{ github.event.inputs.date || '' }}
+          INPUT_RUN_TIME: ${{ github.event.inputs.run_time || '' }}
+          SCHEDULE: ${{ github.event.schedule || '' }}
+        run: |
+          RUN_DATE="$INPUT_RUN_DATE"
+          RUN_TIME="$INPUT_RUN_TIME"
+          if [ -z "$RUN_DATE" ]; then
+            RUN_DATE="$(TZ=Asia/Tokyo date +%F)"
+          fi
+          if [ -z "$RUN_TIME" ]; then
+            case "$SCHEDULE" in
+              "0 4 * * *") RUN_TIME="13:00" ;;
+              "0 8 * * *") RUN_TIME="17:00" ;;
+            esac
+          fi
+          echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
+          echo "RUN_TIME=$RUN_TIME" >> "$GITHUB_ENV"
+          echo "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/${RUN_TIME/:/}.jpg" >> "$GITHUB_ENV"
+
+      - name: Capture live camera image
+        run: |
+          mkdir -p "public/$(dirname "$LIVE_CAMERA_IMAGE_RELATIVE_PATH")"
+          IMAGE_PATH="public/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
+          set +e
+          STREAM_URL="$(yt-dlp --no-playlist --format "best[ext=mp4]/best" --get-url "$LIVE_CAMERA_URL" | head -n 1)"
+          YT_DLP_STATUS=$?
+          set -e
+          if [ "$YT_DLP_STATUS" -ne 0 ]; then
+            echo "::warning::Live camera stream URL could not be resolved"
+            exit 0
+          fi
+          if [ -z "$STREAM_URL" ]; then
+            echo "::warning::Live camera stream URL could not be resolved"
+            exit 0
+          fi
+          if ffmpeg -hide_banner -loglevel error -y -i "$STREAM_URL" -frames:v 1 "$IMAGE_PATH"; then
+            echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Live camera image capture failed"
+          fi
+
+      - name: Configure Pages
+        if: env.LIVE_CAMERA_IMAGE_URL != ''
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: env.LIVE_CAMERA_IMAGE_URL != ''
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy Pages
+        if: env.LIVE_CAMERA_IMAGE_URL != ''
+        uses: actions/deploy-pages@v4
 
       - name: Run chill index
         env:
@@ -60,18 +124,12 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ALLOW_MISSING_HOURLY_FIELDS: ${{ secrets.ALLOW_MISSING_HOURLY_FIELDS || '' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.manual_mode != 'send_line' && 'true' || 'false' }}
-          RUN_DATE: ${{ github.event.inputs.date || '' }}
-          RUN_TIME: ${{ github.event.inputs.run_time || '' }}
+          LIVE_CAMERA_IMAGE_BASE_URL: ""
           SCHEDULE: ${{ github.event.schedule || '' }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
         run: |
+          echo "Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}"
           args=()
-          if [ -z "$RUN_TIME" ]; then
-            case "$SCHEDULE" in
-              "0 4 * * *") RUN_TIME="13:00" ;;
-              "0 8 * * *") RUN_TIME="17:00" ;;
-            esac
-          fi
           if [ -n "$RUN_DATE" ]; then
             args+=(--date "$RUN_DATE")
           fi

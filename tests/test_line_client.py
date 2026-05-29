@@ -32,6 +32,47 @@ def test_line_client_pushes_text_payload(monkeypatch):
     }
 
 
+def test_line_client_pushes_text_and_image_payload(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(status=200)
+
+    monkeypatch.setattr("zushi_chill.line_client.urlopen", fake_urlopen)
+
+    LineClient(channel_access_token="token", target_id="group-id").push_text_with_image(
+        "hello",
+        image_url="https://example.com/live.jpg",
+        preview_image_url="https://example.com/preview.jpg",
+    )
+
+    assert captured["body"] == {
+        "to": "group-id",
+        "messages": [
+            {"type": "text", "text": "hello"},
+            {
+                "type": "image",
+                "originalContentUrl": "https://example.com/live.jpg",
+                "previewImageUrl": "https://example.com/preview.jpg",
+            },
+        ],
+    }
+
+
+def test_line_client_rejects_non_https_image_url(monkeypatch):
+    def fail_urlopen(request, timeout):
+        raise AssertionError("LINE API should not be called")
+
+    monkeypatch.setattr("zushi_chill.line_client.urlopen", fail_urlopen)
+
+    with pytest.raises(LineSendError, match="https"):
+        LineClient(channel_access_token="token", target_id="group-id").push_text_with_image(
+            "hello",
+            image_url="http://example.com/live.jpg",
+        )
+
+
 def test_line_client_rejects_missing_required_settings(monkeypatch):
     def fail_urlopen(request, timeout):
         raise AssertionError("LINE API should not be called")

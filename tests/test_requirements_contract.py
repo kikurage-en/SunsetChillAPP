@@ -51,11 +51,29 @@ def test_github_actions_schedule_and_manual_dispatch_are_configured():
     assert "type: choice" in workflow
     assert "default: \"dry_run\"" in workflow
     assert "- send_line" in workflow
+    assert "contents: read" in workflow
+    assert "pages: write" in workflow
+    assert "id-token: write" in workflow
     assert "python-version: \"3.12\"" in workflow
-    assert 'run: pip install -e ".[dev]"' in workflow
+    assert 'run: pip install -e ".[dev]" yt-dlp' in workflow
     assert "run: ruff check ." in workflow
     assert "run: pytest" in workflow
     assert "CSV_PATH: ${{ secrets.CSV_PATH || 'logs/chill_predictions.csv' }}" in workflow
+    assert "LIVE_CAMERA_URL:" in workflow
+    assert "LIVE_CAMERA_IMAGE_BASE_URL:" in workflow
+    assert 'LIVE_CAMERA_IMAGE_BASE_URL: ""' in workflow
+    assert "echo \"Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}\"" in workflow
+    assert "Capture live camera image" in workflow
+    assert "yt-dlp --no-playlist" in workflow
+    assert "ffmpeg -hide_banner" in workflow
+    assert "uses: actions/configure-pages@v5" in workflow
+    assert "uses: actions/upload-pages-artifact@v3" in workflow
+    assert "uses: actions/deploy-pages@v4" in workflow
+    assert "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/${RUN_TIME/:/}.jpg" in workflow
+    assert (
+        "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
+        in workflow
+    )
     assert "path: ${{ env.CSV_PATH }}" in workflow
     assert "if: always() && env.STORAGE_BACKEND == 'csv'" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
@@ -97,6 +115,10 @@ def test_readme_documents_runtime_configuration():
         "TIMEZONE=Asia/Tokyo",
         "LINE_CHANNEL_ACCESS_TOKEN=...",
         "LINE_TARGET_ID=...",
+        "LIVE_CAMERA_URL=https://www.youtube.com/watch?v=Q5AAi9KOjG0",
+        "LIVE_CAMERA_IMAGE_BASE_URL=https://<owner>.github.io/<repo>",
+        "LIVE_CAMERA_IMAGE_URL=",
+        "LIVE_CAMERA_PREVIEW_IMAGE_URL=",
         "GOOGLE_FORM_URL=...",
         "STORAGE_BACKEND=csv",
         "CSV_PATH=logs/chill_predictions.csv",
@@ -146,6 +168,19 @@ def test_readme_documents_error_handling():
         "error_message",
         "保存に失敗した場合、LINE送信前であればLINE送信しません",
         "LINE送信後の保存更新に失敗した場合",
+    ]:
+        assert text in readme
+
+
+def test_readme_documents_live_camera_pages_flow():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    for text in [
+        "LINE本文に続けて画像メッセージも送信",
+        "画像URLはLINEから取得できるHTTPS URL",
+        "GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg`",
+        "取得に成功した場合のみ",
+        "Sourceを「GitHub Actions」",
     ]:
         assert text in readme
 

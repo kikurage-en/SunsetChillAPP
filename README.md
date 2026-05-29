@@ -24,6 +24,10 @@ LONGITUDE=139.5736
 TIMEZONE=Asia/Tokyo
 LINE_CHANNEL_ACCESS_TOKEN=...
 LINE_TARGET_ID=...
+LIVE_CAMERA_URL=https://www.youtube.com/watch?v=Q5AAi9KOjG0
+LIVE_CAMERA_IMAGE_BASE_URL=https://<owner>.github.io/<repo>
+LIVE_CAMERA_IMAGE_URL=
+LIVE_CAMERA_PREVIEW_IMAGE_URL=
 GOOGLE_FORM_URL=...
 STORAGE_BACKEND=csv
 CSV_PATH=logs/chill_predictions.csv
@@ -38,6 +42,8 @@ ALLOW_MISSING_HOURLY_FIELDS=
 ## LINE Messaging API
 
 LINE Developers で Messaging API チャネルを作成し、チャネルアクセストークンを `LINE_CHANNEL_ACCESS_TOKEN` に設定します。送信先のユーザーID、グループID、または複数人チャットIDを `LINE_TARGET_ID` に設定します。
+
+`LIVE_CAMERA_IMAGE_URL` または `LIVE_CAMERA_IMAGE_BASE_URL` が設定されている場合は、LINE本文に続けて画像メッセージも送信します。画像URLはLINEから取得できるHTTPS URLである必要があります。`LIVE_CAMERA_IMAGE_BASE_URL` を使う場合、画像URLは `live-camera/YYYY-MM-DD/HHMM.jpg` として組み立てます。
 
 ## ローカル実行
 
@@ -71,6 +77,8 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 - `workflow_dispatch`: GitHub UI から手動実行
 
 定期実行では、Actions の起動が数分遅れても通知本文とログの `run_time` が `13:00` / `17:00` になるように `--run-time` を自動指定します。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
+
+LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
 手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` ではLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 

@@ -21,13 +21,36 @@ class LineClient:
         self.timeout = timeout
 
     def push_text(self, text: str) -> None:
+        self.push_messages([{"type": "text", "text": text}])
+
+    def push_text_with_image(
+        self, text: str, *, image_url: str, preview_image_url: str | None = None
+    ) -> None:
+        image_url = image_url.strip()
+        preview_image_url = (preview_image_url or image_url).strip()
+        if not image_url.startswith("https://") or not preview_image_url.startswith("https://"):
+            raise LineSendError("LINE image URLs must start with https://")
+        self.push_messages(
+            [
+                {"type": "text", "text": text},
+                {
+                    "type": "image",
+                    "originalContentUrl": image_url,
+                    "previewImageUrl": preview_image_url,
+                },
+            ]
+        )
+
+    def push_messages(self, messages: list[dict[str, str]]) -> None:
         if not self.channel_access_token:
             raise LineSendError("LINE channel access token is required")
         if not self.target_id:
             raise LineSendError("LINE target id is required")
+        if not messages:
+            raise LineSendError("LINE messages are required")
         payload = {
             "to": self.target_id,
-            "messages": [{"type": "text", "text": text}],
+            "messages": messages,
         }
         request = Request(
             LINE_PUSH_URL,
