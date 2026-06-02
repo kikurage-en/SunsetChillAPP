@@ -1,9 +1,6 @@
 name: Daily Zushi Chill Index
 
 on:
-  schedule:
-    - cron: "7,22,37 4 * * *" # 13:07/13:22/13:37 JST, displayed as 13:00
-    - cron: "7,22,37 8 * * *" # 17:07/17:22/17:37 JST, displayed as 17:00
   workflow_dispatch:
     inputs:
       manual_mode:
@@ -67,12 +64,6 @@ jobs:
           RUN_TIME="$INPUT_RUN_TIME"
           if [ -z "$RUN_DATE" ]; then
             RUN_DATE="$(TZ=Asia/Tokyo date +%F)"
-          fi
-          if [ -z "$RUN_TIME" ]; then
-            case "$SCHEDULE" in
-              "7,22,37 4 * * *") RUN_TIME="13:00" ;;
-              "7,22,37 8 * * *") RUN_TIME="17:00" ;;
-            esac
           fi
           if [ -z "$RUN_TIME" ]; then
             RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"
