@@ -71,6 +71,8 @@ def test_dispatch_workflow_raises_on_github_http_error(monkeypatch):
 def test_main_dry_run_prints_dispatch_payload(monkeypatch, capsys):
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_WORKFLOW", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
 
     exit_code = main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
 
