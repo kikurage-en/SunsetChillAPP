@@ -44,6 +44,10 @@ LOG_LEVEL=INFO
 ALLOW_MISSING_HOURLY_FIELDS=
 WEBHOOK_HOST=127.0.0.1
 WEBHOOK_PORT=8080
+GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP
+GITHUB_WORKFLOW=daily_chill.yml
+GITHUB_REF=main
+GITHUB_TOKEN=
 ```
 
 ## LINE Messaging API
@@ -93,24 +97,33 @@ LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取�
 
 `STORAGE_BACKEND=csv` の場合、CSV は `CSV_PATH`（未指定時は `logs/chill_predictions.csv`）に保存され、Actions Artifact としてアップロードされます。`STORAGE_BACKEND=google_sheets` の場合は Google Sheets へ保存し、CSV Artifact は作成しません。
 
-## Contabo移管
+## Contabo + GitHub Actions運用
 
-ContaboなどのVPSで運用する場合は、Python 3.12、`yt-dlp`、`ffmpeg`、Nginx、Let's Encryptを用意します。Nginxは `/line/webhook` をWebhookサーバーへproxyし、`LIVE_CAMERA_PUBLIC_DIR` 配下を `LIVE_CAMERA_IMAGE_BASE_URL` のHTTPS URLで静的配信します。
+独自ドメインがない場合、定期実行はContaboのcronからGitHub Actionsを起動し、キャプチャ画像のHTTPS公開とLINE送信はGitHub Actions/GitHub Pages側で行います。この構成ではContaboに公開HTTPSエンドポイントを持たせないため、ドメインなしで定期投稿を運用できます。
 
-定期実行は、GitHub Actionsのキャプチャ処理込みで以下のコマンドに移せます。
+Contabo側にはPython 3.12とこのリポジトリを配置し、GitHub Personal Access Tokenを `GITHUB_TOKEN` に設定します。Tokenには対象リポジトリのActions workflow dispatchを実行できる権限が必要です。
 
-```bash
-zushi-chill-contabo-daily --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
-zushi-chill-contabo-daily --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
+```txt
+GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP
+GITHUB_WORKFLOW=daily_chill.yml
+GITHUB_REF=main
+GITHUB_TOKEN=...
 ```
 
-Webhookサーバーは以下で起動します。systemdで常駐させ、LINE DevelopersのWebhook URLには `https://<domain>/line/webhook` を設定します。
+Contaboのcronから以下を実行すると、既存の `.github/workflows/daily_chill.yml` が `manual_mode=send_line` で起動します。workflow側でライブカメラ画像をGitHub Pagesへ公開し、そのPages URLをLINE画像メッセージに添付します。
 
 ```bash
-zushi-chill-webhook --host 127.0.0.1 --port 8080
+zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
+zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
 ```
 
-botがメンションされた場合、Webhookサーバーはその時点で `LIVE_CAMERA_URL` から1フレーム取得し、失敗時は `LIVE_CAMERA_VIDEO_ID` のYouTubeサムネイルにフォールバックします。生成画像は `live-camera/mentions/YYYY-MM-DD/HHMMSS.jpg` として保存され、LINEのreplyメッセージで画像を返します。
+実行前にpayloadだけ確認する場合は `--dry-run` を付けます。
+
+```bash
+zushi-chill-trigger-actions --dry-run --run-time 13:00
+```
+
+LINEメンション応答には、LINE Developersに登録できる公開HTTPS Webhook URLが必要です。独自ドメインなしのContabo単体ではこの入口を安定運用できないため、メンション応答を有効化する場合は、ドメインを取得してNginx/Let's Encryptで `https://<domain>/line/webhook` を公開するか、固定HTTPS URLを提供するトンネル/外部Webhook基盤を別途用意します。
 
 ## Google Sheets 連携
 

@@ -113,6 +113,10 @@ def test_pyproject_declares_runtime_and_cli_contracts():
         == "zushi_chill.contabo_daily:main"
     )
     assert (
+        pyproject["project"]["scripts"]["zushi-chill-trigger-actions"]
+        == "zushi_chill.github_actions_trigger:main"
+    )
+    assert (
         pyproject["project"]["scripts"]["zushi-chill-webhook"]
         == "zushi_chill.webhook_server:main"
     )
@@ -151,6 +155,10 @@ def test_readme_documents_runtime_configuration():
         "ALLOW_MISSING_HOURLY_FIELDS=",
         "WEBHOOK_HOST=127.0.0.1",
         "WEBHOOK_PORT=8080",
+        "GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP",
+        "GITHUB_WORKFLOW=daily_chill.yml",
+        "GITHUB_REF=main",
+        "GITHUB_TOKEN=",
     ]:
         assert setting in readme
 
@@ -209,16 +217,17 @@ def test_readme_documents_live_camera_pages_flow():
         assert text in readme
 
 
-def test_readme_documents_contabo_webhook_flow():
+def test_readme_documents_contabo_github_actions_flow():
     readme = Path("README.md").read_text(encoding="utf-8")
 
     for text in [
-        "Contabo移管",
-        "zushi-chill-contabo-daily",
-        "zushi-chill-webhook",
+        "Contabo + GitHub Actions運用",
+        "ContaboのcronからGitHub Actionsを起動",
+        "zushi-chill-trigger-actions",
+        "manual_mode=send_line",
+        "GitHub Pages側",
         "https://<domain>/line/webhook",
-        "live-camera/mentions/YYYY-MM-DD/HHMMSS.jpg",
-        "LINEのreplyメッセージで画像を返します",
+        "固定HTTPS URLを提供するトンネル/外部Webhook基盤",
     ]:
         assert text in readme
 
