@@ -24,11 +24,15 @@ LONGITUDE=139.5736
 TIMEZONE=Asia/Tokyo
 LINE_CHANNEL_ACCESS_TOKEN=...
 LINE_TARGET_ID=...
+LINE_CHANNEL_SECRET=...
+LINE_BOT_USER_ID=...
 LIVE_CAMERA_URL=https://www.youtube.com/watch?v=Q5AAi9KOjG0
 LIVE_CAMERA_VIDEO_ID=Q5AAi9KOjG0
 LIVE_CAMERA_IMAGE_BASE_URL=https://<owner>.github.io/<repo>
 LIVE_CAMERA_IMAGE_URL=
 LIVE_CAMERA_PREVIEW_IMAGE_URL=
+LIVE_CAMERA_PUBLIC_DIR=public
+LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS=20
 GOOGLE_FORM_URL=...
 STORAGE_BACKEND=csv
 CSV_PATH=logs/chill_predictions.csv
@@ -38,6 +42,8 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 DRY_RUN=false
 LOG_LEVEL=INFO
 ALLOW_MISSING_HOURLY_FIELDS=
+WEBHOOK_HOST=127.0.0.1
+WEBHOOK_PORT=8080
 ```
 
 ## LINE Messaging API
@@ -45,6 +51,8 @@ ALLOW_MISSING_HOURLY_FIELDS=
 LINE Developers で Messaging API チャネルを作成し、チャネルアクセストークンを `LINE_CHANNEL_ACCESS_TOKEN` に設定します。送信先のユーザーID、グループID、または複数人チャットIDを `LINE_TARGET_ID` に設定します。
 
 `LIVE_CAMERA_IMAGE_URL` または `LIVE_CAMERA_IMAGE_BASE_URL` が設定されている場合は、LINE本文に続けて画像メッセージも送信します。画像URLはLINEから取得できるHTTPS URLである必要があります。`LIVE_CAMERA_IMAGE_BASE_URL` を使う場合、画像URLは `live-camera/YYYY-MM-DD/HHMM.jpg` として組み立てます。
+
+Webhookでメンション応答を使う場合は、チャネルシークレットを `LINE_CHANNEL_SECRET` に設定します。グループ内の他ユーザーへのメンションで誤反応させないため、可能ならbotのユーザーIDを `LINE_BOT_USER_ID` に設定します。
 
 ## ローカル実行
 
@@ -84,6 +92,25 @@ LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取�
 手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` ではLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 
 `STORAGE_BACKEND=csv` の場合、CSV は `CSV_PATH`（未指定時は `logs/chill_predictions.csv`）に保存され、Actions Artifact としてアップロードされます。`STORAGE_BACKEND=google_sheets` の場合は Google Sheets へ保存し、CSV Artifact は作成しません。
+
+## Contabo移管
+
+ContaboなどのVPSで運用する場合は、Python 3.12、`yt-dlp`、`ffmpeg`、Nginx、Let's Encryptを用意します。Nginxは `/line/webhook` をWebhookサーバーへproxyし、`LIVE_CAMERA_PUBLIC_DIR` 配下を `LIVE_CAMERA_IMAGE_BASE_URL` のHTTPS URLで静的配信します。
+
+定期実行は、GitHub Actionsのキャプチャ処理込みで以下のコマンドに移せます。
+
+```bash
+zushi-chill-contabo-daily --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
+zushi-chill-contabo-daily --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
+```
+
+Webhookサーバーは以下で起動します。systemdで常駐させ、LINE DevelopersのWebhook URLには `https://<domain>/line/webhook` を設定します。
+
+```bash
+zushi-chill-webhook --host 127.0.0.1 --port 8080
+```
+
+botがメンションされた場合、Webhookサーバーはその時点で `LIVE_CAMERA_URL` から1フレーム取得し、失敗時は `LIVE_CAMERA_VIDEO_ID` のYouTubeサムネイルにフォールバックします。生成画像は `live-camera/mentions/YYYY-MM-DD/HHMMSS.jpg` として保存され、LINEのreplyメッセージで画像を返します。
 
 ## Google Sheets 連携
 

@@ -108,6 +108,14 @@ def test_pyproject_declares_runtime_and_cli_contracts():
 
     assert pyproject["project"]["requires-python"] == ">=3.12"
     assert pyproject["project"]["scripts"]["zushi-chill"] == "zushi_chill.main:main"
+    assert (
+        pyproject["project"]["scripts"]["zushi-chill-contabo-daily"]
+        == "zushi_chill.contabo_daily:main"
+    )
+    assert (
+        pyproject["project"]["scripts"]["zushi-chill-webhook"]
+        == "zushi_chill.webhook_server:main"
+    )
     assert pyproject["tool"]["pytest"]["ini_options"]["testpaths"] == ["tests"]
     assert pyproject["tool"]["pytest"]["ini_options"]["pythonpath"] == ["src"]
     assert pyproject["tool"]["ruff"]["target-version"] == "py312"
@@ -123,11 +131,15 @@ def test_readme_documents_runtime_configuration():
         "TIMEZONE=Asia/Tokyo",
         "LINE_CHANNEL_ACCESS_TOKEN=...",
         "LINE_TARGET_ID=...",
+        "LINE_CHANNEL_SECRET=...",
+        "LINE_BOT_USER_ID=...",
         "LIVE_CAMERA_URL=https://www.youtube.com/watch?v=Q5AAi9KOjG0",
         "LIVE_CAMERA_VIDEO_ID=Q5AAi9KOjG0",
         "LIVE_CAMERA_IMAGE_BASE_URL=https://<owner>.github.io/<repo>",
         "LIVE_CAMERA_IMAGE_URL=",
         "LIVE_CAMERA_PREVIEW_IMAGE_URL=",
+        "LIVE_CAMERA_PUBLIC_DIR=public",
+        "LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS=20",
         "GOOGLE_FORM_URL=...",
         "STORAGE_BACKEND=csv",
         "CSV_PATH=logs/chill_predictions.csv",
@@ -137,6 +149,8 @@ def test_readme_documents_runtime_configuration():
         "DRY_RUN=false",
         "LOG_LEVEL=INFO",
         "ALLOW_MISSING_HOURLY_FIELDS=",
+        "WEBHOOK_HOST=127.0.0.1",
+        "WEBHOOK_PORT=8080",
     ]:
         assert setting in readme
 
@@ -191,6 +205,20 @@ def test_readme_documents_live_camera_pages_flow():
         "YouTubeのライブサムネイルを取得してフォールバック",
         "取得に成功した場合のみ",
         "Sourceを「GitHub Actions」",
+    ]:
+        assert text in readme
+
+
+def test_readme_documents_contabo_webhook_flow():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    for text in [
+        "Contabo移管",
+        "zushi-chill-contabo-daily",
+        "zushi-chill-webhook",
+        "https://<domain>/line/webhook",
+        "live-camera/mentions/YYYY-MM-DD/HHMMSS.jpg",
+        "LINEのreplyメッセージで画像を返します",
     ]:
         assert text in readme
 

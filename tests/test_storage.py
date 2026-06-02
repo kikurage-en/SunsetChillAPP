@@ -484,6 +484,8 @@ def _settings(**overrides):
         "timezone": "Asia/Tokyo",
         "line_channel_access_token": "",
         "line_target_id": "",
+        "line_channel_secret": "",
+        "line_bot_user_id": "",
         "google_form_url": "",
         "storage_backend": "csv",
         "csv_path": "logs/chill_predictions.csv",
@@ -493,6 +495,15 @@ def _settings(**overrides):
         "dry_run": False,
         "log_level": "INFO",
         "allow_missing_hourly_fields": frozenset(),
+        "live_camera_image_base_url": "",
+        "live_camera_image_url": "",
+        "live_camera_preview_image_url": "",
+        "live_camera_url": "",
+        "live_camera_video_id": "",
+        "live_camera_public_dir": "public",
+        "live_camera_capture_timeout_seconds": 20,
+        "webhook_host": "127.0.0.1",
+        "webhook_port": 8080,
     }
     values.update(overrides)
     return Settings(**values)

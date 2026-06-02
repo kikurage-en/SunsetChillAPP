@@ -21,6 +21,8 @@ dev = [
 
 [project.scripts]
 zushi-chill = "zushi_chill.main:main"
+zushi-chill-contabo-daily = "zushi_chill.contabo_daily:main"
+zushi-chill-webhook = "zushi_chill.webhook_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

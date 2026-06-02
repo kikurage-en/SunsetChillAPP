@@ -4,7 +4,7 @@ import json
 from urllib.error import HTTPError
 
 import pytest
-from zushi_chill.line_client import LINE_PUSH_URL, LineClient, LineSendError
+from zushi_chill.line_client import LINE_PUSH_URL, LINE_REPLY_URL, LineClient, LineSendError
 
 
 def test_line_client_pushes_text_payload(monkeypatch):
@@ -56,6 +56,34 @@ def test_line_client_pushes_text_and_image_payload(monkeypatch):
                 "originalContentUrl": "https://example.com/live.jpg",
                 "previewImageUrl": "https://example.com/preview.jpg",
             },
+        ],
+    }
+
+
+def test_line_client_replies_with_image_payload(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(status=200)
+
+    monkeypatch.setattr("zushi_chill.line_client.urlopen", fake_urlopen)
+
+    LineClient(channel_access_token="token", target_id="").reply_image(
+        "reply-token",
+        image_url="https://example.com/live.jpg",
+    )
+
+    assert captured["url"] == LINE_REPLY_URL
+    assert captured["body"] == {
+        "replyToken": "reply-token",
+        "messages": [
+            {
+                "type": "image",
+                "originalContentUrl": "https://example.com/live.jpg",
+                "previewImageUrl": "https://example.com/live.jpg",
+            }
         ],
     }
 

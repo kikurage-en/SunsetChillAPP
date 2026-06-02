@@ -36,6 +36,8 @@ class Settings:
     timezone: str
     line_channel_access_token: str
     line_target_id: str
+    line_channel_secret: str
+    line_bot_user_id: str
     google_form_url: str
     storage_backend: str
     csv_path: str
@@ -48,6 +50,12 @@ class Settings:
     live_camera_image_base_url: str = ""
     live_camera_image_url: str = ""
     live_camera_preview_image_url: str = ""
+    live_camera_url: str = ""
+    live_camera_video_id: str = ""
+    live_camera_public_dir: str = "public"
+    live_camera_capture_timeout_seconds: int = 20
+    webhook_host: str = "127.0.0.1"
+    webhook_port: int = 8080
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -89,6 +97,13 @@ class Settings:
             raise ConfigError(
                 "LOG_LEVEL must be one of: " + ", ".join(sorted(LOG_LEVELS))
             )
+        live_camera_capture_timeout_seconds = _positive_int_from_env(
+            "LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS",
+            default=20,
+        )
+        webhook_port = _positive_int_from_env("WEBHOOK_PORT", default=8080)
+        if webhook_port > 65535:
+            raise ConfigError("WEBHOOK_PORT must be between 1 and 65535")
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -97,6 +112,8 @@ class Settings:
             timezone=timezone,
             line_channel_access_token=_env("LINE_CHANNEL_ACCESS_TOKEN", ""),
             line_target_id=_env("LINE_TARGET_ID", ""),
+            line_channel_secret=_env("LINE_CHANNEL_SECRET", ""),
+            line_bot_user_id=_env("LINE_BOT_USER_ID", ""),
             google_form_url=_env("GOOGLE_FORM_URL", ""),
             storage_backend=storage_backend,
             csv_path=_env("CSV_PATH", "logs/chill_predictions.csv"),
@@ -109,11 +126,25 @@ class Settings:
             live_camera_image_base_url=_env("LIVE_CAMERA_IMAGE_BASE_URL", ""),
             live_camera_image_url=_env("LIVE_CAMERA_IMAGE_URL", ""),
             live_camera_preview_image_url=_env("LIVE_CAMERA_PREVIEW_IMAGE_URL", ""),
+            live_camera_url=_env("LIVE_CAMERA_URL", ""),
+            live_camera_video_id=_env("LIVE_CAMERA_VIDEO_ID", ""),
+            live_camera_public_dir=_env("LIVE_CAMERA_PUBLIC_DIR", "public"),
+            live_camera_capture_timeout_seconds=live_camera_capture_timeout_seconds,
+            webhook_host=_env("WEBHOOK_HOST", "127.0.0.1"),
+            webhook_port=webhook_port,
         )
 
     def require_line(self) -> None:
         if not self.line_channel_access_token or not self.line_target_id:
             raise ConfigError("LINE_CHANNEL_ACCESS_TOKEN and LINE_TARGET_ID are required")
+
+    def require_webhook(self) -> None:
+        if not self.line_channel_access_token or not self.line_channel_secret:
+            raise ConfigError("LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET are required")
+        if not self.live_camera_url and not self.live_camera_video_id:
+            raise ConfigError("LIVE_CAMERA_URL or LIVE_CAMERA_VIDEO_ID is required")
+        if not self.live_camera_image_base_url:
+            raise ConfigError("LIVE_CAMERA_IMAGE_BASE_URL is required")
 
 
 def load_dotenv(path: str | Path = ".env") -> None:
@@ -150,3 +181,14 @@ def _env(name: str, default: str) -> str:
 
 def _csv_set(value: str) -> frozenset[str]:
     return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+
+def _positive_int_from_env(name: str, *, default: int) -> int:
+    value = _env(name, str(default))
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a positive integer") from exc
+    if parsed <= 0:
+        raise ConfigError(f"{name} must be a positive integer")
+    return parsed

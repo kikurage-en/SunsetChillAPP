@@ -82,10 +82,15 @@ def test_settings_strips_string_environment_values(monkeypatch):
     monkeypatch.setenv("LOCATION_NAME", " 逗子海岸 ")
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", " token ")
     monkeypatch.setenv("LINE_TARGET_ID", " group-id ")
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", " secret ")
+    monkeypatch.setenv("LINE_BOT_USER_ID", " bot-user-id ")
     monkeypatch.setenv("GOOGLE_FORM_URL", " https://forms.example/test ")
     monkeypatch.setenv("LIVE_CAMERA_IMAGE_BASE_URL", " https://pages.example/repo ")
     monkeypatch.setenv("LIVE_CAMERA_IMAGE_URL", " https://pages.example/repo/live.jpg ")
     monkeypatch.setenv("LIVE_CAMERA_PREVIEW_IMAGE_URL", " https://pages.example/repo/preview.jpg ")
+    monkeypatch.setenv("LIVE_CAMERA_URL", " https://youtube.example/watch ")
+    monkeypatch.setenv("LIVE_CAMERA_VIDEO_ID", " video-id ")
+    monkeypatch.setenv("LIVE_CAMERA_PUBLIC_DIR", " /var/www/zushi-chill/public ")
     monkeypatch.setenv("CSV_PATH", " logs/test.csv ")
     monkeypatch.setenv("GOOGLE_SHEETS_SPREADSHEET_ID", " sheet-id ")
     monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", ' {"type":"service_account"} ')
@@ -95,10 +100,15 @@ def test_settings_strips_string_environment_values(monkeypatch):
     assert settings.location_name == "逗子海岸"
     assert settings.line_channel_access_token == "token"
     assert settings.line_target_id == "group-id"
+    assert settings.line_channel_secret == "secret"
+    assert settings.line_bot_user_id == "bot-user-id"
     assert settings.google_form_url == "https://forms.example/test"
     assert settings.live_camera_image_base_url == "https://pages.example/repo"
     assert settings.live_camera_image_url == "https://pages.example/repo/live.jpg"
     assert settings.live_camera_preview_image_url == "https://pages.example/repo/preview.jpg"
+    assert settings.live_camera_url == "https://youtube.example/watch"
+    assert settings.live_camera_video_id == "video-id"
+    assert settings.live_camera_public_dir == "/var/www/zushi-chill/public"
     assert settings.csv_path == "logs/test.csv"
     assert settings.google_sheets_spreadsheet_id == "sheet-id"
     assert settings.google_service_account_json == '{"type":"service_account"}'
@@ -182,4 +192,25 @@ def test_settings_normalizes_and_validates_log_level(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "verbose")
 
     with pytest.raises(ConfigError, match="LOG_LEVEL"):
+        Settings.from_env()
+
+
+def test_settings_validates_positive_integer_runtime_values(monkeypatch):
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("WEBHOOK_PORT", "9000")
+
+    settings = Settings.from_env()
+
+    assert settings.live_camera_capture_timeout_seconds == 30
+    assert settings.webhook_port == 9000
+
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ConfigError, match="LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS"):
+        Settings.from_env()
+
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS", "20")
+    monkeypatch.setenv("WEBHOOK_PORT", "70000")
+
+    with pytest.raises(ConfigError, match="WEBHOOK_PORT"):
         Settings.from_env()
