@@ -35,7 +35,6 @@ def main(argv: list[str] | None = None) -> int:
         repository = _required_value(args.repository or os.getenv("GITHUB_REPOSITORY", ""))
         workflow = args.workflow or os.getenv("GITHUB_WORKFLOW", "daily_chill.yml")
         ref = args.ref or os.getenv("GITHUB_REF", "main")
-        token = _required_value(os.getenv("GITHUB_TOKEN", ""))
         inputs = {
             "manual_mode": args.manual_mode,
             "date": run_date,
@@ -48,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
+        token = _required_value(os.getenv("GITHUB_TOKEN", ""))
         dispatch_workflow(
             repository=repository,
             workflow=workflow,
