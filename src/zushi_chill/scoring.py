@@ -36,6 +36,12 @@ def calculate_sunset_score(summary: WeatherSummary) -> int:
     score += 5 if 20 <= summary.cloud_cover_mid <= 60 else 0
     score += 10 if 20 <= summary.cloud_cover_high <= 70 else 0
 
+    if summary.cloud_cover >= 85 or (
+        summary.cloud_cover_low >= 70 and summary.cloud_cover_mid >= 70
+    ):
+        score = min(score, 45)
+    elif summary.cloud_cover >= 70:
+        score = min(score, 65)
     if summary.visibility < 5000:
         score = min(score, 50)
     return _clamp_score(score)
@@ -61,6 +67,18 @@ def calculate_chill_score(summary: WeatherSummary, sunset_score: int) -> int:
         caps.append(50)
     if summary.weather_code in RAIN_WEATHER_CODES:
         caps.append(45)
+    if summary.cloud_cover >= 85 or (
+        summary.cloud_cover_low >= 70 and summary.cloud_cover_mid >= 70
+    ):
+        caps.append(65)
+    elif summary.cloud_cover >= 70:
+        caps.append(69)
+    if summary.apparent_temperature < 18:
+        caps.append(55)
+    elif summary.apparent_temperature < 20:
+        caps.append(70)
+    elif summary.apparent_temperature < 22:
+        caps.append(80)
     if caps:
         score = min(score, min(caps))
 
@@ -70,12 +88,18 @@ def calculate_chill_score(summary: WeatherSummary, sunset_score: int) -> int:
 def apparent_temperature_score(value: float) -> int:
     if 22 <= value <= 28:
         return 100
-    if 20 <= value <= 21.9 or 28.1 <= value <= 30:
+    if 28.1 <= value <= 30:
         return 80
-    if 18 <= value <= 19.9 or 30.1 <= value <= 32:
+    if 20 <= value <= 21.9:
+        return 70
+    if 30.1 <= value <= 32:
         return 60
-    if 16 <= value <= 17.9 or 32.1 <= value <= 34:
+    if 18 <= value <= 19.9:
+        return 45
+    if 32.1 <= value <= 34:
         return 40
+    if 16 <= value <= 17.9:
+        return 25
     return 20
 
 

@@ -107,6 +107,38 @@ def test_sunset_score_visibility_wind_and_cloud_bonus_tables(sample_summary):
     ) == 90
 
 
+def test_total_cloud_cover_caps_sunset_score(sample_summary):
+    otherwise_good_cloudy = replace(
+        sample_summary,
+        cloud_cover=82,
+        cloud_cover_low=20,
+        cloud_cover_mid=50,
+        cloud_cover_high=60,
+        precipitation_probability=0,
+        visibility=20000,
+        wind_speed_10m=3,
+    )
+    overcast = replace(otherwise_good_cloudy, cloud_cover=90)
+
+    assert calculate_sunset_score(otherwise_good_cloudy) == 65
+    assert calculate_sunset_score(overcast) == 45
+
+
+def test_thick_low_and_mid_clouds_cap_sunset_score(sample_summary):
+    thick_cloud_deck = replace(
+        sample_summary,
+        cloud_cover=82,
+        cloud_cover_low=75,
+        cloud_cover_mid=80,
+        cloud_cover_high=60,
+        precipitation_probability=0,
+        visibility=20000,
+        wind_speed_10m=3,
+    )
+
+    assert calculate_sunset_score(thick_cloud_deck) == 45
+
+
 def test_high_precipitation_reduces_both_scores(sample_summary):
     dry = replace(sample_summary, precipitation_probability=10, precipitation=0)
     wet = replace(sample_summary, precipitation_probability=80, precipitation=2)
@@ -143,6 +175,73 @@ def test_chill_score_weighted_formula_without_force_caps(sample_summary):
     assert calculate_chill_score(summary, sunset_score=70) == 54
 
 
+def test_chilly_apparent_temperature_caps_chill_score(sample_summary):
+    comfortable_otherwise = replace(
+        sample_summary,
+        apparent_temperature=21,
+        relative_humidity_2m=65,
+        wind_speed_10m=3,
+        wind_gusts_10m=6,
+        precipitation_probability=0,
+        precipitation=0,
+        weather_code=1,
+    )
+
+    assert calculate_chill_score(comfortable_otherwise, sunset_score=100) == 80
+    assert calculate_chill_score(replace(comfortable_otherwise, apparent_temperature=19), 100) == 70
+    assert calculate_chill_score(replace(comfortable_otherwise, apparent_temperature=17), 100) == 55
+
+
+def test_cloudy_and_slightly_chilly_conditions_do_not_get_s_labels(sample_summary):
+    cloudy_and_chilly = replace(
+        sample_summary,
+        apparent_temperature=21,
+        relative_humidity_2m=65,
+        wind_speed_10m=3,
+        wind_gusts_10m=6,
+        precipitation_probability=0,
+        precipitation=0,
+        weather_code=1,
+        cloud_cover=82,
+        cloud_cover_low=20,
+        cloud_cover_mid=50,
+        cloud_cover_high=60,
+        visibility=20000,
+    )
+
+    scores = calculate_scores(cloudy_and_chilly)
+
+    assert scores.sunset_score == 65
+    assert scores.sunset_label == "B"
+    assert scores.chill_score == 69
+    assert scores.chill_label == "B"
+
+
+def test_overcast_sunset_with_no_afterglow_scores_low(sample_summary):
+    overcast_sunset = replace(
+        sample_summary,
+        apparent_temperature=21,
+        relative_humidity_2m=65,
+        wind_speed_10m=3,
+        wind_gusts_10m=6,
+        precipitation_probability=0,
+        precipitation=0,
+        weather_code=3,
+        cloud_cover=90,
+        cloud_cover_low=75,
+        cloud_cover_mid=80,
+        cloud_cover_high=80,
+        visibility=20000,
+    )
+
+    scores = calculate_scores(overcast_sunset)
+
+    assert scores.sunset_score == 45
+    assert scores.sunset_label == "C"
+    assert scores.chill_score == 65
+    assert scores.chill_label == "B"
+
+
 def test_apparent_temperature_comfort_band_scores_high():
     assert apparent_temperature_score(25) == 100
     assert apparent_temperature_score(34.1) == 20
@@ -164,9 +263,10 @@ def test_score_label_boundaries():
 def test_component_score_boundaries():
     assert apparent_temperature_score(22) == 100
     assert apparent_temperature_score(28) == 100
-    assert apparent_temperature_score(20) == 80
+    assert apparent_temperature_score(20) == 70
     assert apparent_temperature_score(30.1) == 60
-    assert apparent_temperature_score(16) == 40
+    assert apparent_temperature_score(18) == 45
+    assert apparent_temperature_score(16) == 25
     assert humidity_score(55) == 100
     assert humidity_score(82) == 80
     assert humidity_score(88) == 60
