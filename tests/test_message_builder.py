@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from zushi_chill.message_builder import build_comment, build_line_message, wind_direction_label
-from zushi_chill.models import ScoreResult
+from zushi_chill.models import ScoreResult, VisionResult
 
 
 def test_line_message_contains_required_fields(sample_summary):
@@ -34,6 +34,40 @@ def test_line_message_contains_required_fields(sample_summary):
     assert "検証メモ：" in message
     assert "Googleフォーム：" in message
     assert "https://forms.example/test" in message
+
+
+def test_line_message_includes_vision_section_when_present(sample_summary):
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+    vision = VisionResult(
+        sunset_score=75,
+        sky_condition="partly_cloudy",
+        comment="薄い夕焼け",
+        model="gemini-2.5-flash",
+    )
+
+    message = build_line_message(
+        sample_summary,
+        replace(scores, comment=build_comment(sample_summary, scores)),
+        vision=vision,
+        google_form_url="https://forms.example/test",
+    )
+
+    assert "カメラ実況評価" in message
+    assert "75 / 100" in message
+    assert "partly_cloudy" in message
+    assert "薄い夕焼け" in message
+
+
+def test_line_message_omits_vision_section_when_absent(sample_summary):
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+
+    message = build_line_message(
+        sample_summary,
+        replace(scores, comment=build_comment(sample_summary, scores)),
+        google_form_url="https://forms.example/test",
+    )
+
+    assert "カメラ実況評価" not in message
 
 
 def test_line_message_uses_internal_validation_wording(sample_summary):

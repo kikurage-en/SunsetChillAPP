@@ -140,6 +140,11 @@ jobs:
           LIVE_CAMERA_IMAGE_BASE_URL: ""
           SCHEDULE: ${{ github.event.schedule || '' }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
+          VISION_ENABLED: ${{ secrets.VISION_ENABLED || 'false' }}
+          VISION_API_KEY: ${{ secrets.VISION_API_KEY }}
+          VISION_MODEL: ${{ secrets.VISION_MODEL || 'gemini-2.5-flash' }}
+          VISION_TIMEOUT_SECONDS: ${{ secrets.VISION_TIMEOUT_SECONDS || '30' }}
+          VISION_TARGET_HOUR: ${{ secrets.VISION_TARGET_HOUR || '17' }}
         run: |
           echo "Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}"
           args=()

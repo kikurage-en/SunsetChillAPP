@@ -37,6 +37,10 @@ def test_prediction_log_columns_match_requirements():
         "comment",
         "line_sent",
         "error_message",
+        "vision_sunset_score",
+        "vision_sky_condition",
+        "vision_comment",
+        "vision_model",
     ]
     assert expected_columns == CSV_COLUMNS
 

@@ -40,11 +40,20 @@ class ScoreResult:
 
 
 @dataclass(frozen=True)
+class VisionResult:
+    sunset_score: int
+    sky_condition: str
+    comment: str
+    model: str
+
+
+@dataclass(frozen=True)
 class PredictionRecord:
     summary: WeatherSummary
     scores: ScoreResult
     line_sent: bool
     error_message: str = ""
+    vision: VisionResult | None = None
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
@@ -62,6 +71,10 @@ class PredictionRecord:
                 "comment": self.scores.comment,
                 "line_sent": self.line_sent,
                 "error_message": self.error_message,
+                "vision_sunset_score": self.vision.sunset_score if self.vision else "",
+                "vision_sky_condition": self.vision.sky_condition if self.vision else "",
+                "vision_comment": self.vision.comment if self.vision else "",
+                "vision_model": self.vision.model if self.vision else "",
             }
         )
         return data

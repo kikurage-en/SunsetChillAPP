@@ -48,6 +48,11 @@ GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP
 GITHUB_WORKFLOW=daily_chill.yml
 GITHUB_REF=main
 GITHUB_TOKEN=
+VISION_ENABLED=false
+VISION_API_KEY=
+VISION_MODEL=gemini-2.5-flash
+VISION_TIMEOUT_SECONDS=30
+VISION_TARGET_HOUR=17
 ```
 
 ## LINE Messaging API
@@ -133,6 +138,12 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 ```
 
 指定ワークシートがない場合は自動作成します。ワークシートの1行目には保存カラムのヘッダーが自動で作られます。同じ `date`、`run_time`、`location_name` の行がある場合は、LINE送信結果を同じ行へ更新します。
+
+## ライブカメラ画像の Vision 解析（独立指標）
+
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOUR`（既定 17 時）の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は **既存の Chill 指数 / Sunset 期待度を変えずに独立した参考指標** として LINE 本文とログ（`vision_*` カラム）に併記します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
+
+ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこの 4 カラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します）。
 
 ## 6月の検証運用
 

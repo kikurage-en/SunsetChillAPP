@@ -38,6 +38,10 @@ CSV_COLUMNS = [
     "comment",
     "line_sent",
     "error_message",
+    "vision_sunset_score",
+    "vision_sky_condition",
+    "vision_comment",
+    "vision_model",
 ]
 
 

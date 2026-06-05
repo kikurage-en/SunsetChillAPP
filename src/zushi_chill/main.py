@@ -13,9 +13,10 @@ from zushi_chill.config import ConfigError, Settings
 from zushi_chill.line_client import LineClient
 from zushi_chill.live_camera import build_capture_relative_path, build_capture_url
 from zushi_chill.message_builder import build_comment, build_line_message
-from zushi_chill.models import PredictionRecord
+from zushi_chill.models import PredictionRecord, VisionResult
 from zushi_chill.scoring import calculate_scores
 from zushi_chill.storage import storage_from_settings
+from zushi_chill.vision_client import analyze_image
 from zushi_chill.weather_client import OpenMeteoClient, parse_forecast
 
 
@@ -60,19 +61,29 @@ def main(argv: list[str] | None = None) -> int:
             scores_without_comment,
             comment=build_comment(summary, scores_without_comment),
         )
-        message = build_line_message(summary, scores, google_form_url=settings.google_form_url)
         live_camera_image_url = settings.live_camera_image_url or build_capture_url(
             settings.live_camera_image_base_url,
             build_capture_relative_path(run_time),
         )
+        vision_result = _analyze_live_camera(settings, run_time, live_camera_image_url)
+        message = build_line_message(
+            summary,
+            scores,
+            vision=vision_result,
+            google_form_url=settings.google_form_url,
+        )
 
         if dry_run:
-            record = PredictionRecord(summary=summary, scores=scores, line_sent=False)
+            record = PredictionRecord(
+                summary=summary, scores=scores, line_sent=False, vision=vision_result
+            )
             storage.save(record)
             print(message)
             return 0
 
-        pending_record = PredictionRecord(summary=summary, scores=scores, line_sent=False)
+        pending_record = PredictionRecord(
+            summary=summary, scores=scores, line_sent=False, vision=vision_result
+        )
         storage.save(pending_record)
         try:
             settings.require_line()
@@ -95,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                 scores=scores,
                 line_sent=False,
                 error_message=str(exc),
+                vision=vision_result,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -105,7 +117,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             raise
 
-        sent_record = PredictionRecord(summary=summary, scores=scores, line_sent=True)
+        sent_record = PredictionRecord(
+            summary=summary, scores=scores, line_sent=True, vision=vision_result
+        )
         try:
             storage.replace_latest(sent_record)
         except Exception:
@@ -115,6 +129,33 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logging.getLogger(__name__).exception("Run failed: %s", exc)
         return 1
+
+
+def _should_run_vision(run_time: datetime, settings: Settings) -> bool:
+    return bool(
+        settings.vision_enabled
+        and settings.vision_api_key
+        and run_time.hour == settings.vision_target_hour
+    )
+
+
+def _analyze_live_camera(
+    settings: Settings, run_time: datetime, image_url: str
+) -> VisionResult | None:
+    if not _should_run_vision(run_time, settings):
+        return None
+    local_image_path = Path(settings.live_camera_public_dir) / build_capture_relative_path(run_time)
+    try:
+        return analyze_image(
+            image_path=local_image_path if local_image_path.exists() else None,
+            image_url=image_url,
+            api_key=settings.vision_api_key,
+            model=settings.vision_model,
+            timeout_seconds=settings.vision_timeout_seconds,
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Vision analysis failed; continuing: %s", exc)
+        return None
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

@@ -56,6 +56,11 @@ class Settings:
     live_camera_capture_timeout_seconds: int = 20
     webhook_host: str = "127.0.0.1"
     webhook_port: int = 8080
+    vision_enabled: bool = False
+    vision_api_key: str = ""
+    vision_model: str = "gemini-2.5-flash"
+    vision_timeout_seconds: int = 30
+    vision_target_hour: int = 17
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -104,6 +109,10 @@ class Settings:
         webhook_port = _positive_int_from_env("WEBHOOK_PORT", default=8080)
         if webhook_port > 65535:
             raise ConfigError("WEBHOOK_PORT must be between 1 and 65535")
+        vision_timeout_seconds = _positive_int_from_env("VISION_TIMEOUT_SECONDS", default=30)
+        vision_target_hour = _positive_int_from_env("VISION_TARGET_HOUR", default=17)
+        if vision_target_hour > 23:
+            raise ConfigError("VISION_TARGET_HOUR must be between 1 and 23")
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -132,6 +141,11 @@ class Settings:
             live_camera_capture_timeout_seconds=live_camera_capture_timeout_seconds,
             webhook_host=_env("WEBHOOK_HOST", "127.0.0.1"),
             webhook_port=webhook_port,
+            vision_enabled=_bool_from_env(_env("VISION_ENABLED", "")),
+            vision_api_key=_env("VISION_API_KEY", ""),
+            vision_model=_env("VISION_MODEL", "gemini-2.5-flash"),
+            vision_timeout_seconds=vision_timeout_seconds,
+            vision_target_hour=vision_target_hour,
         )
 
     def require_line(self) -> None:

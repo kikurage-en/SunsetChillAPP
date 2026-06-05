@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 
 from zushi_chill import main as main_module
+from zushi_chill import vision_client
 from zushi_chill.line_client import LineSendError
+from zushi_chill.models import VisionResult
 from zushi_chill.weather_client import WeatherDataError
 
 
@@ -346,6 +348,80 @@ def test_line_success_logs_when_storage_update_fails(monkeypatch, caplog):
     assert len(fake_storage.records) == 1
     assert fake_storage.records[0].line_sent is False
     assert "LINE sent but failed to update storage" in caplog.text
+
+
+def test_vision_analysis_runs_at_target_hour_and_is_recorded(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_BASE_URL", "https://pages.example/SunsetChillAPP")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    vision = VisionResult(
+        sunset_score=80, sky_condition="golden_hour", comment="鮮やか", model="gemini-2.5-flash"
+    )
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: vision)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
+
+    assert exit_code == 0
+    assert fake_storage.records[-1].vision == vision
+    assert "カメラ実況評価" in fake_line_client.sent_messages[0]["text"]
+
+
+def test_vision_analysis_skipped_off_target_hour(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+
+    def fail_analyze(**kwargs):
+        raise AssertionError("analyze_image must not run at 13:00")
+
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", fail_analyze)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "13:00"])
+
+    assert exit_code == 0
+    assert fake_storage.records[-1].vision is None
+
+
+def test_vision_failure_does_not_block_line_send(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+
+    def boom(**kwargs):
+        raise vision_client.VisionError("Gemini request failed")
+
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", boom)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
+
+    assert exit_code == 0
+    assert len(fake_line_client.sent_messages) == 1
+    assert fake_storage.records[-1].vision is None
 
 
 class MemoryStorage:

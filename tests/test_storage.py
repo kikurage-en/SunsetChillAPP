@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 from zushi_chill.config import ConfigError, Settings
-from zushi_chill.models import PredictionRecord, ScoreResult
+from zushi_chill.models import PredictionRecord, ScoreResult, VisionResult
 from zushi_chill.storage import CSV_COLUMNS, CsvStorage, GoogleSheetsStorage, storage_from_settings
 
 
@@ -20,6 +20,51 @@ def test_csv_storage_writes_prediction_record(tmp_path, sample_summary):
     assert rows[0]["date"] == "2026-06-01"
     assert rows[0]["chill_score"] == "88"
     assert rows[0]["line_sent"] == "False"
+
+
+def test_csv_columns_include_vision_fields_after_error_message():
+    for column in (
+        "vision_sunset_score",
+        "vision_sky_condition",
+        "vision_comment",
+        "vision_model",
+    ):
+        assert column in CSV_COLUMNS
+        assert CSV_COLUMNS.index(column) > CSV_COLUMNS.index("error_message")
+
+
+def test_csv_storage_writes_vision_fields_when_present(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="golden_hour",
+        comment="美しい夕焼け",
+        model="gemini-2.5-flash",
+    )
+
+    CsvStorage(path).save(
+        PredictionRecord(summary=sample_summary, scores=scores, line_sent=True, vision=vision)
+    )
+
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    assert rows[0]["vision_sunset_score"] == "82"
+    assert rows[0]["vision_sky_condition"] == "golden_hour"
+    assert rows[0]["vision_comment"] == "美しい夕焼け"
+    assert rows[0]["vision_model"] == "gemini-2.5-flash"
+
+
+def test_csv_storage_writes_empty_vision_fields_when_absent(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+
+    CsvStorage(path).save(
+        PredictionRecord(summary=sample_summary, scores=scores, line_sent=False)
+    )
+
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    assert rows[0]["vision_sunset_score"] == ""
+    assert rows[0]["vision_model"] == ""
 
 
 def test_csv_storage_writes_header_when_file_exists_but_empty(tmp_path, sample_summary):
@@ -251,8 +296,8 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AC2"
-    assert fake_service.updates[-1]["body"]["values"][0][-2] is True
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AG2"
+    assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
 
@@ -275,7 +320,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AC3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AG3"
     assert fake_service.appends == []
 
 
@@ -331,7 +376,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:AC"
+    assert fake_service.last_get["range"] == "'predictions'!A:AG"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -378,7 +423,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AC2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AG2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

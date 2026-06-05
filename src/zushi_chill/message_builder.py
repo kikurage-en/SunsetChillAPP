@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zushi_chill.models import ScoreResult, WeatherSummary
+from zushi_chill.models import ScoreResult, VisionResult, WeatherSummary
 
 
 def build_comment(summary: WeatherSummary, scores: ScoreResult) -> str:
@@ -29,9 +29,16 @@ def build_line_message(
     summary: WeatherSummary,
     scores: ScoreResult,
     *,
+    vision: VisionResult | None = None,
     google_form_url: str = "",
 ) -> str:
     comment = scores.comment or build_comment(summary, scores)
+    vision_section = ""
+    if vision is not None:
+        vision_section = (
+            f"\n📷 カメラ実況評価：{vision.sunset_score} / 100（{vision.sky_condition}）\n"
+            f"{vision.comment}\n"
+        )
     return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
 
 Chill指数：{scores.chill_score} / 100（{scores.chill_label}）
@@ -52,7 +59,7 @@ Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）
 
 コメント：
 {comment}
-
+{vision_section}
 検証メモ：
 実際の空模様と快適度を「◎ / ○ / △ / ×」で記録してください。
 Googleフォーム：
