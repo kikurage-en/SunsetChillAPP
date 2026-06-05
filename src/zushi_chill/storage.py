@@ -211,10 +211,12 @@ class GoogleSheetsStorage:
         values = result.get("values", [])
         if values and values[0] == CSV_COLUMNS:
             return
-        if values:
+        if values and values[0] != CSV_COLUMNS[: len(values[0])]:
             raise ConfigError(
                 "Google Sheets header does not match expected prediction log columns"
             )
+        # ヘッダが無い、または旧カラム（新構成の prefix）の場合は、ヘッダ行のみ新構成へ更新して
+        # 移行する。既存データ行は末尾が空欄のまま保持され、既存カラムの位置も変わらない。
         service.spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id,
             range=range_name,

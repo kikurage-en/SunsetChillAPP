@@ -225,6 +225,44 @@ def test_google_sheets_storage_appends_with_header(sample_summary):
     assert fake_service.batch_updates == []
 
 
+def test_google_sheets_storage_migrates_legacy_header(sample_summary):
+    legacy_header = CSV_COLUMNS[:-4]  # vision 4カラム追加前の旧ヘッダ
+    fake_service = FakeSheetsService(
+        get_values=[legacy_header, ["2026-06-01", "13:00", "逗子海岸"]],
+        sheet_titles=["predictions"],
+    )
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet-id",
+        worksheet="predictions",
+        service_account_json="{}",
+    )
+    storage._service = fake_service
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+
+    storage.save(PredictionRecord(summary=sample_summary, scores=scores, line_sent=False))
+
+    # 旧ヘッダ（新構成の prefix）は raise せず、ヘッダ行が新構成へ更新される
+    assert any(update["body"]["values"] == [CSV_COLUMNS] for update in fake_service.updates)
+    assert fake_service.appends[0]["body"]["values"][0][0:3] == ["2026-06-01", "13:00", "逗子海岸"]
+
+
+def test_google_sheets_storage_rejects_unrelated_header(sample_summary):
+    fake_service = FakeSheetsService(
+        get_values=[["date", "unexpected_column"]],
+        sheet_titles=["predictions"],
+    )
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet-id",
+        worksheet="predictions",
+        service_account_json="{}",
+    )
+    storage._service = fake_service
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+
+    with pytest.raises(ConfigError, match="Google Sheets header"):
+        storage.save(PredictionRecord(summary=sample_summary, scores=scores, line_sent=False))
+
+
 def test_storage_from_settings_selects_google_sheets_backend():
     settings = _settings(
         storage_backend="google_sheets",
