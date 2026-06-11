@@ -12,6 +12,21 @@ from zushi_chill.weather_client import parse_forecast
 
 
 @pytest.fixture(autouse=True)
+def isolate_ci_job_env(monkeypatch):
+    # daily_chill.yml はjobレベルenvを全ステップ(pytest含む)に注入するため、
+    # 隔離しないとローカルとCIでテスト結果が割れる(2026-06-11の17時実行失敗の原因)
+    for name in (
+        "STORAGE_BACKEND",
+        "CSV_PATH",
+        "LIVE_CAMERA_URL",
+        "LIVE_CAMERA_VIDEO_ID",
+        "LIVE_CAMERA_IMAGE_BASE_URL",
+        "LIVE_CAMERA_IMAGE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def ignore_repository_dotenv(monkeypatch):
     repository_dotenv = Path(__file__).resolve().parents[1] / ".env"
     real_load_dotenv = config_module.load_dotenv

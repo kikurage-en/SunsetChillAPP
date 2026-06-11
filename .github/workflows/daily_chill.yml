@@ -163,3 +163,23 @@ jobs:
           name: chill-predictions
           path: ${{ env.CSV_PATH }}
           if-no-files-found: ignore
+
+      - name: Notify failure via LINE
+        if: failure()
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TARGET_ID: ${{ secrets.LINE_TARGET_ID }}
+        run: |
+          if [ -z "$LINE_CHANNEL_ACCESS_TOKEN" ] || [ -z "$LINE_TARGET_ID" ]; then
+            echo "::warning::LINE secrets not set; skipping failure notification"
+            exit 0
+          fi
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(printf '{"to":"%s","messages":[{"type":"text","text":"⚠️ SunsetChill実行失敗 %s %s\\n%s"}]}' \
+            "$LINE_TARGET_ID" "${RUN_DATE:-?}" "${RUN_TIME:-?}" "$run_url")"
+          if ! curl -fsS -X POST https://api.line.me/v2/bot/message/push \
+            -H "Authorization: Bearer $LINE_CHANNEL_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload"; then
+            echo "::warning::LINE failure notification could not be delivered"
+          fi
