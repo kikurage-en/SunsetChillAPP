@@ -30,13 +30,15 @@ def build_line_message(
     scores: ScoreResult,
     *,
     vision: VisionResult | None = None,
+    vision_mode: str = "actual",
     google_form_url: str = "",
 ) -> str:
     comment = scores.comment or build_comment(summary, scores)
     vision_section = ""
     if vision is not None:
+        vision_label = "カメラAI予測" if vision_mode == "predict" else "カメラ実況評価"
         vision_section = (
-            f"\n📷 カメラ実況評価：{vision.sunset_score} / 100（{vision.sky_condition}）\n"
+            f"\n📷 {vision_label}：{vision.sunset_score} / 100（{vision.sky_condition}）\n"
             f"{vision.comment}\n"
         )
     return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】

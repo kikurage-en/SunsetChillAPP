@@ -214,3 +214,36 @@ def test_settings_validates_positive_integer_runtime_values(monkeypatch):
 
     with pytest.raises(ConfigError, match="WEBHOOK_PORT"):
         Settings.from_env()
+
+
+def test_settings_parses_vision_target_hours(monkeypatch):
+    monkeypatch.setenv("VISION_TARGET_HOURS", "17,19")
+
+    assert Settings.from_env().vision_target_hours == frozenset({17, 19})
+
+    monkeypatch.setenv("VISION_TARGET_HOURS", " 17 , 19 ,")
+
+    assert Settings.from_env().vision_target_hours == frozenset({17, 19})
+
+
+def test_settings_vision_target_hours_defaults_and_legacy_fallback(monkeypatch):
+    monkeypatch.delenv("VISION_TARGET_HOURS", raising=False)
+    monkeypatch.delenv("VISION_TARGET_HOUR", raising=False)
+
+    assert Settings.from_env().vision_target_hours == frozenset({17, 19})
+
+    monkeypatch.setenv("VISION_TARGET_HOUR", "16")
+
+    assert Settings.from_env().vision_target_hours == frozenset({16})
+
+
+def test_settings_rejects_invalid_vision_target_hours(monkeypatch):
+    monkeypatch.setenv("VISION_TARGET_HOURS", "17,abc")
+
+    with pytest.raises(ConfigError, match="VISION_TARGET_HOURS"):
+        Settings.from_env()
+
+    monkeypatch.setenv("VISION_TARGET_HOURS", "24")
+
+    with pytest.raises(ConfigError, match="VISION_TARGET_HOURS"):
+        Settings.from_env()

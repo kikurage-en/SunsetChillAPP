@@ -60,7 +60,7 @@ class Settings:
     vision_api_key: str = ""
     vision_model: str = "gemini-2.5-flash"
     vision_timeout_seconds: int = 30
-    vision_target_hour: int = 17
+    vision_target_hours: frozenset[int] = frozenset({17, 19})
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -110,9 +110,11 @@ class Settings:
         if webhook_port > 65535:
             raise ConfigError("WEBHOOK_PORT must be between 1 and 65535")
         vision_timeout_seconds = _positive_int_from_env("VISION_TIMEOUT_SECONDS", default=30)
-        vision_target_hour = _positive_int_from_env("VISION_TARGET_HOUR", default=17)
-        if vision_target_hour > 23:
-            raise ConfigError("VISION_TARGET_HOUR must be between 1 and 23")
+        vision_target_hours = _hours_from_env(
+            "VISION_TARGET_HOURS",
+            legacy_name="VISION_TARGET_HOUR",
+            default=frozenset({17, 19}),
+        )
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -145,7 +147,7 @@ class Settings:
             vision_api_key=_env("VISION_API_KEY", ""),
             vision_model=_env("VISION_MODEL", "gemini-2.5-flash"),
             vision_timeout_seconds=vision_timeout_seconds,
-            vision_target_hour=vision_target_hour,
+            vision_target_hours=vision_target_hours,
         )
 
     def require_line(self) -> None:
@@ -195,6 +197,31 @@ def _env(name: str, default: str) -> str:
 
 def _csv_set(value: str) -> frozenset[str]:
     return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+
+def _hours_from_env(
+    name: str, *, legacy_name: str, default: frozenset[int]
+) -> frozenset[int]:
+    raw = _env(name, "") or _env(legacy_name, "")
+    if not raw:
+        return default
+    hours: set[int] = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            hour = int(item)
+        except ValueError as exc:
+            raise ConfigError(
+                f"{name} must be comma-separated hours between 0 and 23"
+            ) from exc
+        if not 0 <= hour <= 23:
+            raise ConfigError(f"{name} must be comma-separated hours between 0 and 23")
+        hours.add(hour)
+    if not hours:
+        return default
+    return frozenset(hours)
 
 
 def _positive_int_from_env(name: str, *, default: int) -> int:

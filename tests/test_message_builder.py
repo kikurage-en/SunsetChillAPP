@@ -58,6 +58,27 @@ def test_line_message_includes_vision_section_when_present(sample_summary):
     assert "薄い夕焼け" in message
 
 
+def test_line_message_labels_vision_as_prediction_in_predict_mode(sample_summary):
+    scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
+    vision = VisionResult(
+        sunset_score=55,
+        sky_condition="partly_cloudy",
+        comment="水平線付近に抜けがあります",
+        model="gemini-2.5-flash",
+    )
+
+    message = build_line_message(
+        sample_summary,
+        replace(scores, comment=build_comment(sample_summary, scores)),
+        vision=vision,
+        vision_mode="predict",
+        google_form_url="https://forms.example/test",
+    )
+
+    assert "カメラAI予測" in message
+    assert "カメラ実況評価" not in message
+
+
 def test_line_message_omits_vision_section_when_absent(sample_summary):
     scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
 

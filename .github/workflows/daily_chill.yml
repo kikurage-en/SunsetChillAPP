@@ -144,7 +144,7 @@ jobs:
           VISION_API_KEY: ${{ secrets.VISION_API_KEY }}
           VISION_MODEL: ${{ secrets.VISION_MODEL || 'gemini-2.5-flash' }}
           VISION_TIMEOUT_SECONDS: ${{ secrets.VISION_TIMEOUT_SECONDS || '30' }}
-          VISION_TARGET_HOUR: ${{ secrets.VISION_TARGET_HOUR || '17' }}
+          VISION_TARGET_HOURS: ${{ secrets.VISION_TARGET_HOURS || secrets.VISION_TARGET_HOUR || '17,19' }}
         run: |
           echo "Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}"
           args=()

@@ -28,13 +28,21 @@ def calculate_scores(summary: WeatherSummary) -> ScoreResult:
 
 
 def calculate_sunset_score(summary: WeatherSummary) -> int:
-    score = 100
-    score += _low_cloud_penalty(summary.cloud_cover_low)
-    score += _precipitation_penalty(summary.precipitation_probability)
-    score += _visibility_penalty(summary.visibility)
-    score += _wind_penalty(summary.wind_speed_10m)
+    penalties = (
+        _low_cloud_penalty(summary.cloud_cover_low)
+        + _precipitation_penalty(summary.precipitation_probability)
+        + _visibility_penalty(summary.visibility)
+        + _wind_penalty(summary.wind_speed_10m)
+    )
+    score = 100 + penalties
     score += 5 if 20 <= summary.cloud_cover_mid <= 60 else 0
     score += 10 if 20 <= summary.cloud_cover_high <= 70 else 0
+
+    # 飽和是正: ボーナスがペナルティを相殺して満点帯へ戻ることを防ぐ
+    if penalties < 0:
+        score = min(score, 95)
+    if summary.precipitation_probability >= 20:
+        score = min(score, 90)
 
     if summary.cloud_cover >= 85 or (
         summary.cloud_cover_low >= 70 and summary.cloud_cover_mid >= 70

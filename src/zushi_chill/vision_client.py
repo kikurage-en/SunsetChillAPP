@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -14,19 +15,58 @@ LOGGER = logging.getLogger(__name__)
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-_PROMPT = """以下は逗子海岸のライブカメラ画像です。夕焼け・空模様を評価してください。
-次のJSONだけを返してください（前後に説明やコードブロックを付けない）:
+_JSON_SPEC = """次のJSONだけを返してください（前後に説明やコードブロックを付けない）:
 {
   "sunset_score": 0-100の整数,
   "sky_condition": "clear" | "partly_cloudy" | "overcast" | "golden_hour" | "rain",
   "comment": "50文字以内の日本語コメント"
-}
+}"""
 
-sunset_score の基準:
-- 80-100: 鮮やかな橙・赤・紫の夕焼け
+_SCORE_RUBRIC = """- 80-100: 鮮やかな橙・赤・紫の夕焼け
 - 60-79: 薄い夕焼け色、期待できる空模様
 - 40-59: 雲が多いが部分的に色が出ている
 - 0-39: 曇天・雨・夕焼けなし"""
+
+_PROMPT = f"""以下は逗子海岸のライブカメラ画像です。夕焼け・空模様を評価してください。
+{_JSON_SPEC}
+
+sunset_score の基準:
+{_SCORE_RUBRIC}"""
+
+
+def vision_mode(capture_time: datetime, sunset_time: datetime) -> str:
+    """Return "predict" before sunset and "actual" at or after sunset."""
+    return "predict" if capture_time < sunset_time else "actual"
+
+
+def build_prompt(
+    *,
+    capture_time: datetime | None = None,
+    sunset_time: datetime | None = None,
+) -> str:
+    if capture_time is None or sunset_time is None:
+        return _PROMPT
+    capture_label = capture_time.strftime("%H:%M")
+    sunset_label = sunset_time.strftime("%H:%M")
+    header = (
+        f"以下は逗子海岸のライブカメラ画像です。"
+        f"撮影時刻は{capture_label}、本日の日没時刻は{sunset_label}です。"
+    )
+    if vision_mode(capture_time, sunset_time) == "predict":
+        return (
+            f"{header}\n"
+            "日没前の画像なので、現在の夕焼け色の有無ではなく、"
+            "雲の構造（低層雲の厚み、水平線付近の抜け、中・高層雲の広がり）から、"
+            "今夜の日没時にどの程度の夕焼けになりそうかを予測して採点してください。\n"
+            f"{_JSON_SPEC}\n\n"
+            f"sunset_score の基準（日没時に予測される夕焼けとして採点）:\n{_SCORE_RUBRIC}"
+        )
+    return (
+        f"{header}\n"
+        "日没後の画像なので、実際の夕焼け・空模様を実況として評価してください。\n"
+        f"{_JSON_SPEC}\n\n"
+        f"sunset_score の基準:\n{_SCORE_RUBRIC}"
+    )
 
 
 class VisionError(RuntimeError):
@@ -40,8 +80,14 @@ def analyze_image(
     api_key: str,
     model: str = "gemini-2.5-flash",
     timeout_seconds: int = 30,
+    capture_time: datetime | None = None,
+    sunset_time: datetime | None = None,
 ) -> VisionResult:
     """Analyze a live-camera image with the Gemini vision API.
+
+    When both ``capture_time`` and ``sunset_time`` are given, the prompt
+    switches between sunset prediction (before sunset) and live evaluation
+    (at or after sunset). Without them the legacy generic prompt is used.
 
     Prefers a locally saved image (sent inline as base64) over the public URL,
     because the saved file is guaranteed to exist on the same runner and does
@@ -63,7 +109,7 @@ def analyze_image(
             {
                 "parts": [
                     {"inline_data": {"mime_type": "image/jpeg", "data": encoded}},
-                    {"text": _PROMPT},
+                    {"text": build_prompt(capture_time=capture_time, sunset_time=sunset_time)},
                 ]
             }
         ],

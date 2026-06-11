@@ -372,7 +372,44 @@ def test_vision_analysis_runs_at_target_hour_and_is_recorded(monkeypatch):
 
     assert exit_code == 0
     assert fake_storage.records[-1].vision == vision
-    assert "カメラ実況評価" in fake_line_client.sent_messages[0]["text"]
+    # 日没(18:51)前の17:00実行は予測モードのラベルになる
+    assert "カメラAI予測" in fake_line_client.sent_messages[0]["text"]
+
+
+def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    vision = VisionResult(
+        sunset_score=55,
+        sky_condition="partly_cloudy",
+        comment="部分的な色",
+        model="gemini-2.5-flash",
+    )
+    captured_kwargs: dict = {}
+
+    def capture_analyze(**kwargs):
+        captured_kwargs.update(kwargs)
+        return vision
+
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", capture_analyze)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "19:20"])
+
+    assert exit_code == 0
+    assert fake_storage.records[-1].vision == vision
+    # 日没(18:51)後の19:20実行は実況評価のラベルになり、撮影/日没時刻が渡される
+    assert "カメラ実況評価" in fake_line_client.sent_messages[0]
+    assert captured_kwargs["capture_time"].strftime("%H:%M") == "19:20"
+    assert captured_kwargs["sunset_time"].strftime("%H:%M") == "18:51"
 
 
 def test_vision_analysis_skipped_off_target_hour(monkeypatch):

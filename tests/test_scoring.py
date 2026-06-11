@@ -139,6 +139,69 @@ def test_thick_low_and_mid_clouds_cap_sunset_score(sample_summary):
     assert calculate_sunset_score(thick_cloud_deck) == 45
 
 
+def test_penalized_sky_cannot_return_to_full_score_via_bonuses(sample_summary):
+    penalized_with_bonuses = replace(
+        sample_summary,
+        cloud_cover=40,
+        cloud_cover_low=30,
+        cloud_cover_mid=20,
+        cloud_cover_high=20,
+        precipitation_probability=0,
+        visibility=20000,
+        wind_speed_10m=3,
+    )
+
+    # -10(低層雲) +5(中層雲) +10(高層雲) = 105 だが、ペナルティありの空は上限95
+    assert calculate_sunset_score(penalized_with_bonuses) == 95
+
+
+def test_sunset_saturation_fix_against_recorded_sheet_inputs(sample_summary):
+    """SunsetChillログ(Google Sheets)の実レコードによる回帰ケース。
+
+    6/10 17:00 はボーナス(+15)が降水確率ペナルティ(-10)を相殺して
+    Sunset=100 に飽和し、実際の空(雲多め・部分的な色)と乖離した。
+    飽和是正後も、ペナルティゼロの晴天 100 と既存キャップ適用日は変えない。
+    """
+    record_20260610_1700 = replace(
+        sample_summary,
+        cloud_cover=36.7,
+        cloud_cover_low=22,
+        cloud_cover_mid=28,
+        cloud_cover_high=21.3,
+        precipitation_probability=21,
+        visibility=26120,
+        wind_speed_10m=2.7,
+    )
+    # 旧実装では 100。降水確率20%以上の上限90が効く
+    assert calculate_sunset_score(record_20260610_1700) == 90
+
+    record_20260531_1700 = replace(
+        sample_summary,
+        cloud_cover=20.3,
+        cloud_cover_low=2.7,
+        cloud_cover_mid=0.7,
+        cloud_cover_high=18.7,
+        precipitation_probability=11,
+        visibility=21820,
+        wind_speed_10m=2,
+    )
+    # ペナルティゼロの晴天は引き続き 100
+    assert calculate_sunset_score(record_20260531_1700) == 100
+
+    record_20260609_1700 = replace(
+        sample_summary,
+        cloud_cover=72.7,
+        cloud_cover_low=35,
+        cloud_cover_mid=58.7,
+        cloud_cover_high=72.7,
+        precipitation_probability=18,
+        visibility=10360,
+        wind_speed_10m=2.2,
+    )
+    # 総雲量70%以上の既存上限65は不変
+    assert calculate_sunset_score(record_20260609_1700) == 65
+
+
 def test_high_precipitation_reduces_both_scores(sample_summary):
     dry = replace(sample_summary, precipitation_probability=10, precipitation=0)
     wet = replace(sample_summary, precipitation_probability=80, precipitation=2)

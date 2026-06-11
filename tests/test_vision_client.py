@@ -184,3 +184,69 @@ def test_analyze_image_clamps_score_into_range(monkeypatch, tmp_path):
 
     result = analyze_image(image_path=image, api_key="key")
     assert result.sunset_score == 100
+
+
+# --- vision_mode / build_prompt: predict before sunset, actual at or after sunset ---
+
+_RUN_1920 = datetime(2026, 6, 10, 19, 20, tzinfo=ZoneInfo("Asia/Tokyo"))
+_SUNSET_1855 = datetime(2026, 6, 10, 18, 55, tzinfo=ZoneInfo("Asia/Tokyo"))
+_RUN_1700_0610 = datetime(2026, 6, 10, 17, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+
+def test_should_run_vision_true_at_post_sunset_hour(monkeypatch):
+    settings = _settings(monkeypatch, VISION_ENABLED="true", VISION_API_KEY="key")
+    run_19 = datetime(2026, 6, 1, 19, 20, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+    assert main_module._should_run_vision(run_19, settings) is True
+
+
+def test_vision_mode_boundaries():
+    assert vision_client.vision_mode(_RUN_1700_0610, _SUNSET_1855) == "predict"
+    assert vision_client.vision_mode(_SUNSET_1855, _SUNSET_1855) == "actual"
+    assert vision_client.vision_mode(_RUN_1920, _SUNSET_1855) == "actual"
+
+
+def test_build_prompt_predicts_sunset_from_pre_sunset_sky():
+    prompt = vision_client.build_prompt(
+        capture_time=_RUN_1700_0610, sunset_time=_SUNSET_1855
+    )
+
+    assert "17:00" in prompt
+    assert "18:55" in prompt
+    assert "予測して採点" in prompt
+    assert "雲の構造" in prompt
+    # 撮影時点の色の有無で採点させない(6/10のカメラ実況30過小の再発防止)
+    assert "現在の夕焼け色の有無ではなく" in prompt
+
+
+def test_build_prompt_evaluates_actual_sky_after_sunset():
+    prompt = vision_client.build_prompt(capture_time=_RUN_1920, sunset_time=_SUNSET_1855)
+
+    assert "19:20" in prompt
+    assert "18:55" in prompt
+    assert "実況として評価" in prompt
+    assert "予測して採点" not in prompt
+
+
+def test_build_prompt_falls_back_to_generic_prompt_without_times():
+    assert vision_client.build_prompt() == vision_client._PROMPT
+
+
+def test_analyze_image_sends_mode_specific_prompt(monkeypatch, tmp_path):
+    image = tmp_path / "1700.jpg"
+    image.write_bytes(b"fakejpeg")
+    calls: list = []
+    monkeypatch.setattr(
+        vision_client, "urlopen", _fake_urlopen([FakeResponse(body=_gemini_body())], calls)
+    )
+
+    analyze_image(
+        image_path=image,
+        api_key="key",
+        capture_time=_RUN_1700_0610,
+        sunset_time=_SUNSET_1855,
+    )
+
+    payload = json.loads(calls[0].data)
+    prompt_text = payload["contents"][0]["parts"][1]["text"]
+    assert "予測して採点" in prompt_text

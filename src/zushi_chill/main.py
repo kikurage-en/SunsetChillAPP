@@ -16,7 +16,7 @@ from zushi_chill.message_builder import build_comment, build_line_message
 from zushi_chill.models import PredictionRecord, VisionResult
 from zushi_chill.scoring import calculate_scores
 from zushi_chill.storage import storage_from_settings
-from zushi_chill.vision_client import analyze_image
+from zushi_chill.vision_client import analyze_image, vision_mode
 from zushi_chill.weather_client import OpenMeteoClient, parse_forecast
 
 
@@ -65,11 +65,14 @@ def main(argv: list[str] | None = None) -> int:
             settings.live_camera_image_base_url,
             build_capture_relative_path(run_time),
         )
-        vision_result = _analyze_live_camera(settings, run_time, live_camera_image_url)
+        vision_result = _analyze_live_camera(
+            settings, run_time, live_camera_image_url, summary.sunset_time
+        )
         message = build_line_message(
             summary,
             scores,
             vision=vision_result,
+            vision_mode=vision_mode(run_time, summary.sunset_time),
             google_form_url=settings.google_form_url,
         )
 
@@ -135,12 +138,12 @@ def _should_run_vision(run_time: datetime, settings: Settings) -> bool:
     return bool(
         settings.vision_enabled
         and settings.vision_api_key
-        and run_time.hour == settings.vision_target_hour
+        and run_time.hour in settings.vision_target_hours
     )
 
 
 def _analyze_live_camera(
-    settings: Settings, run_time: datetime, image_url: str
+    settings: Settings, run_time: datetime, image_url: str, sunset_time: datetime
 ) -> VisionResult | None:
     if not _should_run_vision(run_time, settings):
         return None
@@ -152,6 +155,8 @@ def _analyze_live_camera(
             api_key=settings.vision_api_key,
             model=settings.vision_model,
             timeout_seconds=settings.vision_timeout_seconds,
+            capture_time=run_time,
+            sunset_time=sunset_time,
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("Vision analysis failed; continuing: %s", exc)

@@ -52,7 +52,7 @@ VISION_ENABLED=false
 VISION_API_KEY=
 VISION_MODEL=gemini-2.5-flash
 VISION_TIMEOUT_SECONDS=30
-VISION_TARGET_HOUR=17
+VISION_TARGET_HOURS=17,19
 ```
 
 ## LINE Messaging API
@@ -118,6 +118,12 @@ zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
 ```
 
+日没後の実測収集（ground truth）は `manual_mode=dry_run` で起動します。LINE送信は行わず、19:20時点のカメラ画像のVision実況評価を含む行をログへ保存します。
+
+```bash
+zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 19:20 --manual-mode dry_run
+```
+
 実行前にpayloadだけ確認する場合は `--dry-run` を付けます。
 
 ```bash
@@ -141,17 +147,18 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 ## ライブカメラ画像の Vision 解析（独立指標）
 
-`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOUR`（既定 17 時）の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は **既存の Chill 指数 / Sunset 期待度を変えずに独立した参考指標** として LINE 本文とログ（`vision_*` カラム）に併記します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `17,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析は実行時刻と日没時刻の前後で2モードに分かれます。日没前（17時実行）は雲の構造から今夜の夕焼けを**予測**（LINE本文ラベル「カメラAI予測」）、日没後（19:20実行）は実際の夕焼けを**実況評価**（ラベル「カメラ実況評価」）します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は **既存の Chill 指数 / Sunset 期待度を変えずに独立した参考指標** として LINE 本文とログ（`vision_*` カラム）に併記します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
 
 ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこの 4 カラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します）。
 
 ## 6月の検証運用
 
 1. 13:00 JST に昼時点の見込みを確認
-2. 17:00 JST に夕方直前の見込みを確認
-3. 日没前後に実際の空模様、夕焼け、快適度を確認
-4. Googleフォームに `◎ / ○ / △ / ×` とメモ、必要に応じて写真を記録
-5. 6月末に予測ログと実測評価の乖離を確認し、スコア式を調整
+2. 17:00 JST に夕方直前の見込みを確認（Vision「カメラAI予測」も記録）
+3. 19:20 JST に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（`run_time=19:20` の行が ground truth。同一 `date` の17:00行と突合する）
+4. 日没前後に実際の空模様、夕焼け、快適度を確認
+5. Googleフォームに `◎ / ○ / △ / ×` とメモ、必要に応じて写真を記録
+6. 6月末に予測ログと実測評価（19:20行のVisionスコア + フォーム記録）の乖離を確認し、スコア式を調整
 
 Googleフォームには、予測ログと突合しやすいように以下の項目を用意します。
 
@@ -169,7 +176,7 @@ Googleフォームには、予測ログと突合しやすいように以下の�
 
 ## スコア計算
 
-`Sunset期待度` は 100 点から低層雲、降水、視程、強風のペナルティを引き、中層雲と高層雲の条件が良い場合にボーナスを加えます。総雲量 70%以上では上限 65、85%以上では上限 45、低層雲と中層雲がどちらも70%以上では上限45、視程 5,000m 未満では上限 50 に制限します。
+`Sunset期待度` は 100 点から低層雲、降水、視程、強風のペナルティを引き、中層雲と高層雲の条件が良い場合にボーナスを加えます。ただしペナルティが1つでもある場合は上限 95、降水確率 20%以上では上限 90 に制限し、ボーナスでペナルティを相殺して満点に戻ることを防ぎます。総雲量 70%以上では上限 65、85%以上では上限 45、低層雲と中層雲がどちらも70%以上では上限45、視程 5,000m 未満では上限 50 に制限します。
 
 `Chill指数` は体感温度、湿度、風、降水リスク、Sunset期待度を重み付きで合成します。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
 
