@@ -90,7 +90,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` を `run_time` としてworkflowへ渡します。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
+定期実行では、Contaboのcronが `13:00` / `17:00` / `19:20` を `run_time` としてworkflowへ渡します。`19:20` は日没後のVision実況評価（ground truth）を兼ねます。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
 
 LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
@@ -116,9 +116,10 @@ Contaboのcronから以下を実行すると、既存の `.github/workflows/dail
 ```bash
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
+zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 19:20
 ```
 
-日没後の実測収集（ground truth）は `manual_mode=dry_run` で起動します。LINE送信は行わず、19:20時点のカメラ画像のVision実況評価を含む行をログへ保存します。
+`19:20` は日没後の実測収集（ground truth）を兼ね、`13:00` / `17:00` と同じく `manual_mode=send_line`（既定）で起動します。日没後のカメラ画像のVision実況評価を含む行をログへ保存しつつ、LINEにも送信します。LINE送信せずログ保存だけ行いたい場合は `--manual-mode dry_run` を付けます。
 
 ```bash
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 19:20 --manual-mode dry_run
@@ -155,7 +156,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 1. 13:00 JST に昼時点の見込みを確認
 2. 17:00 JST に夕方直前の見込みを確認（Vision「カメラAI予測」も記録）
-3. 19:20 JST に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（`run_time=19:20` の行が ground truth。同一 `date` の17:00行と突合する）
+3. 19:20 JST に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（`run_time=19:20` の行が ground truth。同一 `date` の17:00行と突合する）。LINEにも実況評価を送信する
 4. 日没前後に実際の空模様、夕焼け、快適度を確認
 5. Googleフォームに `◎ / ○ / △ / ×` とメモ、必要に応じて写真を記録
 6. 6月末に予測ログと実測評価（19:20行のVisionスコア + フォーム記録）の乖離を確認し、スコア式を調整
