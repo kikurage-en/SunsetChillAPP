@@ -47,7 +47,7 @@ def calculate_sunset_score(summary: WeatherSummary) -> int:
     if summary.cloud_cover >= 85 or (
         summary.cloud_cover_low >= 70 and summary.cloud_cover_mid >= 70
     ):
-        score = min(score, 45)
+        score = min(score, 30)
     elif summary.cloud_cover >= 70:
         score = min(score, 65)
     if summary.visibility < 5000:
