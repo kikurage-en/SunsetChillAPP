@@ -121,7 +121,7 @@ def test_total_cloud_cover_caps_sunset_score(sample_summary):
     overcast = replace(otherwise_good_cloudy, cloud_cover=90)
 
     assert calculate_sunset_score(otherwise_good_cloudy) == 65
-    assert calculate_sunset_score(overcast) == 45
+    assert calculate_sunset_score(overcast) == 30
 
 
 def test_thick_low_and_mid_clouds_cap_sunset_score(sample_summary):
@@ -136,7 +136,7 @@ def test_thick_low_and_mid_clouds_cap_sunset_score(sample_summary):
         wind_speed_10m=3,
     )
 
-    assert calculate_sunset_score(thick_cloud_deck) == 45
+    assert calculate_sunset_score(thick_cloud_deck) == 30
 
 
 def test_penalized_sky_cannot_return_to_full_score_via_bonuses(sample_summary):
@@ -299,8 +299,8 @@ def test_overcast_sunset_with_no_afterglow_scores_low(sample_summary):
 
     scores = calculate_scores(overcast_sunset)
 
-    assert scores.sunset_score == 45
-    assert scores.sunset_label == "C"
+    assert scores.sunset_score == 30
+    assert scores.sunset_label == "D"
     assert scores.chill_score == 65
     assert scores.chill_label == "B"
 
@@ -378,3 +378,68 @@ def test_chill_force_caps(sample_summary):
     assert calculate_chill_score(replace(comfortable, wind_speed_10m=8), 100) <= 55
     assert calculate_chill_score(replace(comfortable, wind_gusts_10m=12), 100) <= 50
     assert calculate_chill_score(replace(comfortable, weather_code=61), 100) <= 45
+
+
+def test_sunset_score_matches_19_jst_vision_ground_truth(sample_summary):
+    """17:00天気ベース予測 vs 19:20 Vision実況評価(ground truth)の乖離検証。
+
+    SunsetChillログ(Google Sheets predictions)の2026-06-12〜06-24における
+    「17:00行のsunset_score」と「同日19:20行のvision_sunset_score(実測)」の
+    13ペア。総雲量85%以上の上限を45→30へ下げた補正後、全ペアの集計誤差が
+    縮小すること(MAE 20.3→15.7、bias +9.7→+5.1)を全データで証明する。
+    部分的な出力assertでは集計悪化を見逃すため、13ペア全てと集計境界を検証する。
+
+    各行: (日付, low, mid, high, cloud_cover, precip_prob, visibility, wind, 実測GT)
+    06-21(総雲量65%・実測45)はペナルティゼロ+ボーナスで100に飽和する既知の
+    外れ値(N=1のため今回は補正対象外、将来サンプル蓄積後に再評価)。
+    """
+    pairs = [
+        ("06-12", 26.7, 36.0, 9.0, 39.0, 94, 6900, 2.3, 65),
+        ("06-13", 5.3, 9.0, 6.3, 13.7, 27, 20800, 4.9, 92),
+        ("06-14", 15.3, 60.3, 91.0, 91.0, 5, 16640, 2.9, 25),
+        ("06-15", 33.7, 31.3, 3.0, 34.0, 50, 16760, 4.4, 55),
+        ("06-16", 0.0, 0.0, 76.7, 76.7, 0, 29760, 3.4, 65),
+        ("06-17", 24.7, 42.7, 97.0, 97.0, 0, 19480, 3.0, 10),
+        ("06-18", 10.7, 13.7, 84.0, 84.0, 7, 19940, 1.6, 72),
+        ("06-19", 19.7, 16.7, 67.0, 74.0, 15, 14720, 1.4, 55),
+        ("06-20", 44.3, 82.3, 95.7, 95.7, 100, 2360, 2.9, 10),
+        ("06-21", 27.0, 23.3, 65.0, 65.0, 14, 20260, 1.5, 45),
+        ("06-22", 56.3, 54.3, 72.0, 85.0, 85, 4700, 2.1, 15),
+        ("06-23", 39.7, 43.7, 87.3, 87.3, 8, 22960, 2.5, 15),
+        ("06-24", 20.0, 33.7, 85.0, 85.0, 14, 13760, 2.4, 15),
+    ]
+
+    scores: dict[str, int] = {}
+    errors: list[int] = []
+    for label, low, mid, high, cloud, precip_prob, vis, wind, gt in pairs:
+        summary = replace(
+            sample_summary,
+            cloud_cover=cloud,
+            cloud_cover_low=low,
+            cloud_cover_mid=mid,
+            cloud_cover_high=high,
+            precipitation_probability=precip_prob,
+            visibility=vis,
+            wind_speed_10m=wind,
+        )
+        score = calculate_sunset_score(summary)
+        scores[label] = score
+        errors.append(score - gt)
+
+    mae = sum(abs(error) for error in errors) / len(errors)
+    bias = sum(errors) / len(errors)
+
+    # 全データの集計誤差が補正前(MAE 20.3 / bias +9.7)から縮小していること
+    assert mae <= 16
+    assert abs(bias) <= 6
+
+    # 補正の核心: 総雲量85%以上の厚い曇天(実測10〜25帯)は上限30
+    assert scores["06-14"] == 30
+    assert scores["06-17"] == 30
+    assert scores["06-23"] == 30
+    assert scores["06-24"] == 30
+
+    # 回帰防止: 快晴・高層雲主体の薄曇り(実測が高い日)は悪化させない
+    assert scores["06-13"] == 90
+    assert scores["06-16"] == 65
+    assert scores["06-18"] == 65
