@@ -226,7 +226,8 @@ def test_settings_vision_target_hours_defaults_and_legacy_fallback(monkeypatch):
     monkeypatch.delenv("VISION_TARGET_HOURS", raising=False)
     monkeypatch.delenv("VISION_TARGET_HOUR", raising=False)
 
-    assert Settings.from_env().vision_target_hours == frozenset({17, 19})
+    # 既定は通年で日没+20分の hour をカバーする(冬16時台〜夏19時台)。
+    assert Settings.from_env().vision_target_hours == frozenset({16, 17, 18, 19})
 
     monkeypatch.setenv("VISION_TARGET_HOUR", "16")
 

@@ -51,7 +51,7 @@ VISION_ENABLED=false
 VISION_API_KEY=
 VISION_MODEL=gemini-2.5-flash
 VISION_TIMEOUT_SECONDS=30
-VISION_TARGET_HOURS=17,19
+VISION_TARGET_HOURS=16,17,18,19
 ```
 
 ## LINE Messaging API
@@ -89,7 +89,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` / `19:20` を `run_time` としてworkflowへ渡します。`19:20` は日没後のVision実況評価（ground truth）を兼ねます。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
+定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として、日没後の実況評価を**日没+20分**（`zushi-chill-sunset-eta` で当日の日没時刻から算出し `at` で予約）の `run_time` としてworkflowへ渡します。日没時刻は季節で変動するため、日没後のキャプチャ時刻も日没に連動します。日没+20分の実行は日没後のVision実況評価（ground truth）を兼ねます。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
 
 LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
@@ -113,15 +113,20 @@ GITHUB_TOKEN=...
 Contaboのcronから以下を実行すると、既存の `.github/workflows/daily_chill.yml` が `manual_mode=send_line` で起動します。workflow側でライブカメラ画像をGitHub Pagesへ公開し、そのPages URLをLINE画像メッセージに添付します。
 
 ```bash
+# 13:00 / 17:00 は固定時刻で予測を通知
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
-zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 19:20
+
+# 日没後の実況評価は日没+20分に at で予約する(日没時刻は季節で変動するため)
+RUN_TIME="$(zushi-chill-sunset-eta --minutes 20)"
+echo "zushi-chill-trigger-actions --date $(TZ=Asia/Tokyo date +%F) --run-time $RUN_TIME" | at "$RUN_TIME"
 ```
 
-`19:20` は日没後の実測収集（ground truth）を兼ね、`13:00` / `17:00` と同じく `manual_mode=send_line`（既定）で起動します。日没後のカメラ画像のVision実況評価を含む行をログへ保存しつつ、LINEにも送信します。LINE送信せずログ保存だけ行いたい場合は `--manual-mode dry_run` を付けます。
+日没+20分の実行は日没後の実測収集（ground truth）を兼ね、`13:00` / `17:00` と同じく `manual_mode=send_line`（既定）で起動します。日没後のカメラ画像のVision実況評価を含む行をログへ保存しつつ、LINEにも送信します。`zushi-chill-sunset-eta` は当日の日没+指定分の `HH:MM` を標準出力に返し、Open-Meteo取得に失敗した場合は非ゼロ終了するため、上記の `&&` 連鎖（`RT=$(...) && ... | at`）で at 予約はスキップされます。LINE送信せずログ保存だけ行いたい場合は `--manual-mode dry_run` を付けます。
 
 ```bash
-zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 19:20 --manual-mode dry_run
+RUN_TIME="$(zushi-chill-sunset-eta --minutes 20)"
+echo "zushi-chill-trigger-actions --date $(TZ=Asia/Tokyo date +%F) --run-time $RUN_TIME --manual-mode dry_run" | at "$RUN_TIME"
 ```
 
 実行前にpayloadだけ確認する場合は `--dry-run` を付けます。
@@ -147,7 +152,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 ## ライブカメラ画像の Vision 解析（独立指標）
 
-`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `17,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析は実行時刻と日没時刻の前後で2モードに分かれます。日没前（17時実行）は雲の構造から今夜の夕焼けを**予測**（LINE本文ラベル「カメラAI予測」）、日没後（19:20実行）は実際の夕焼けを**実況評価**（ラベル「カメラ実況評価」）します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は **既存の Chill 指数 / Sunset 期待度を変えずに独立した参考指標** として LINE 本文とログ（`vision_*` カラム）に併記します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析は実行時刻と日没時刻の前後で2モードに分かれます。日没前（17時実行）は雲の構造から今夜の夕焼けを**予測**（LINE本文ラベル「カメラAI予測」）、日没後（19:20実行）は実際の夕焼けを**実況評価**（ラベル「カメラ実況評価」）します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は **既存の Chill 指数 / Sunset 期待度を変えずに独立した参考指標** として LINE 本文とログ（`vision_*` カラム）に併記します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
 
 ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこの 4 カラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します）。
 
@@ -155,11 +160,11 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 1. 13:00 JST に昼時点の見込みを確認
 2. 17:00 JST に夕方直前の見込みを確認（Vision「カメラAI予測」も記録）
-3. 19:20 JST に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（`run_time=19:20` の行が ground truth。同一 `date` の17:00行と突合する）。LINEにも実況評価を送信する
+3. 日没+20分（`zushi-chill-sunset-eta` で算出し `at` で予約）に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（日没後の実況評価行が ground truth。同一 `date` の17:00行と突合する）。LINEにも実況評価を送信する
 4. 日没前後に実際の空模様、夕焼け、快適度を確認
-5. 6月末に予測ログと実測評価（19:20行のVisionスコア）の乖離を確認し、スコア式を調整
+5. 6月末に予測ログと実測評価（日没後行のVisionスコア）の乖離を確認し、スコア式を調整
 
-6月末には、17:00行の `Sunset期待度` と同一 `date` の19:20行のVision実況評価スコア（`vision_sunset_score`）の乖離が大きい日を重点的に確認します。乖離が大きい場合は、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
+6月末には、17:00行の `Sunset期待度` と同一 `date` の日没後行のVision実況評価スコア（`vision_sunset_score`）の乖離が大きい日を重点的に確認します。乖離が大きい場合は、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
 
 ## スコア計算
 

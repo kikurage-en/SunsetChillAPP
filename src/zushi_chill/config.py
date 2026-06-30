@@ -59,7 +59,7 @@ class Settings:
     vision_api_key: str = ""
     vision_model: str = "gemini-2.5-flash"
     vision_timeout_seconds: int = 30
-    vision_target_hours: frozenset[int] = frozenset({17, 19})
+    vision_target_hours: frozenset[int] = frozenset({16, 17, 18, 19})
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -112,7 +112,7 @@ class Settings:
         vision_target_hours = _hours_from_env(
             "VISION_TARGET_HOURS",
             legacy_name="VISION_TARGET_HOUR",
-            default=frozenset({17, 19}),
+            default=frozenset({16, 17, 18, 19}),
         )
 
         return cls(
