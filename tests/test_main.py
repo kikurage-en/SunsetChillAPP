@@ -34,7 +34,6 @@ def test_dry_run_prints_message_and_does_not_send_line(tmp_path, monkeypatch, ca
     csv_path = tmp_path / "dry_run.csv"
     monkeypatch.setenv("STORAGE_BACKEND", "csv")
     monkeypatch.setenv("CSV_PATH", str(csv_path))
-    monkeypatch.setenv("GOOGLE_FORM_URL", "https://forms.example/test")
     fake_weather_client = FakeWeatherClient()
     monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
 
@@ -43,7 +42,6 @@ def test_dry_run_prints_message_and_does_not_send_line(tmp_path, monkeypatch, ca
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "逗子サンセットチル指数" in output
-    assert "https://forms.example/test" in output
     assert csv_path.exists()
     assert fake_weather_client.target_date.isoformat() == "2026-06-01"
 

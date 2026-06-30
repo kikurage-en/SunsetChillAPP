@@ -73,7 +73,6 @@ def main(argv: list[str] | None = None) -> int:
             scores,
             vision=vision_result,
             vision_mode=vision_mode(run_time, summary.sunset_time),
-            google_form_url=settings.google_form_url,
         )
 
         if dry_run:

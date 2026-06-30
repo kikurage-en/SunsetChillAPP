@@ -12,7 +12,6 @@ def test_line_message_contains_required_fields(sample_summary):
     message = build_line_message(
         sample_summary,
         replace(scores, comment=build_comment(sample_summary, scores)),
-        google_form_url="https://forms.example/test",
     )
 
     assert "【逗子サンセットチル指数｜2026-06-01 13:00】" in message
@@ -31,9 +30,8 @@ def test_line_message_contains_required_fields(sample_summary):
     assert "高層雲（平均）：" in message
     assert "視程（最小）：" in message
     assert "コメント：" in message
-    assert "検証メモ：" in message
-    assert "Googleフォーム：" in message
-    assert "https://forms.example/test" in message
+    assert "検証メモ" not in message
+    assert "Googleフォーム" not in message
 
 
 def test_line_message_includes_vision_section_when_present(sample_summary):
@@ -49,7 +47,6 @@ def test_line_message_includes_vision_section_when_present(sample_summary):
         sample_summary,
         replace(scores, comment=build_comment(sample_summary, scores)),
         vision=vision,
-        google_form_url="https://forms.example/test",
     )
 
     assert "カメラ実況評価" in message
@@ -72,7 +69,6 @@ def test_line_message_labels_vision_as_prediction_in_predict_mode(sample_summary
         replace(scores, comment=build_comment(sample_summary, scores)),
         vision=vision,
         vision_mode="predict",
-        google_form_url="https://forms.example/test",
     )
 
     assert "カメラAI予測" in message
@@ -85,7 +81,6 @@ def test_line_message_omits_vision_section_when_absent(sample_summary):
     message = build_line_message(
         sample_summary,
         replace(scores, comment=build_comment(sample_summary, scores)),
-        google_form_url="https://forms.example/test",
     )
 
     assert "カメラ実況評価" not in message
@@ -97,7 +92,6 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
     message = build_line_message(
         sample_summary,
         replace(scores, comment=build_comment(sample_summary, scores)),
-        google_form_url="https://forms.example/test",
     )
 
     assert "予報" not in message
@@ -106,8 +100,7 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
     assert "発表" not in message
     assert "対象時間帯" in message
     assert "予測値を集計" in message
-    assert "検証メモ" in message
-    assert "実際の空模様" in message
+    assert "検証メモ" not in message
 
 
 def test_comment_changes_by_scores_and_weather(sample_summary):

@@ -569,7 +569,6 @@ def _settings(**overrides):
         "line_target_id": "",
         "line_channel_secret": "",
         "line_bot_user_id": "",
-        "google_form_url": "",
         "storage_backend": "csv",
         "csv_path": "logs/chill_predictions.csv",
         "google_sheets_spreadsheet_id": "",

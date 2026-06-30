@@ -12,7 +12,6 @@ def test_settings_loads_dotenv_without_overriding_environment(tmp_path, monkeypa
                 "LOCATION_NAME=env file location",
                 "LATITUDE=35.1",
                 "LONGITUDE=139.2",
-                "GOOGLE_FORM_URL='https://forms.example/dotenv'",
                 "ALLOW_MISSING_HOURLY_FIELDS=visibility, wind_gusts_10m",
             ]
         ),
@@ -26,7 +25,6 @@ def test_settings_loads_dotenv_without_overriding_environment(tmp_path, monkeypa
     assert settings.location_name == "real environment location"
     assert settings.latitude == 35.1
     assert settings.longitude == 139.2
-    assert settings.google_form_url == "https://forms.example/dotenv"
     assert settings.allow_missing_hourly_fields == frozenset({"visibility", "wind_gusts_10m"})
 
 
@@ -84,7 +82,6 @@ def test_settings_strips_string_environment_values(monkeypatch):
     monkeypatch.setenv("LINE_TARGET_ID", " group-id ")
     monkeypatch.setenv("LINE_CHANNEL_SECRET", " secret ")
     monkeypatch.setenv("LINE_BOT_USER_ID", " bot-user-id ")
-    monkeypatch.setenv("GOOGLE_FORM_URL", " https://forms.example/test ")
     monkeypatch.setenv("LIVE_CAMERA_IMAGE_BASE_URL", " https://pages.example/repo ")
     monkeypatch.setenv("LIVE_CAMERA_IMAGE_URL", " https://pages.example/repo/live.jpg ")
     monkeypatch.setenv("LIVE_CAMERA_PREVIEW_IMAGE_URL", " https://pages.example/repo/preview.jpg ")
@@ -102,7 +99,6 @@ def test_settings_strips_string_environment_values(monkeypatch):
     assert settings.line_target_id == "group-id"
     assert settings.line_channel_secret == "secret"
     assert settings.line_bot_user_id == "bot-user-id"
-    assert settings.google_form_url == "https://forms.example/test"
     assert settings.live_camera_image_base_url == "https://pages.example/repo"
     assert settings.live_camera_image_url == "https://pages.example/repo/live.jpg"
     assert settings.live_camera_preview_image_url == "https://pages.example/repo/preview.jpg"
