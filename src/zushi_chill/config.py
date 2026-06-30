@@ -38,7 +38,6 @@ class Settings:
     line_target_id: str
     line_channel_secret: str
     line_bot_user_id: str
-    google_form_url: str
     storage_backend: str
     csv_path: str
     google_sheets_spreadsheet_id: str
@@ -125,7 +124,6 @@ class Settings:
             line_target_id=_env("LINE_TARGET_ID", ""),
             line_channel_secret=_env("LINE_CHANNEL_SECRET", ""),
             line_bot_user_id=_env("LINE_BOT_USER_ID", ""),
-            google_form_url=_env("GOOGLE_FORM_URL", ""),
             storage_backend=storage_backend,
             csv_path=_env("CSV_PATH", "logs/chill_predictions.csv"),
             google_sheets_spreadsheet_id=_env("GOOGLE_SHEETS_SPREADSHEET_ID", ""),

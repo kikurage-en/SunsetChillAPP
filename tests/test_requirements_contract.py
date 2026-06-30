@@ -144,7 +144,6 @@ def test_readme_documents_runtime_configuration():
         "LIVE_CAMERA_PREVIEW_IMAGE_URL=",
         "LIVE_CAMERA_PUBLIC_DIR=public",
         "LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS=20",
-        "GOOGLE_FORM_URL=...",
         "STORAGE_BACKEND=csv",
         "CSV_PATH=logs/chill_predictions.csv",
         "GOOGLE_SHEETS_SPREADSHEET_ID=...",

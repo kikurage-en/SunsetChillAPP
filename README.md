@@ -33,7 +33,6 @@ LIVE_CAMERA_IMAGE_URL=
 LIVE_CAMERA_PREVIEW_IMAGE_URL=
 LIVE_CAMERA_PUBLIC_DIR=public
 LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS=20
-GOOGLE_FORM_URL=...
 STORAGE_BACKEND=csv
 CSV_PATH=logs/chill_predictions.csv
 GOOGLE_SHEETS_SPREADSHEET_ID=...
@@ -158,22 +157,9 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 2. 17:00 JST に夕方直前の見込みを確認（Vision「カメラAI予測」も記録）
 3. 19:20 JST に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（`run_time=19:20` の行が ground truth。同一 `date` の17:00行と突合する）。LINEにも実況評価を送信する
 4. 日没前後に実際の空模様、夕焼け、快適度を確認
-5. Googleフォームに `◎ / ○ / △ / ×` とメモ、必要に応じて写真を記録
-6. 6月末に予測ログと実測評価（19:20行のVisionスコア + フォーム記録）の乖離を確認し、スコア式を調整
+5. 6月末に予測ログと実測評価（19:20行のVisionスコア）の乖離を確認し、スコア式を調整
 
-Googleフォームには、予測ログと突合しやすいように以下の項目を用意します。
-
-- 日付
-- 記録時刻
-- 空模様評価: `◎ / ○ / △ / ×`
-- 夕焼け評価: `◎ / ○ / △ / ×`
-- 快適度評価: `◎ / ○ / △ / ×`
-- 風の体感: `弱い / ちょうどよい / 強い`
-- 蒸し暑さ: `なし / ややあり / かなりあり`
-- 写真
-- メモ
-
-6月末には、`Sunset期待度80以上だが実測△/×`、`Sunset期待度50未満だが実測◎/○`、`Chill指数80以上だが快適度△/×`、`Chill指数50未満だが快適度◎/○` を重点的に確認します。乖離が大きい場合は、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
+6月末には、17:00行の `Sunset期待度` と同一 `date` の19:20行のVision実況評価スコア（`vision_sunset_score`）の乖離が大きい日を重点的に確認します。乖離が大きい場合は、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
 
 ## スコア計算
 

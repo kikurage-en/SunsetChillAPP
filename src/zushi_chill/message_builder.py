@@ -31,15 +31,14 @@ def build_line_message(
     *,
     vision: VisionResult | None = None,
     vision_mode: str = "actual",
-    google_form_url: str = "",
 ) -> str:
     comment = scores.comment or build_comment(summary, scores)
     vision_section = ""
     if vision is not None:
         vision_label = "カメラAI予測" if vision_mode == "predict" else "カメラ実況評価"
         vision_section = (
-            f"\n📷 {vision_label}：{vision.sunset_score} / 100（{vision.sky_condition}）\n"
-            f"{vision.comment}\n"
+            f"\n\n📷 {vision_label}：{vision.sunset_score} / 100（{vision.sky_condition}）\n"
+            f"{vision.comment}"
         )
     return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
 
@@ -60,12 +59,7 @@ Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）
 視程（最小）：{summary.visibility / 1000:.1f}km
 
 コメント：
-{comment}
-{vision_section}
-検証メモ：
-実際の空模様と快適度を「◎ / ○ / △ / ×」で記録してください。
-Googleフォーム：
-{google_form_url}"""
+{comment}{vision_section}"""
 
 
 def wind_direction_label(degrees: float) -> str:
