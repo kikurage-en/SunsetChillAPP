@@ -53,9 +53,12 @@ VISION_MODEL=gemini-2.5-flash
 VISION_TIMEOUT_SECONDS=30
 VISION_TARGET_HOURS=16,17,18,19
 SUNSET_CLOUD_OFFSET_KM=40
+SUNSET_VISION_BLEND_WEIGHT=0.8
 ```
 
 `SUNSET_CLOUD_OFFSET_KM` は、Sunset期待度の雲量をどれだけ西(日没方位)へ離れた地点から取得するかの距離（km）です。既定は 40。`0` を指定すると分離を無効化し、Chill指数と同じ逗子海岸の雲量で Sunset期待度を算出します。
+
+`SUNSET_VISION_BLEND_WEIGHT` は、日没前のVisionカメラAI予測を Sunset期待度の表示値へブレンドする際の Vision の重み（0〜1）です。既定は 0.8（Vision 8 割・式 2 割）。`0` を指定するとブレンドを無効化し、式スコアをそのまま表示します。ブレンドは日没前（予測モード）でVision解析が成功した実行にのみ適用され、純式スコア `sunset_score` はログにそのまま残します（詳細は「スコア計算」節）。
 
 ## LINE Messaging API
 
@@ -153,11 +156,13 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 指定ワークシートがない場合は自動作成します。ワークシートの1行目には保存カラムのヘッダーが自動で作られます。同じ `date`、`run_time`、`location_name` の行がある場合は、LINE送信結果を同じ行へ更新します。
 
-## ライブカメラ画像の Vision 解析（独立指標）
+## ライブカメラ画像の Vision 解析
 
-`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析は実行時刻と日没時刻の前後で2モードに分かれます。日没前（17時実行）は雲の構造から今夜の夕焼けを**予測**（LINE本文ラベル「カメラAI予測」）、日没後（19:20実行）は実際の夕焼けを**実況評価**（ラベル「カメラ実況評価」）します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は **既存の Chill 指数 / Sunset 期待度を変えずに独立した参考指標** として LINE 本文とログ（`vision_*` カラム）に併記します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析は実行時刻と日没時刻の前後で2モードに分かれます。日没前（17時実行）は雲の構造から今夜の夕焼けを**予測**（LINE本文ラベル「カメラAI予測」）、日没後（19:20実行）は実際の夕焼けを**実況評価**（ラベル「カメラ実況評価」）します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は LINE 本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
 
-ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこの 4 カラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します）。
+日没前（予測モード）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 Vision 8 割）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没後（実況評価モード）は ground truth なのでブレンドせず、`vision_sunset_score` として実測を記録します。`Chill指数` は Vision の影響を受けません。
+
+ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムと、ブレンド結果の `final_sunset_score` / `final_sunset_label` の 2 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこれらのカラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します。Google Sheets はヘッダー行を自動移行します）。
 
 ## 6月の検証運用
 
@@ -167,7 +172,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 4. 日没前後に実際の空模様、夕焼け、快適度を確認
 5. 6月末に予測ログと実測評価（日没後行のVisionスコア）の乖離を確認し、スコア式を調整
 
-6月末には、17:00行の `Sunset期待度` と同一 `date` の日没後行のVision実況評価スコア（`vision_sunset_score`）の乖離が大きい日を重点的に確認します。乖離が大きい場合は、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
+式の乖離検証には、表示用のブレンド値 `final_sunset_score` ではなく**純式スコア `sunset_score`**（17:00行）と、同一 `date` の日没後行のVision実況評価スコア（`vision_sunset_score`）を突合します。乖離が大きい日を重点的に確認し、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
 
 ## スコア計算
 
@@ -175,7 +180,18 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 夕焼けの見え方は「陽が沈む方角（西の水平線）の雲」に支配されるため、`Sunset期待度` の雲量（総雲量・低層・中層・高層）は逗子海岸ではなく、当日の日没方位へ `SUNSET_CLOUD_OFFSET_KM` km 離れた地点の値を使います。日没方位は季節で変動する（逗子で夏至≈299°、冬至≈241°）ため、日付から都度計算します。西地点の取得に失敗した場合は逗子海岸の雲量へフォールバックします。ログには使用した雲量を `sunset_cloud_cover` / `sunset_cloud_cover_low` / `sunset_cloud_cover_mid` / `sunset_cloud_cover_high` として記録します。
 
-`Chill指数` は体感温度、湿度、風、降水リスク、Sunset期待度を重み付きで合成します。Chill指数の雲量は逗子海岸の値を使います。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
+式（`sunset_score`）は単一時刻の雲スカラー値だけを使うため、「雲が光を遮る日」と「雲が夕日を受けて赤くなる日」を分離できません。実際の空を見るVisionカメラAI予測の方が精度が高いため、日没前（予測モード）でVision解析が成功した実行では、LINE本文に表示する `Sunset期待度` を式スコアとVision予測スコアのブレンドで算出します。
+
+```txt
+final_sunset_score = round(
+    (1 - SUNSET_VISION_BLEND_WEIGHT) * sunset_score
+    + SUNSET_VISION_BLEND_WEIGHT * vision_sunset_score
+)
+```
+
+`SUNSET_VISION_BLEND_WEIGHT`（既定 0.8）が 0、Vision が無効・欠測、または日没後（実況評価モード）の実行では、ブレンドせず `final_sunset_score = sunset_score` とします。**純式スコア `sunset_score` はブレンドで上書きせず別カラムで保持**するため、「式 vs 日没後Vision実測」の乖離検証を前向きに継続できます。表示ラベル（S〜D）は `final_sunset_score` を基準にします。
+
+`Chill指数` は体感温度、湿度、風、降水リスク、Sunset期待度（純式 `sunset_score`）を重み付きで合成します。Vision ブレンドの影響は受けません。Chill指数の雲量は逗子海岸の値を使います。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
 
 `Sunset期待度` の初期式は以下です。
 

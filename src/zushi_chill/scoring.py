@@ -68,6 +68,17 @@ def calculate_sunset_score(
     return _clamp_score(score)
 
 
+def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weight: float) -> int:
+    """式スコアと Vision カメラAI予測スコアを ``vision_weight`` でブレンドする。
+
+    式は単一時刻の雲スカラー値しか使えず「雲が光を遮る/夕日を受ける」を分離できない
+    ため、実際の空を見る Vision の方が精度が高い。表示用の Sunset期待度をこの合成値
+    にする一方、純式 ``sunset_score`` は検証継続のためログにそのまま残す(呼び出し側)。
+    """
+    blended = (1.0 - vision_weight) * sunset_score + vision_weight * vision_sunset_score
+    return _clamp_score(blended)
+
+
 def calculate_chill_score(summary: WeatherSummary, sunset_score: int) -> int:
     score = (
         apparent_temperature_score(summary.apparent_temperature) * 0.30

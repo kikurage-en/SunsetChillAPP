@@ -6,6 +6,23 @@ from zushi_chill.message_builder import build_comment, build_line_message, wind_
 from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult
 
 
+def test_headline_shows_blended_final_sunset_score(sample_summary):
+    """本文の Sunset期待度 見出しは、渡されたブレンド値(final_*)を表示する。
+    純式スコア(scores.sunset_score)ではなく、Vision反映後の値を staff に見せる。
+    """
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=70, chill_label="A")
+
+    blended = build_line_message(
+        sample_summary, scores, final_sunset_score=68, final_sunset_label="B"
+    )
+    assert "Sunset期待度：68 / 100（B）" in blended
+    assert "Sunset期待度：40 / 100（C）" not in blended
+
+    # final 未指定なら純式スコアをそのまま表示(後方互換)
+    plain = build_line_message(sample_summary, scores)
+    assert "Sunset期待度：40 / 100（C）" in plain
+
+
 def test_message_and_comment_use_western_sunset_cloud(sample_summary):
     """本文の雲量とコメントの雲判定は、Sunset期待度を駆動する西の日没方向の雲を使う。
 

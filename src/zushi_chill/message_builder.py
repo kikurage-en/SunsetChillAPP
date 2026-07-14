@@ -38,9 +38,16 @@ def build_line_message(
     vision: VisionResult | None = None,
     vision_mode: str = "actual",
     sunset_cloud: SunsetCloud | None = None,
+    final_sunset_score: int | None = None,
+    final_sunset_label: str | None = None,
 ) -> str:
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
     comment = scores.comment or build_comment(summary, scores, sunset_cloud)
+    # 表示する Sunset期待度は Vision ブレンド後の値(未指定なら純式スコア)。
+    display_sunset_score = (
+        final_sunset_score if final_sunset_score is not None else scores.sunset_score
+    )
+    display_sunset_label = final_sunset_label or scores.sunset_label
     vision_section = ""
     if vision is not None:
         vision_label = "カメラAI予測" if vision_mode == "predict" else "カメラ実況評価"
@@ -51,7 +58,7 @@ def build_line_message(
     return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
 
 Chill指数：{scores.chill_score} / 100（{scores.chill_label}）
-Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）
+Sunset期待度：{display_sunset_score} / 100（{display_sunset_label}）
 
 日没：{summary.sunset_time.strftime("%H:%M")}
 対象時間帯：{summary.target_window_start.strftime("%H:%M")}〜{summary.target_window_end.strftime("%H:%M")}

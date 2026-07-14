@@ -143,6 +143,25 @@ def test_settings_rejects_invalid_google_sheets_worksheet_name(monkeypatch):
         Settings.from_env()
 
 
+def test_sunset_vision_blend_weight_defaults_and_bounds(monkeypatch):
+    # 既定は 0.8
+    assert Settings.from_env().sunset_vision_blend_weight == 0.8
+
+    monkeypatch.setenv("SUNSET_VISION_BLEND_WEIGHT", "0")
+    assert Settings.from_env().sunset_vision_blend_weight == 0.0
+
+    # 0〜1 の範囲外は拒否
+    monkeypatch.setenv("SUNSET_VISION_BLEND_WEIGHT", "1.5")
+    with pytest.raises(ConfigError, match="SUNSET_VISION_BLEND_WEIGHT"):
+        Settings.from_env()
+
+
+def test_sunset_cloud_offset_km_rejects_negative(monkeypatch):
+    monkeypatch.setenv("SUNSET_CLOUD_OFFSET_KM", "-5")
+    with pytest.raises(ConfigError, match="SUNSET_CLOUD_OFFSET_KM"):
+        Settings.from_env()
+
+
 def test_settings_normalizes_and_limits_google_sheets_worksheet_name(monkeypatch):
     monkeypatch.setenv("GOOGLE_SHEETS_WORKSHEET", " predictions ")
 
