@@ -79,10 +79,19 @@ class PredictionRecord:
     error_message: str = ""
     vision: VisionResult | None = None
     sunset_cloud: SunsetCloud | None = None
+    final_sunset_score: int | None = None
+    final_sunset_label: str | None = None
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
         sunset_cloud = self.sunset_cloud
+        # 表示用ブレンド値。未設定の実行(欠測・ブレンド無効)は純式スコアを既定にする。
+        final_sunset_score = (
+            self.final_sunset_score
+            if self.final_sunset_score is not None
+            else self.scores.sunset_score
+        )
+        final_sunset_label = self.final_sunset_label or self.scores.sunset_label
         data.update(
             {
                 "sunset_time": self.summary.sunset_time.isoformat(timespec="minutes"),
@@ -105,6 +114,8 @@ class PredictionRecord:
                 "sunset_cloud_cover_low": sunset_cloud.cloud_cover_low if sunset_cloud else "",
                 "sunset_cloud_cover_mid": sunset_cloud.cloud_cover_mid if sunset_cloud else "",
                 "sunset_cloud_cover_high": sunset_cloud.cloud_cover_high if sunset_cloud else "",
+                "final_sunset_score": final_sunset_score,
+                "final_sunset_label": final_sunset_label,
             }
         )
         return data

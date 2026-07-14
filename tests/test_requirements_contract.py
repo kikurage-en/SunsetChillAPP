@@ -45,6 +45,8 @@ def test_prediction_log_columns_match_requirements():
         "sunset_cloud_cover_low",
         "sunset_cloud_cover_mid",
         "sunset_cloud_cover_high",
+        "final_sunset_score",
+        "final_sunset_label",
     ]
     assert expected_columns == CSV_COLUMNS
 

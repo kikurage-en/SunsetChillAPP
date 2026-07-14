@@ -61,6 +61,7 @@ class Settings:
     vision_timeout_seconds: int = 30
     vision_target_hours: frozenset[int] = frozenset({16, 17, 18, 19})
     sunset_cloud_offset_km: float = 40.0
+    sunset_vision_blend_weight: float = 0.8
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -118,6 +119,9 @@ class Settings:
         sunset_cloud_offset_km = _non_negative_float_from_env(
             "SUNSET_CLOUD_OFFSET_KM", default=40.0
         )
+        sunset_vision_blend_weight = _unit_interval_float_from_env(
+            "SUNSET_VISION_BLEND_WEIGHT", default=0.8
+        )
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -151,6 +155,7 @@ class Settings:
             vision_timeout_seconds=vision_timeout_seconds,
             vision_target_hours=vision_target_hours,
             sunset_cloud_offset_km=sunset_cloud_offset_km,
+            sunset_vision_blend_weight=sunset_vision_blend_weight,
         )
 
     def require_line(self) -> None:
@@ -246,4 +251,15 @@ def _non_negative_float_from_env(name: str, *, default: float) -> float:
         raise ConfigError(f"{name} must be a non-negative number") from exc
     if parsed < 0:
         raise ConfigError(f"{name} must be a non-negative number")
+    return parsed
+
+
+def _unit_interval_float_from_env(name: str, *, default: float) -> float:
+    value = _env(name, str(default))
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a number between 0 and 1") from exc
+    if not 0.0 <= parsed <= 1.0:
+        raise ConfigError(f"{name} must be a number between 0 and 1")
     return parsed

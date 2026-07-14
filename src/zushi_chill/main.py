@@ -13,8 +13,14 @@ from zushi_chill.config import ConfigError, Settings
 from zushi_chill.line_client import LineClient
 from zushi_chill.live_camera import build_capture_relative_path, build_capture_url
 from zushi_chill.message_builder import build_comment, build_line_message
-from zushi_chill.models import PredictionRecord, SunsetCloud, VisionResult, WeatherSummary
-from zushi_chill.scoring import calculate_scores
+from zushi_chill.models import (
+    PredictionRecord,
+    ScoreResult,
+    SunsetCloud,
+    VisionResult,
+    WeatherSummary,
+)
+from zushi_chill.scoring import blend_sunset_score, calculate_scores, score_label
 from zushi_chill.storage import storage_from_settings
 from zushi_chill.sunset_geometry import sunset_cloud_point
 from zushi_chill.vision_client import analyze_image, vision_mode
@@ -70,12 +76,18 @@ def main(argv: list[str] | None = None) -> int:
         vision_result = _analyze_live_camera(
             settings, run_time, live_camera_image_url, summary.sunset_time
         )
+        mode = vision_mode(run_time, summary.sunset_time)
+        final_sunset_score, final_sunset_label = _blend_final_sunset(
+            scores, vision_result, mode, settings
+        )
         message = build_line_message(
             summary,
             scores,
             vision=vision_result,
-            vision_mode=vision_mode(run_time, summary.sunset_time),
+            vision_mode=mode,
             sunset_cloud=sunset_cloud,
+            final_sunset_score=final_sunset_score,
+            final_sunset_label=final_sunset_label,
         )
 
         if dry_run:
@@ -85,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
                 line_sent=False,
                 vision=vision_result,
                 sunset_cloud=sunset_cloud,
+                final_sunset_score=final_sunset_score,
+                final_sunset_label=final_sunset_label,
             )
             storage.save(record)
             print(message)
@@ -96,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
             line_sent=False,
             vision=vision_result,
             sunset_cloud=sunset_cloud,
+            final_sunset_score=final_sunset_score,
+            final_sunset_label=final_sunset_label,
         )
         storage.save(pending_record)
         try:
@@ -121,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
                 error_message=str(exc),
                 vision=vision_result,
                 sunset_cloud=sunset_cloud,
+                final_sunset_score=final_sunset_score,
+                final_sunset_label=final_sunset_label,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -137,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
             line_sent=True,
             vision=vision_result,
             sunset_cloud=sunset_cloud,
+            final_sunset_score=final_sunset_score,
+            final_sunset_label=final_sunset_label,
         )
         try:
             storage.replace_latest(sent_record)
@@ -147,6 +167,28 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logging.getLogger(__name__).exception("Run failed: %s", exc)
         return 1
+
+
+def _blend_final_sunset(
+    scores: ScoreResult,
+    vision: VisionResult | None,
+    mode: str,
+    settings: Settings,
+) -> tuple[int, str]:
+    """表示用 Sunset期待度(式とVisionカメラAI予測のブレンド)とラベルを返す。
+
+    ブレンドするのは日没前(予測モード)でVision解析が成功した実行のみ。日没後
+    (実況評価=ground truth)・Vision欠測・重み0 ではブレンドせず純式スコアを返す。
+    純式スコア ``scores.sunset_score`` はここでは変えない(呼び出し側でログ保持)。
+    """
+    if vision is not None and mode == "predict" and settings.sunset_vision_blend_weight > 0:
+        blended = blend_sunset_score(
+            scores.sunset_score,
+            vision.sunset_score,
+            settings.sunset_vision_blend_weight,
+        )
+        return blended, score_label(blended)
+    return scores.sunset_score, scores.sunset_label
 
 
 def _resolve_sunset_cloud(

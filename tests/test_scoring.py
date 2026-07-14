@@ -5,6 +5,7 @@ from dataclasses import replace
 from zushi_chill.models import SunsetCloud
 from zushi_chill.scoring import (
     apparent_temperature_score,
+    blend_sunset_score,
     calculate_chill_score,
     calculate_scores,
     calculate_sunset_score,
@@ -13,6 +14,19 @@ from zushi_chill.scoring import (
     score_label,
     wind_score,
 )
+
+
+def test_blend_sunset_score_weights_vision_against_formula():
+    """式スコアと Vision カメラAI予測を vision_weight で線形合成する(既定0.8=Vision8割)。"""
+    # round(0.2*40 + 0.8*75) = round(68.0) = 68
+    assert blend_sunset_score(40, 75, 0.8) == 68
+    # round(0.2*100 + 0.8*65) = round(72.0) = 72
+    assert blend_sunset_score(100, 65, 0.8) == 72
+    # 重み0 は純式、重み1 は純Vision
+    assert blend_sunset_score(40, 75, 0.0) == 40
+    assert blend_sunset_score(40, 75, 1.0) == 75
+    # 0〜100 にクランプ
+    assert blend_sunset_score(0, 200, 1.0) == 100
 
 
 def test_scores_are_clamped(sample_summary):

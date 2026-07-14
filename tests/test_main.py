@@ -605,3 +605,81 @@ def test_western_cloud_fetch_failure_falls_back_to_zushi(tmp_path, monkeypatch):
     assert float(row["sunset_cloud_cover"]) == 10
     # 逗子が快晴なので Sunset期待度は高いまま
     assert int(row["sunset_score"]) == 100
+
+
+def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
+    from zushi_chill.scoring import blend_sunset_score
+
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    vision = VisionResult(
+        sunset_score=20, sky_condition="overcast", comment="曇り", model="gemini-2.5-flash"
+    )
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: vision)
+
+    # 日没(18:51)前の17:00=予測モード → ブレンド適用(既定 weight 0.8)
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
+    assert exit_code == 0
+
+    record = fake_storage.records[-1]
+    formula = record.scores.sunset_score
+    expected = blend_sunset_score(formula, 20, 0.8)
+    # 純式スコアは上書きされず、ブレンド結果は別値として保持
+    assert record.final_sunset_score == expected
+    assert expected != formula  # Vision(20)が式を引き下げている
+    # LINE本文の Sunset期待度 見出しはブレンド値
+    assert f"Sunset期待度：{expected} / 100" in fake_line_client.sent_messages[0]
+
+
+def test_post_sunset_vision_is_not_blended(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    vision = VisionResult(
+        sunset_score=20, sky_condition="overcast", comment="実測", model="gemini-2.5-flash"
+    )
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: vision)
+
+    # 日没(18:51)後の19:20=実況評価モード → ground truth なのでブレンドしない
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "19:20"])
+    assert exit_code == 0
+
+    record = fake_storage.records[-1]
+    assert record.final_sunset_score == record.scores.sunset_score
+    assert (
+        f"Sunset期待度：{record.scores.sunset_score} / 100"
+        in fake_line_client.sent_messages[0]
+    )
+
+
+def test_run_without_vision_keeps_formula_as_final(tmp_path, monkeypatch):
+    csv_path = tmp_path / "novision.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    fake_weather_client = FakeWeatherClient()
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+
+    # 13:00 は VISION_TARGET_HOURS 外で Vision 無し → final = 式スコア
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    assert row["final_sunset_score"] == row["sunset_score"]
+    assert row["final_sunset_label"] == row["sunset_label"]
