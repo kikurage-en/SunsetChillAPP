@@ -3,7 +3,38 @@ from __future__ import annotations
 from dataclasses import replace
 
 from zushi_chill.message_builder import build_comment, build_line_message, wind_direction_label
-from zushi_chill.models import ScoreResult, VisionResult
+from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult
+
+
+def test_message_and_comment_use_western_sunset_cloud(sample_summary):
+    """本文の雲量とコメントの雲判定は、Sunset期待度を駆動する西の日没方向の雲を使う。
+
+    逗子の真上が晴れていても、陽の沈む先(西の水平線)が厚い雲なら、表示雲量・
+    コメントともにその西空の雲を反映しないと、Sunset期待度と本文が食い違う。
+    """
+    scores = ScoreResult(sunset_score=30, sunset_label="D", chill_score=72, chill_label="A")
+    zushi_clear = replace(
+        sample_summary,
+        cloud_cover=10,
+        cloud_cover_low=5,
+        cloud_cover_mid=10,
+        cloud_cover_high=15,
+    )
+    west_cloudy = SunsetCloud(
+        cloud_cover=90,
+        cloud_cover_low=80,
+        cloud_cover_mid=60,
+        cloud_cover_high=90,
+    )
+
+    message = build_line_message(zushi_clear, scores, sunset_cloud=west_cloudy)
+    # 雲量ブロックは西空の値で、見出しで方角を明示する
+    assert "夕焼け方向（西の空）の雲：" in message
+    assert "低層雲（平均）：80%" in message
+    assert "低層雲（平均）：5%" not in message
+    # コメントの雲判定も西空の低層雲(80%)で行う
+    comment = build_comment(zushi_clear, scores, west_cloudy)
+    assert "低層雲が多く" in comment
 
 
 def test_line_message_contains_required_fields(sample_summary):

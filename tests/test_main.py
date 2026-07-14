@@ -524,3 +524,84 @@ class FakeLineClient:
         )
         if self.error is not None:
             raise self.error
+
+
+def _fixture_payload_with_clouds(*, low: float, mid: float, high: float, total: float) -> dict:
+    path = Path(__file__).parent / "fixtures" / "open_meteo_sample.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    hourly = payload["hourly"]
+    n = len(hourly["time"])
+    hourly["cloud_cover"] = [total] * n
+    hourly["cloud_cover_low"] = [low] * n
+    hourly["cloud_cover_mid"] = [mid] * n
+    hourly["cloud_cover_high"] = [high] * n
+    return payload
+
+
+class SplitByLongitudeWeatherClient:
+    """逗子(経度139.5736)と、その西の日没方位地点で別々の雲量を返す。"""
+
+    def __init__(self, zushi_payload: dict, west_payload: dict):
+        self.zushi_payload = zushi_payload
+        self.west_payload = west_payload
+        self.calls: list[tuple[float, float]] = []
+
+    def fetch_forecast(self, *, latitude, longitude, timezone, target_date=None):
+        self.calls.append((round(latitude, 3), round(longitude, 3)))
+        return self.west_payload if longitude < 139.5 else self.zushi_payload
+
+
+class WestFetchFailsWeatherClient:
+    """西の日没方位地点だけ取得に失敗する。逗子(フォールバック先)は成功する。"""
+
+    def __init__(self, zushi_payload: dict):
+        self.zushi_payload = zushi_payload
+
+    def fetch_forecast(self, *, latitude, longitude, timezone, target_date=None):
+        if longitude < 139.5:
+            raise WeatherDataError("west fetch failed")
+        return self.zushi_payload
+
+
+def test_sunset_uses_western_clouds_while_chill_uses_zushi(tmp_path, monkeypatch):
+    csv_path = tmp_path / "split.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    zushi = _fixture_payload_with_clouds(low=0, mid=5, high=5, total=10)
+    west = _fixture_payload_with_clouds(low=90, mid=60, high=90, total=95)
+    client = SplitByLongitudeWeatherClient(zushi, west)
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: client)
+
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    row = rows[0]
+    # 逗子と、その西(経度<139.5)の両方が取得された
+    assert any(longitude < 139.5 for _, longitude in client.calls)
+    # Sunset期待度用の雲は西の値でログされる
+    assert float(row["sunset_cloud_cover"]) == 95
+    assert float(row["sunset_cloud_cover_low"]) == 90
+    # Chill指数用の cloud_cover は逗子(快晴)の値
+    assert float(row["cloud_cover"]) == 10
+    # 西が厚い雲なので Sunset期待度は大きく下がる(低層雲ペナルティ+総雲量85%以上キャップ)
+    assert int(row["sunset_score"]) <= 30
+
+
+def test_western_cloud_fetch_failure_falls_back_to_zushi(tmp_path, monkeypatch):
+    csv_path = tmp_path / "fallback.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    zushi = _fixture_payload_with_clouds(low=0, mid=5, high=5, total=10)
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: WestFetchFailsWeatherClient(zushi))
+
+    # 西の取得が失敗しても実行は止まらず、逗子の雲へフォールバックする
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    row = rows[0]
+    # フォールバックにより Sunset用の雲=逗子の値
+    assert float(row["sunset_cloud_cover"]) == 10
+    # 逗子が快晴なので Sunset期待度は高いまま
+    assert int(row["sunset_score"]) == 100

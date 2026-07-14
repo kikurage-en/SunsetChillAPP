@@ -60,6 +60,7 @@ class Settings:
     vision_model: str = "gemini-2.5-flash"
     vision_timeout_seconds: int = 30
     vision_target_hours: frozenset[int] = frozenset({16, 17, 18, 19})
+    sunset_cloud_offset_km: float = 40.0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -114,6 +115,9 @@ class Settings:
             legacy_name="VISION_TARGET_HOUR",
             default=frozenset({16, 17, 18, 19}),
         )
+        sunset_cloud_offset_km = _non_negative_float_from_env(
+            "SUNSET_CLOUD_OFFSET_KM", default=40.0
+        )
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -146,6 +150,7 @@ class Settings:
             vision_model=_env("VISION_MODEL", "gemini-2.5-flash"),
             vision_timeout_seconds=vision_timeout_seconds,
             vision_target_hours=vision_target_hours,
+            sunset_cloud_offset_km=sunset_cloud_offset_km,
         )
 
     def require_line(self) -> None:
@@ -230,4 +235,15 @@ def _positive_int_from_env(name: str, *, default: int) -> int:
         raise ConfigError(f"{name} must be a positive integer") from exc
     if parsed <= 0:
         raise ConfigError(f"{name} must be a positive integer")
+    return parsed
+
+
+def _non_negative_float_from_env(name: str, *, default: float) -> float:
+    value = _env(name, str(default))
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a non-negative number") from exc
+    if parsed < 0:
+        raise ConfigError(f"{name} must be a non-negative number")
     return parsed
