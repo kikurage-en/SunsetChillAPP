@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,6 +10,17 @@ import pytest
 from zushi_chill import config as config_module
 from zushi_chill.models import WeatherSummary
 from zushi_chill.weather_client import parse_forecast
+
+
+@pytest.fixture(autouse=True)
+def restore_os_environ():
+    # Settings.from_env() -> load_dotenv() は os.environ へ直接書き込む(monkeypatch
+    # 管理外)ため、.env を読むテストの値が後続テストへ漏れる。各テスト後にスナップ
+    # ショットへ復元して分離する(2026-07-14: test_config の LONGITUDE 漏れを検知)。
+    snapshot = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(snapshot)
 
 
 @pytest.fixture(autouse=True)

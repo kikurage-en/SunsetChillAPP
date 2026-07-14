@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from zushi_chill.models import ScoreResult, VisionResult, WeatherSummary
+from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult, WeatherSummary
 
 
-def build_comment(summary: WeatherSummary, scores: ScoreResult) -> str:
+def build_comment(
+    summary: WeatherSummary,
+    scores: ScoreResult,
+    sunset_cloud: SunsetCloud | None = None,
+) -> str:
+    # 雲に関する所見は Sunset期待度を駆動する「夕焼け方向(西の空)」の雲で判断する。
+    cloud = sunset_cloud or SunsetCloud.from_summary(summary)
     if scores.chill_score >= 80 and scores.sunset_score >= 70:
         parts = ["夕方の滞在環境、夕陽ともに期待できそうです。実際の空の抜け感を確認してください。"]
     elif scores.chill_score >= 70 and scores.sunset_score < 50:
@@ -15,9 +21,9 @@ def build_comment(summary: WeatherSummary, scores: ScoreResult) -> str:
     else:
         parts = ["夕方の実際の空模様と海辺の体感を確認してください。"]
 
-    if summary.cloud_cover_low >= 70:
+    if cloud.cloud_cover_low >= 70:
         parts.append("低層雲が多く、夕陽が隠れる可能性があります。")
-    if 20 <= summary.cloud_cover_high <= 70 and summary.cloud_cover_low < 50:
+    if 20 <= cloud.cloud_cover_high <= 70 and cloud.cloud_cover_low < 50:
         parts.append("高層雲がほどよく、夕焼け色が出る可能性があります。")
     if summary.wind_speed_10m >= 8:
         parts.append("風が強めです。海辺での体感は指数より厳しく感じる可能性があります。")
@@ -31,8 +37,10 @@ def build_line_message(
     *,
     vision: VisionResult | None = None,
     vision_mode: str = "actual",
+    sunset_cloud: SunsetCloud | None = None,
 ) -> str:
-    comment = scores.comment or build_comment(summary, scores)
+    cloud = sunset_cloud or SunsetCloud.from_summary(summary)
+    comment = scores.comment or build_comment(summary, scores, sunset_cloud)
     vision_section = ""
     if vision is not None:
         vision_label = "カメラAI予測" if vision_mode == "predict" else "カメラ実況評価"
@@ -53,9 +61,10 @@ Sunset期待度：{scores.sunset_score} / 100（{scores.sunset_label}）
 風（平均）：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
 突風（最大）：{summary.wind_gusts_10m:.1f}m/s
 降水確率（最大）：{summary.precipitation_probability:.0f}%
-低層雲（平均）：{summary.cloud_cover_low:.0f}%
-中層雲（平均）：{summary.cloud_cover_mid:.0f}%
-高層雲（平均）：{summary.cloud_cover_high:.0f}%
+夕焼け方向（西の空）の雲：
+低層雲（平均）：{cloud.cloud_cover_low:.0f}%
+中層雲（平均）：{cloud.cloud_cover_mid:.0f}%
+高層雲（平均）：{cloud.cloud_cover_high:.0f}%
 視程（最小）：{summary.visibility / 1000:.1f}km
 
 コメント：

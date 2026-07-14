@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from zushi_chill.models import SunsetCloud
 from zushi_chill.scoring import (
     apparent_temperature_score,
     calculate_chill_score,
@@ -198,8 +199,8 @@ def test_sunset_saturation_fix_against_recorded_sheet_inputs(sample_summary):
         visibility=10360,
         wind_speed_10m=2.2,
     )
-    # 総雲量70%以上の既存上限65は不変
-    assert calculate_sunset_score(record_20260609_1700) == 65
+    # 総雲量70%以上の上限65に加え、厚い中層雲(58.7%≥55)の上限60が効いて 60。
+    assert calculate_sunset_score(record_20260609_1700) == 60
 
 
 def test_high_precipitation_reduces_both_scores(sample_summary):
@@ -443,3 +444,68 @@ def test_sunset_score_matches_19_jst_vision_ground_truth(sample_summary):
     assert scores["06-13"] == 90
     assert scores["06-16"] == 65
     assert scores["06-18"] == 65
+
+
+def test_thick_mid_cloud_caps_sunset_score(sample_summary):
+    """厚い中層雲デッキは低い夕日を遮る。総雲量キャップが効かない帯(総雲量<70%)でも
+    中層雲が厚い日の過大評価を是正する。
+
+    2026-07-07 17:00(総雲量57%・中層57%・高層0%)は式が 100 に張り付いたが、
+    日没後Vision実測は 15(overcast)だった。中層雲キャップで過大評価を抑える。
+    """
+    record_20260707_1700 = replace(
+        sample_summary,
+        cloud_cover=57,
+        cloud_cover_low=7.7,
+        cloud_cover_mid=57,
+        cloud_cover_high=0,
+        precipitation_probability=14,
+        visibility=25420,
+        wind_speed_10m=1.9,
+    )
+    # 中層雲 57%(≥55)の上限60。旧実装ではどのキャップも効かず 100
+    assert calculate_sunset_score(record_20260707_1700) == 60
+    # さらに厚い中層雲(≥70%)は上限40
+    assert calculate_sunset_score(replace(record_20260707_1700, cloud_cover_mid=75)) == 40
+    # 中層雲が薄ければ(<55%)キャップは効かず、快晴は 100 のまま(良日を壊さない)
+    assert calculate_sunset_score(replace(record_20260707_1700, cloud_cover_mid=54)) == 100
+
+
+def test_sunset_score_uses_western_cloud_when_provided(sample_summary):
+    """Sunset期待度は西の日没方位地点の雲で算出する。逗子が快晴でも、陽の沈む先が
+    厚い雲なら夕焼けは出ない(2026-07-04型: 逗子 total60% だが西 total100%・実測15)。
+
+    一方 Chill指数の雲キャップは逗子の雲を使うため、西の雲では抑制されない。
+    """
+    comfortable_clear_zushi = replace(
+        sample_summary,
+        cloud_cover=10,
+        cloud_cover_low=0,
+        cloud_cover_mid=5,
+        cloud_cover_high=5,
+        apparent_temperature=25,
+        relative_humidity_2m=65,
+        precipitation_probability=0,
+        precipitation=0,
+        weather_code=1,
+        visibility=20000,
+        wind_speed_10m=3,
+        wind_gusts_10m=6,
+    )
+    cloudy_west = SunsetCloud(
+        cloud_cover=90,
+        cloud_cover_low=80,
+        cloud_cover_mid=60,
+        cloud_cover_high=90,
+    )
+
+    # sunset_cloud 無し = 逗子基準で快晴 → 100
+    assert calculate_sunset_score(comfortable_clear_zushi) == 100
+    # 西が厚い雲 → 低層雲ペナルティ+総雲量85%以上キャップで 30 以下
+    assert calculate_sunset_score(comfortable_clear_zushi, cloudy_west) <= 30
+
+    split_scores = calculate_scores(comfortable_clear_zushi, cloudy_west)
+    # Sunset は西の雲で低下する
+    assert split_scores.sunset_score <= 30
+    # Chill の雲キャップは逗子(快晴)基準なので、西が厚くても 65 上限は掛からない
+    assert split_scores.chill_score > 65

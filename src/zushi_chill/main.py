@@ -13,9 +13,10 @@ from zushi_chill.config import ConfigError, Settings
 from zushi_chill.line_client import LineClient
 from zushi_chill.live_camera import build_capture_relative_path, build_capture_url
 from zushi_chill.message_builder import build_comment, build_line_message
-from zushi_chill.models import PredictionRecord, VisionResult
+from zushi_chill.models import PredictionRecord, SunsetCloud, VisionResult, WeatherSummary
 from zushi_chill.scoring import calculate_scores
 from zushi_chill.storage import storage_from_settings
+from zushi_chill.sunset_geometry import sunset_cloud_point
 from zushi_chill.vision_client import analyze_image, vision_mode
 from zushi_chill.weather_client import OpenMeteoClient, parse_forecast
 
@@ -56,10 +57,11 @@ def main(argv: list[str] | None = None) -> int:
             run_time=run_time,
             allow_missing_fields=settings.allow_missing_hourly_fields,
         )
-        scores_without_comment = calculate_scores(summary)
+        sunset_cloud = _resolve_sunset_cloud(args, settings, summary, run_time)
+        scores_without_comment = calculate_scores(summary, sunset_cloud)
         scores = replace(
             scores_without_comment,
-            comment=build_comment(summary, scores_without_comment),
+            comment=build_comment(summary, scores_without_comment, sunset_cloud),
         )
         live_camera_image_url = settings.live_camera_image_url or build_capture_url(
             settings.live_camera_image_base_url,
@@ -73,18 +75,27 @@ def main(argv: list[str] | None = None) -> int:
             scores,
             vision=vision_result,
             vision_mode=vision_mode(run_time, summary.sunset_time),
+            sunset_cloud=sunset_cloud,
         )
 
         if dry_run:
             record = PredictionRecord(
-                summary=summary, scores=scores, line_sent=False, vision=vision_result
+                summary=summary,
+                scores=scores,
+                line_sent=False,
+                vision=vision_result,
+                sunset_cloud=sunset_cloud,
             )
             storage.save(record)
             print(message)
             return 0
 
         pending_record = PredictionRecord(
-            summary=summary, scores=scores, line_sent=False, vision=vision_result
+            summary=summary,
+            scores=scores,
+            line_sent=False,
+            vision=vision_result,
+            sunset_cloud=sunset_cloud,
         )
         storage.save(pending_record)
         try:
@@ -109,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
                 line_sent=False,
                 error_message=str(exc),
                 vision=vision_result,
+                sunset_cloud=sunset_cloud,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -120,7 +132,11 @@ def main(argv: list[str] | None = None) -> int:
             raise
 
         sent_record = PredictionRecord(
-            summary=summary, scores=scores, line_sent=True, vision=vision_result
+            summary=summary,
+            scores=scores,
+            line_sent=True,
+            vision=vision_result,
+            sunset_cloud=sunset_cloud,
         )
         try:
             storage.replace_latest(sent_record)
@@ -131,6 +147,50 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logging.getLogger(__name__).exception("Run failed: %s", exc)
         return 1
+
+
+def _resolve_sunset_cloud(
+    args: argparse.Namespace,
+    settings: Settings,
+    summary: WeatherSummary,
+    run_time: datetime,
+) -> SunsetCloud:
+    """Sunset期待度に使う雲量を、日没方位へ ``offset_km`` 離れた地点から取得する。
+
+    ``SUNSET_CLOUD_OFFSET_KM<=0`` または ``--input-json``(オフライン再現)では
+    逗子の雲量を使う。西地点の取得に失敗しても逗子へフォールバックし、実行全体は
+    止めない(1回の欠測で通知を落とさない)。
+    """
+    if settings.sunset_cloud_offset_km <= 0 or args.input_json:
+        return SunsetCloud.from_summary(summary)
+    try:
+        latitude, longitude = sunset_cloud_point(
+            settings.latitude,
+            settings.longitude,
+            run_time.date(),
+            settings.sunset_cloud_offset_km,
+        )
+        payload = OpenMeteoClient().fetch_forecast(
+            latitude=latitude,
+            longitude=longitude,
+            timezone=settings.timezone,
+            target_date=run_time.date() if args.date else None,
+        )
+        west = parse_forecast(
+            payload,
+            location_name=settings.location_name,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=settings.timezone,
+            run_time=run_time,
+            allow_missing_fields=settings.allow_missing_hourly_fields,
+        )
+        return SunsetCloud.from_summary(west)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Western sunset-cloud fetch failed; falling back to Zushi clouds: %s", exc
+        )
+        return SunsetCloud.from_summary(summary)
 
 
 def _should_run_vision(run_time: datetime, settings: Settings) -> bool:
