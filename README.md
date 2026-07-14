@@ -54,6 +54,9 @@ VISION_TIMEOUT_SECONDS=30
 VISION_TARGET_HOURS=16,17,18,19
 SUNSET_CLOUD_OFFSET_KM=40
 SUNSET_VISION_BLEND_WEIGHT=0.8
+SUNSETHUE_ENABLED=false
+SUNSETHUE_API_KEY=
+SUNSETHUE_TIMEOUT_SECONDS=20
 ```
 
 `SUNSET_CLOUD_OFFSET_KM` は、Sunset期待度の雲量をどれだけ西(日没方位)へ離れた地点から取得するかの距離（km）です。既定は 40。`0` を指定すると分離を無効化し、Chill指数と同じ逗子海岸の雲量で Sunset期待度を算出します。
@@ -163,6 +166,14 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 日没前（予測モード）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 Vision 8 割）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没後（実況評価モード）は ground truth なのでブレンドせず、`vision_sunset_score` として実測を記録します。`Chill指数` は Vision の影響を受けません。
 
 ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムと、ブレンド結果の `final_sunset_score` / `final_sunset_label` の 2 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこれらのカラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します。Google Sheets はヘッダー行を自動移行します）。
+
+## Sunsethue API による独立ベンチマーク（log-only）
+
+`SUNSETHUE_ENABLED=true` かつ `SUNSETHUE_API_KEY` が設定されている場合、各実行で [Sunsethue API](https://sunsethue.com/dev-api)（`GET https://api.sunsethue.com/event`）から逗子海岸の夕焼け品質予測を取得し、ログに記録します。Sunsethue は「日没時に光が雲へ届くか」を計算する ray-model で、西の水平線の抜けと上空の雲を内部で評価するため、座標は逗子海岸をそのまま渡します（`SUNSET_CLOUD_OFFSET_KM` の西地点分離は不要）。
+
+これは**式・Vision とは独立したベンチマーク**であり、**Chill 指数・Sunset 期待度・`final_sunset_score` のいずれも変えません**。目的は「式 `sunset_score` / Visionカメラ予測 / Sunsethue / 日没後Vision実測」を前向きに並べ、どの信号を主予測に採用するかを実測で選抜することです。取得に失敗してもメインのスコア算出・LINE 送信・保存は継続します（非致命）。
+
+ログには `sunsethue_quality`（0〜100、Sunsethue の `quality` 0〜1 を 100 倍）/ `sunsethue_cloud_cover`（%、`cloud_cover` 0〜1 を 100 倍）/ `sunsethue_quality_text`（Poor/Fair/Good/Great）の 3 カラムが追加されます（Google Sheets は自動移行）。認証は API キーを `key` クエリパラメータで渡します。Sunsethue は Cloudflare 配下でブラウザ以外の User-Agent を拒否するため、クライアントはブラウザ相当の User-Agent を送ります。無料枠は 1000 credits/日・**非商用**です。
 
 ## 6月の検証運用
 

@@ -683,3 +683,66 @@ def test_run_without_vision_keeps_formula_as_final(tmp_path, monkeypatch):
     row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
     assert row["final_sunset_score"] == row["sunset_score"]
     assert row["final_sunset_label"] == row["sunset_label"]
+
+
+def test_sunsethue_logged_when_enabled(tmp_path, monkeypatch):
+    from zushi_chill.models import SunsethueResult
+
+    csv_path = tmp_path / "sunsethue.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    monkeypatch.setenv("SUNSETHUE_ENABLED", "true")
+    monkeypatch.setenv("SUNSETHUE_API_KEY", "key")
+    fake_weather_client = FakeWeatherClient()
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(
+        main_module,
+        "fetch_sunset_quality",
+        lambda **kwargs: SunsethueResult(quality=30, cloud_cover=13, quality_text="Fair"),
+    )
+
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    assert row["sunsethue_quality"] == "30"
+    assert row["sunsethue_cloud_cover"] == "13"
+    assert row["sunsethue_quality_text"] == "Fair"
+
+
+def test_sunsethue_disabled_leaves_columns_empty(tmp_path, monkeypatch):
+    csv_path = tmp_path / "sunsethue_off.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    fake_weather_client = FakeWeatherClient()
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    assert row["sunsethue_quality"] == ""
+    assert row["sunsethue_quality_text"] == ""
+
+
+def test_sunsethue_fetch_failure_is_non_fatal(tmp_path, monkeypatch):
+    from zushi_chill.sunsethue_client import SunsethueError
+
+    csv_path = tmp_path / "sunsethue_fail.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    monkeypatch.setenv("SUNSETHUE_ENABLED", "true")
+    monkeypatch.setenv("SUNSETHUE_API_KEY", "key")
+    fake_weather_client = FakeWeatherClient()
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+
+    def boom(**kwargs):
+        raise SunsethueError("boom")
+
+    monkeypatch.setattr(main_module, "fetch_sunset_quality", boom)
+
+    # Sunsethue が失敗しても実行は止まらず、列は空でメインは継続
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    assert row["sunsethue_quality"] == ""

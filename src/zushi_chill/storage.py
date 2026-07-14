@@ -48,6 +48,9 @@ CSV_COLUMNS = [
     "sunset_cloud_cover_high",
     "final_sunset_score",
     "final_sunset_label",
+    "sunsethue_quality",
+    "sunsethue_cloud_cover",
+    "sunsethue_quality_text",
 ]
 
 
