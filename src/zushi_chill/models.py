@@ -72,6 +72,19 @@ class VisionResult:
 
 
 @dataclass(frozen=True)
+class SunsethueResult:
+    """Sunsethue API(ray-model)の夕焼け品質予測。式・Visionとは独立したベンチマーク。
+
+    ``quality`` / ``cloud_cover`` は API の 0〜1 を 100 倍した 0〜100 整数(式の
+    sunset_score・Vision と同じ土俵で突合できるように揃える)。
+    """
+
+    quality: int
+    cloud_cover: int
+    quality_text: str
+
+
+@dataclass(frozen=True)
 class PredictionRecord:
     summary: WeatherSummary
     scores: ScoreResult
@@ -81,6 +94,7 @@ class PredictionRecord:
     sunset_cloud: SunsetCloud | None = None
     final_sunset_score: int | None = None
     final_sunset_label: str | None = None
+    sunsethue: SunsethueResult | None = None
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
@@ -116,6 +130,9 @@ class PredictionRecord:
                 "sunset_cloud_cover_high": sunset_cloud.cloud_cover_high if sunset_cloud else "",
                 "final_sunset_score": final_sunset_score,
                 "final_sunset_label": final_sunset_label,
+                "sunsethue_quality": self.sunsethue.quality if self.sunsethue else "",
+                "sunsethue_cloud_cover": self.sunsethue.cloud_cover if self.sunsethue else "",
+                "sunsethue_quality_text": self.sunsethue.quality_text if self.sunsethue else "",
             }
         )
         return data

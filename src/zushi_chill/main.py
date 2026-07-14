@@ -17,12 +17,14 @@ from zushi_chill.models import (
     PredictionRecord,
     ScoreResult,
     SunsetCloud,
+    SunsethueResult,
     VisionResult,
     WeatherSummary,
 )
 from zushi_chill.scoring import blend_sunset_score, calculate_scores, score_label
 from zushi_chill.storage import storage_from_settings
 from zushi_chill.sunset_geometry import sunset_cloud_point
+from zushi_chill.sunsethue_client import fetch_sunset_quality
 from zushi_chill.vision_client import analyze_image, vision_mode
 from zushi_chill.weather_client import OpenMeteoClient, parse_forecast
 
@@ -80,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         final_sunset_score, final_sunset_label = _blend_final_sunset(
             scores, vision_result, mode, settings
         )
+        sunsethue_result = _collect_sunsethue(settings, run_time)
         message = build_line_message(
             summary,
             scores,
@@ -99,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
                 sunset_cloud=sunset_cloud,
                 final_sunset_score=final_sunset_score,
                 final_sunset_label=final_sunset_label,
+                sunsethue=sunsethue_result,
             )
             storage.save(record)
             print(message)
@@ -112,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
             sunset_cloud=sunset_cloud,
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
+            sunsethue=sunsethue_result,
         )
         storage.save(pending_record)
         try:
@@ -139,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
                 sunset_cloud=sunset_cloud,
                 final_sunset_score=final_sunset_score,
                 final_sunset_label=final_sunset_label,
+                sunsethue=sunsethue_result,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -157,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
             sunset_cloud=sunset_cloud,
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
+            sunsethue=sunsethue_result,
         )
         try:
             storage.replace_latest(sent_record)
@@ -167,6 +174,28 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logging.getLogger(__name__).exception("Run failed: %s", exc)
         return 1
+
+
+def _collect_sunsethue(settings: Settings, run_time: datetime) -> SunsethueResult | None:
+    """Sunsethue(ray-model)の夕焼け品質予測を log-only で取得する。
+
+    スコアには影響させず、式・Vision と突合するためのベンチマークとして記録するだけ。
+    無効・キー未設定なら None。取得失敗は非致命(警告して継続)。座標は逗子海岸を渡す
+    (ray-model が西の光路を内部評価するため西地点分離は不要)。
+    """
+    if not (settings.sunsethue_enabled and settings.sunsethue_api_key):
+        return None
+    try:
+        return fetch_sunset_quality(
+            latitude=settings.latitude,
+            longitude=settings.longitude,
+            target_date=run_time.date(),
+            api_key=settings.sunsethue_api_key,
+            timeout=settings.sunsethue_timeout_seconds,
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Sunsethue fetch failed; continuing: %s", exc)
+        return None
 
 
 def _blend_final_sunset(

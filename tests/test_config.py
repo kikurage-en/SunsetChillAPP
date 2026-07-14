@@ -162,6 +162,19 @@ def test_sunset_cloud_offset_km_rejects_negative(monkeypatch):
         Settings.from_env()
 
 
+def test_sunsethue_settings_default_disabled(monkeypatch):
+    settings = Settings.from_env()
+    assert settings.sunsethue_enabled is False
+    assert settings.sunsethue_api_key == ""
+    assert settings.sunsethue_timeout_seconds == 20
+
+    monkeypatch.setenv("SUNSETHUE_ENABLED", "true")
+    monkeypatch.setenv("SUNSETHUE_API_KEY", "abc123")
+    enabled = Settings.from_env()
+    assert enabled.sunsethue_enabled is True
+    assert enabled.sunsethue_api_key == "abc123"
+
+
 def test_settings_normalizes_and_limits_google_sheets_worksheet_name(monkeypatch):
     monkeypatch.setenv("GOOGLE_SHEETS_WORKSHEET", " predictions ")
 

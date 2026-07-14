@@ -334,7 +334,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AM2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AP2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -358,7 +358,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AM3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AP3"
     assert fake_service.appends == []
 
 
@@ -414,7 +414,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:AM"
+    assert fake_service.last_get["range"] == "'predictions'!A:AP"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -461,7 +461,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AM2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AP2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

@@ -62,6 +62,9 @@ class Settings:
     vision_target_hours: frozenset[int] = frozenset({16, 17, 18, 19})
     sunset_cloud_offset_km: float = 40.0
     sunset_vision_blend_weight: float = 0.8
+    sunsethue_enabled: bool = False
+    sunsethue_api_key: str = ""
+    sunsethue_timeout_seconds: int = 20
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -122,6 +125,7 @@ class Settings:
         sunset_vision_blend_weight = _unit_interval_float_from_env(
             "SUNSET_VISION_BLEND_WEIGHT", default=0.8
         )
+        sunsethue_timeout_seconds = _positive_int_from_env("SUNSETHUE_TIMEOUT_SECONDS", default=20)
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -156,6 +160,9 @@ class Settings:
             vision_target_hours=vision_target_hours,
             sunset_cloud_offset_km=sunset_cloud_offset_km,
             sunset_vision_blend_weight=sunset_vision_blend_weight,
+            sunsethue_enabled=_bool_from_env(_env("SUNSETHUE_ENABLED", "")),
+            sunsethue_api_key=_env("SUNSETHUE_API_KEY", ""),
+            sunsethue_timeout_seconds=sunsethue_timeout_seconds,
         )
 
     def require_line(self) -> None:
