@@ -133,6 +133,8 @@ echo "zushi-chill-trigger-actions --date $(TZ=Asia/Tokyo date +%F) --run-time $R
 
 日没+20分の実行は日没後の実測収集（ground truth）を兼ね、`13:00` / `17:00` と同じく `manual_mode=send_line`（既定）で起動します。日没後のカメラ画像のVision実況評価を含む行をログへ保存しつつ、LINEにも送信します。`zushi-chill-sunset-eta` は当日の日没+指定分の `HH:MM` を標準出力に返し、Open-Meteo取得に失敗した場合は非ゼロ終了するため、上記の `&&` 連鎖（`RT=$(...) && ... | at`）で at 予約はスキップされます。LINE送信せずログ保存だけ行いたい場合は `--manual-mode dry_run` を付けます。
 
+上記の日没+N分の `at` 予約ワンライナーは `scripts/schedule_sunset_capture.sh` にまとめてあります。Contaboのcronから朝に1回 `scripts/schedule_sunset_capture.sh [OFFSET_MINUTES]`（既定20）を呼ぶと、当日の日没+N分に日没後キャプチャのトリガーを `at` 予約します（`/opt/SunsetChillAPP` と `.venv` を前提とし、ログは `/var/log/zushi-chill-actions-trigger.log`）。
+
 ```bash
 RUN_TIME="$(zushi-chill-sunset-eta --minutes 20)"
 echo "zushi-chill-trigger-actions --date $(TZ=Asia/Tokyo date +%F) --run-time $RUN_TIME --manual-mode dry_run" | at "$RUN_TIME"
