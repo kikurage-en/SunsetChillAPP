@@ -65,6 +65,13 @@ def calculate_sunset_score(
         score = min(score, 60)
     if summary.visibility < 5000:
         score = min(score, 50)
+    # 天井の再校正: 実測(日没後Vision)で85点以上の夕焼けは35日中1日しかなく、
+    # 式が85+を出した8日の実測中央値は68だった。好条件でも通常の上限は80とし、
+    # 90に届き得るのは色を最大限に通す超快晴(総雲量<15%かつ低層雲<5%)のみ。
+    if cloud.cloud_cover < 15 and cloud.cloud_cover_low < 5:
+        score = min(score, 90)
+    else:
+        score = min(score, 80)
     return _clamp_score(score)
 
 
