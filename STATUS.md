@@ -8,9 +8,9 @@
 
 Sunset期待度は次の4層で算出・記録している（Chill指数は影響を受けない）。
 
-- **層1**: Sunset期待度の雲量を、当日の日没方位へ `SUNSET_CLOUD_OFFSET_KM`（既定40km）離れた地点から取得（Chillは逗子海岸のまま）。ログ列 `sunset_cloud_*`。
+- **層1**: Sunset期待度の雲量を、当日の日没方位の地点から**雲の高さごとに距離を変えて**取得（Chillは逗子海岸のまま）。遮蔽側の低層雲・総雲量は `SUNSET_CLOUD_OFFSET_KM`（既定40km）、発色源の中・高層雲は `SUNSET_CLOUD_NEAR_OFFSET_KM`（既定20km、2026-07-18導入）。ログ列 `sunset_cloud_*`（low/cc=遠地点、mid/high=近地点）。
 - **層2**: 厚い中層雲キャップ（中層雲 55%→上限60、70%→上限40）。2026-07-17 に天井の再校正を追加（好条件でも通常上限80、超快晴＝Sunset用雲の total<15% かつ low<5% のみ90）。
-- **層3**: 日没前（予測モード）で Vision 解析成功時、表示する `Sunset期待度` を式とVisionカメラAI予測のブレンドにする（`final = round((1-w)*sunset_score + w*vision_sunset_score)`、`w=SUNSET_VISION_BLEND_WEIGHT` 既定0.8）。**純式 `sunset_score` 列は上書きせず温存**し、表示値は別列 `final_sunset_score`。日没後（実況評価）・欠測・13:00 はブレンドせず式。
+- **層3**: 日没前（予測モード）で Vision 解析成功時、表示する `Sunset期待度` を式とVisionカメラAI予測のブレンドにする（`final = round((1-w)*sunset_score + w*vision_sunset_score)`、`w=SUNSET_VISION_BLEND_WEIGHT` 既定0.8）。**上方キャップ `final ≤ 式+30`**（2026-07-18導入: カメラは西から来る雲の壁を見えないため。下方修正は無制限）。**純式 `sunset_score` 列は上書きせず温存**し、表示値は別列 `final_sunset_score`。日没後（実況評価）・欠測・13:00 はブレンドせず式。
 - **層4**: Sunsethue API（ray-model）の夕焼け品質予測を **log-only** 収集（列 `sunsethue_quality` 0-100 / `sunsethue_cloud_cover` % / `sunsethue_quality_text`）。スコアには影響しない独立ベンチマーク。`SUNSETHUE_ENABLED=true` で稼働。
 
 **デプロイ**: `main` が Truth Source（GitHub Actions `daily_chill.yml` が `GITHUB_REF=main` で実行し、スコア算出・LINE送信・Sheets保存を行う）。Contabo cron は 13:00 / 17:00 を固定時刻、日没後を**日没+20分の動的予約**（毎朝8時に `scripts/schedule_sunset_capture.sh` が `at` 予約＝季節連動。2026-07-14 に固定19:20から切替）。予測ログは Google Sheets `predictions` ワークシート（42列）。
@@ -70,7 +70,7 @@ ground truth = 同一 `date` の日没後行の `vision_sunset_score`。数日�
 - **ブレンド上方キャップ**: 大乖離日(|式−Vision|≥40)の勝敗は式3勝・Vision2勝。カメラは「これから来る壁」を見えないため、**Visionによる上方修正を式+30に制限**（下方修正は無制限=悪い空はカメラを信頼）すると、ブレンド MAE 14.0→13.0 / bias +4.6→+2.1。7/17の表示は58→40。コストは6/12型（式が誤って悲観・Visionが正しい日）の誤差増。
 - 合算（層別式+キャップ）: 17:00ブレンド表示は13.1でキャップ単独と同等だが、層別は13:00表示・Vision欠測fallbackの式自体を14.7へ改善する。
 
-**提案**: (1) mid/high の観測距離を20kmに分離（`SUNSET_CLOUD_NEAR_OFFSET_KM=20`、low/cc は現行40km）、(2) ブレンドに上方キャップ `final ≤ 式+30` を導入。→ ユーザー判断待ち。
+**→ 2026-07-18 に両方実装済み**: (1) mid/high の観測距離を20kmに分離（`SUNSET_CLOUD_NEAR_OFFSET_KM=20`、low/cc は現行40km。near取得失敗時はfar値へフォールバック）、(2) ブレンドに上方キャップ `final ≤ 式+30`（`scoring.py` の `VISION_UPLIFT_CAP`。下方修正は無制限）。机上見込み: 式 MAE 16.2→14.7、ブレンド 14.0→13.0。
 
 ## 保留中の判断（数日データ蓄積後に決める）
 

@@ -18,15 +18,26 @@ from zushi_chill.scoring import (
 
 def test_blend_sunset_score_weights_vision_against_formula():
     """式スコアと Vision カメラAI予測を vision_weight で線形合成する(既定0.8=Vision8割)。"""
-    # round(0.2*40 + 0.8*75) = round(68.0) = 68
+    # round(0.2*40 + 0.8*75) = round(68.0) = 68 (式+30=70 の上方キャップ内)
     assert blend_sunset_score(40, 75, 0.8) == 68
     # round(0.2*100 + 0.8*65) = round(72.0) = 72
     assert blend_sunset_score(100, 65, 0.8) == 72
-    # 重み0 は純式、重み1 は純Vision
+    # 重み0 は純式
     assert blend_sunset_score(40, 75, 0.0) == 40
-    assert blend_sunset_score(40, 75, 1.0) == 75
-    # 0〜100 にクランプ
-    assert blend_sunset_score(0, 200, 1.0) == 100
+    # 重み1 でも上方修正は式+30 まで
+    assert blend_sunset_score(40, 75, 1.0) == 70
+    assert blend_sunset_score(0, 200, 1.0) == 30
+
+
+def test_blend_uplift_is_capped_but_downgrade_is_not():
+    """Vision上方キャップ: 17:00のカメラは「これから西から来る雲の壁」を見えない
+    (2026-07-17: 式10=西40km低層雲97.7%を捕捉・実測15に対し Vision 70)ため、
+    上方修正は式+30まで。下方修正(7/07型: 式80・Vision15が的中)は制限しない。
+    """
+    # 7/17 実例: 旧ブレンド58 → キャップで40
+    assert blend_sunset_score(10, 70, 0.8) == 40
+    # 下方修正は自由(0.2*80 + 0.8*15 = 28)
+    assert blend_sunset_score(80, 15, 0.8) == 28
 
 
 def test_scores_are_clamped(sample_summary):

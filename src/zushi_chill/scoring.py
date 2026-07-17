@@ -75,14 +75,23 @@ def calculate_sunset_score(
     return _clamp_score(score)
 
 
+# Vision による上方修正の上限幅。17:00 のカメラは「これから西から来る雲の壁」を
+# 見られない(7/17: 式10=西40kmの低層雲97.7%を捕捉・実測15に対し Vision は70)ため、
+# 式からの持ち上げは +30 までに制限する。下方修正は制限しない(目の前の悪い空を
+# 写しているカメラは信頼できる)。
+VISION_UPLIFT_CAP = 30
+
+
 def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weight: float) -> int:
     """式スコアと Vision カメラAI予測スコアを ``vision_weight`` でブレンドする。
 
     式は単一時刻の雲スカラー値しか使えず「雲が光を遮る/夕日を受ける」を分離できない
     ため、実際の空を見る Vision の方が精度が高い。表示用の Sunset期待度をこの合成値
     にする一方、純式 ``sunset_score`` は検証継続のためログにそのまま残す(呼び出し側)。
+    Vision が式を上回る方向へは ``VISION_UPLIFT_CAP`` までしか持ち上げない。
     """
     blended = (1.0 - vision_weight) * sunset_score + vision_weight * vision_sunset_score
+    blended = min(blended, sunset_score + VISION_UPLIFT_CAP)
     return _clamp_score(blended)
 
 
