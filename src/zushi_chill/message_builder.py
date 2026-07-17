@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult, WeatherSummary
+from zushi_chill.scoring import score_label
 
 
 def build_comment(
@@ -48,34 +49,37 @@ def build_line_message(
         final_sunset_score if final_sunset_score is not None else scores.sunset_score
     )
     display_sunset_label = final_sunset_label or scores.sunset_label
+    cloud_line = (
+        f"低層 {cloud.cloud_cover_low:.0f}% / 中層 {cloud.cloud_cover_mid:.0f}%"
+        f" / 高層 {cloud.cloud_cover_high:.0f}%"
+    )
     vision_section = ""
     if vision is not None:
-        vision_label = "カメラAI予測" if vision_mode == "predict" else "カメラ実況評価"
+        vision_label = "ライブカメラAI予測" if vision_mode == "predict" else "ライブカメラ実況評価"
         vision_section = (
-            f"\n\n📷 {vision_label}：{vision.sunset_score} / 100（{vision.sky_condition}）\n"
+            f"\n\n📷 {vision_label}\n"
+            f"【 {score_label(vision.sunset_score)} 】{vision.sunset_score} / 100"
+            f"（{vision.sky_condition}）\n"
             f"{vision.comment}"
         )
     return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
 
-Chill指数：{scores.chill_score} / 100（{scores.chill_label}）
-Sunset期待度：{display_sunset_score} / 100（{display_sunset_label}）
+Sunset期待度【 {display_sunset_label} 】{display_sunset_score} / 100
+Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
+コメント：
+{comment}
 
 日没：{summary.sunset_time.strftime("%H:%M")}
 対象時間帯：{summary.target_window_start.strftime("%H:%M")}〜{summary.target_window_end.strftime("%H:%M")}
-以下は対象時間帯の予測値を集計したものです。
-体感温度（平均）：{summary.apparent_temperature:.1f}℃
-湿度（平均）：{summary.relative_humidity_2m:.0f}%
-風（平均）：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
-突風（最大）：{summary.wind_gusts_10m:.1f}m/s
+体感温度：{summary.apparent_temperature:.1f}℃
+湿度：{summary.relative_humidity_2m:.0f}%
+風：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
+突風：{summary.wind_gusts_10m:.1f}m/s
 降水確率（最大）：{summary.precipitation_probability:.0f}%
-夕焼け方向（西の空）の雲：
-低層雲（平均）：{cloud.cloud_cover_low:.0f}%
-中層雲（平均）：{cloud.cloud_cover_mid:.0f}%
-高層雲（平均）：{cloud.cloud_cover_high:.0f}%
-視程（最小）：{summary.visibility / 1000:.1f}km
 
-コメント：
-{comment}{vision_section}"""
+夕焼け方向の雲
+{cloud_line}
+視程：{summary.visibility / 1000:.1f}km{vision_section}"""
 
 
 def wind_direction_label(degrees: float) -> str:
