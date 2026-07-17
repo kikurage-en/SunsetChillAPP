@@ -67,8 +67,8 @@ def test_dry_run_can_use_fixture_input_json_without_api(tmp_path, monkeypatch, c
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert "Chill指数：" in output
-    assert "Sunset期待度：" in output
+    assert "Chill指数【" in output
+    assert "Sunset期待度【" in output
     rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
     assert len(rows) == 1
     assert rows[0]["line_sent"] == "False"
@@ -608,7 +608,7 @@ def test_western_cloud_fetch_failure_falls_back_to_zushi(tmp_path, monkeypatch):
 
 
 def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
-    from zushi_chill.scoring import blend_sunset_score
+    from zushi_chill.scoring import blend_sunset_score, score_label
 
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()
@@ -637,7 +637,10 @@ def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
     assert record.final_sunset_score == expected
     assert expected != formula  # Vision(20)が式を引き下げている
     # LINE本文の Sunset期待度 見出しはブレンド値
-    assert f"Sunset期待度：{expected} / 100" in fake_line_client.sent_messages[0]
+    assert (
+        f"Sunset期待度【 {score_label(expected)} 】{expected} / 100"
+        in fake_line_client.sent_messages[0]
+    )
 
 
 def test_post_sunset_vision_is_not_blended(monkeypatch):
@@ -663,9 +666,11 @@ def test_post_sunset_vision_is_not_blended(monkeypatch):
 
     record = fake_storage.records[-1]
     assert record.final_sunset_score == record.scores.sunset_score
+    from zushi_chill.scoring import score_label
+
     assert (
-        f"Sunset期待度：{record.scores.sunset_score} / 100"
-        in fake_line_client.sent_messages[0]
+        f"Sunset期待度【 {score_label(record.scores.sunset_score)} 】"
+        f"{record.scores.sunset_score} / 100" in fake_line_client.sent_messages[0]
     )
 
 

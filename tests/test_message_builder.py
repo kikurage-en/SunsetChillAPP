@@ -15,12 +15,12 @@ def test_headline_shows_blended_final_sunset_score(sample_summary):
     blended = build_line_message(
         sample_summary, scores, final_sunset_score=68, final_sunset_label="B"
     )
-    assert "Sunset期待度：68 / 100（B）" in blended
-    assert "Sunset期待度：40 / 100（C）" not in blended
+    assert "Sunset期待度【 B 】68 / 100" in blended
+    assert "Sunset期待度【 C 】40 / 100" not in blended
 
     # final 未指定なら純式スコアをそのまま表示(後方互換)
     plain = build_line_message(sample_summary, scores)
-    assert "Sunset期待度：40 / 100（C）" in plain
+    assert "Sunset期待度【 C 】40 / 100" in plain
 
 
 def test_message_and_comment_use_western_sunset_cloud(sample_summary):
@@ -46,9 +46,9 @@ def test_message_and_comment_use_western_sunset_cloud(sample_summary):
 
     message = build_line_message(zushi_clear, scores, sunset_cloud=west_cloudy)
     # 雲量ブロックは西空の値で、見出しで方角を明示する
-    assert "夕焼け方向（西の空）の雲：" in message
-    assert "低層雲（平均）：80%" in message
-    assert "低層雲（平均）：5%" not in message
+    assert "夕焼け方向の雲" in message
+    assert "低層 80% / 中層 60% / 高層 90%" in message
+    assert "低層 5%" not in message
     # コメントの雲判定も西空の低層雲(80%)で行う
     comment = build_comment(zushi_clear, scores, west_cloudy)
     assert "低層雲が多く" in comment
@@ -63,20 +63,20 @@ def test_line_message_contains_required_fields(sample_summary):
     )
 
     assert "【逗子サンセットチル指数｜2026-06-01 13:00】" in message
-    assert "Chill指数：88 / 100（S）" in message
-    assert "Sunset期待度：90 / 100（S）" in message
+    assert "Sunset期待度【 S 】90 / 100" in message
+    assert "Chill指数【 S 】88 / 100" in message
     assert "日没：18:51" in message
     assert "対象時間帯：17:21〜19:21" in message
-    assert "以下は対象時間帯の予測値を集計したものです。" in message
-    assert "体感温度（平均）：" in message
-    assert "湿度（平均）：" in message
-    assert "風（平均）：" in message
-    assert "突風（最大）：" in message
+    assert "体感温度：" in message
+    assert "湿度：" in message
+    assert "風：" in message
+    assert "突風：" in message
     assert "降水確率（最大）：" in message
-    assert "低層雲（平均）：" in message
-    assert "中層雲（平均）：" in message
-    assert "高層雲（平均）：" in message
-    assert "視程（最小）：" in message
+    assert "夕焼け方向の雲" in message
+    assert "低層 " in message
+    assert "中層 " in message
+    assert "高層 " in message
+    assert "視程：" in message
     assert "コメント：" in message
     assert "検証メモ" not in message
     assert "Googleフォーム" not in message
@@ -97,9 +97,9 @@ def test_line_message_includes_vision_section_when_present(sample_summary):
         vision=vision,
     )
 
-    assert "カメラ実況評価" in message
-    assert "75 / 100" in message
-    assert "partly_cloudy" in message
+    assert "ライブカメラ実況評価" in message
+    # Vision スコアも本文スコアと同じランク基準(score_label)で読めるようラベルを併記する
+    assert "【 A 】75 / 100（partly_cloudy）" in message
     assert "薄い夕焼け" in message
 
 
@@ -147,7 +147,6 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
     assert "時点" not in message
     assert "発表" not in message
     assert "対象時間帯" in message
-    assert "予測値を集計" in message
     assert "検証メモ" not in message
 
 
