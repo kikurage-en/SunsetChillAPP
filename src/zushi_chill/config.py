@@ -61,6 +61,7 @@ class Settings:
     vision_timeout_seconds: int = 30
     vision_target_hours: frozenset[int] = frozenset({16, 17, 18, 19})
     sunset_cloud_offset_km: float = 40.0
+    sunset_cloud_near_offset_km: float = 20.0
     sunset_vision_blend_weight: float = 0.8
     sunsethue_enabled: bool = False
     sunsethue_api_key: str = ""
@@ -122,6 +123,9 @@ class Settings:
         sunset_cloud_offset_km = _non_negative_float_from_env(
             "SUNSET_CLOUD_OFFSET_KM", default=40.0
         )
+        sunset_cloud_near_offset_km = _non_negative_float_from_env(
+            "SUNSET_CLOUD_NEAR_OFFSET_KM", default=20.0
+        )
         sunset_vision_blend_weight = _unit_interval_float_from_env(
             "SUNSET_VISION_BLEND_WEIGHT", default=0.8
         )
@@ -159,6 +163,7 @@ class Settings:
             vision_timeout_seconds=vision_timeout_seconds,
             vision_target_hours=vision_target_hours,
             sunset_cloud_offset_km=sunset_cloud_offset_km,
+            sunset_cloud_near_offset_km=sunset_cloud_near_offset_km,
             sunset_vision_blend_weight=sunset_vision_blend_weight,
             sunsethue_enabled=_bool_from_env(_env("SUNSETHUE_ENABLED", "")),
             sunsethue_api_key=_env("SUNSETHUE_API_KEY", ""),

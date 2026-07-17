@@ -751,3 +751,66 @@ def test_sunsethue_fetch_failure_is_non_fatal(tmp_path, monkeypatch):
     assert exit_code == 0
     row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
     assert row["sunsethue_quality"] == ""
+
+
+class ThreeZoneWeatherClient:
+    """逗子(lon>139.5) / 近20km地点(139.3<lon<=139.5) / 遠40km地点(lon<=139.3)で
+    別々の雲量を返す。夏の日没方位(WNW)では 20km≈lon139.38、40km≈lon139.18。"""
+
+    def __init__(self, zushi: dict, near: dict, far: dict, fail_near: bool = False):
+        self.zushi = zushi
+        self.near = near
+        self.far = far
+        self.fail_near = fail_near
+
+    def fetch_forecast(self, *, latitude, longitude, timezone, target_date=None):
+        if longitude > 139.5:
+            return self.zushi
+        if longitude > 139.3:
+            if self.fail_near:
+                raise WeatherDataError("near fetch failed")
+            return self.near
+        return self.far
+
+
+def test_sunset_cloud_layers_split_between_near_and_far_points(tmp_path, monkeypatch):
+    csv_path = tmp_path / "layered.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    zushi = _fixture_payload_with_clouds(low=5, mid=5, high=5, total=10)
+    near = _fixture_payload_with_clouds(low=50, mid=60, high=70, total=80)
+    far = _fixture_payload_with_clouds(low=90, mid=10, high=20, total=95)
+    client = ThreeZoneWeatherClient(zushi, near, far)
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: client)
+
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    # 遮蔽側(低層雲・総雲量)は遠40km地点、発色源(中・高層雲)は近20km地点の値
+    assert float(row["sunset_cloud_cover"]) == 95
+    assert float(row["sunset_cloud_cover_low"]) == 90
+    assert float(row["sunset_cloud_cover_mid"]) == 60
+    assert float(row["sunset_cloud_cover_high"]) == 70
+    # Chill用の雲は逗子のまま
+    assert float(row["cloud_cover"]) == 10
+
+
+def test_near_point_fetch_failure_falls_back_to_far_values(tmp_path, monkeypatch):
+    csv_path = tmp_path / "layered_nearfail.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    zushi = _fixture_payload_with_clouds(low=5, mid=5, high=5, total=10)
+    near = _fixture_payload_with_clouds(low=50, mid=60, high=70, total=80)
+    far = _fixture_payload_with_clouds(low=90, mid=10, high=20, total=95)
+    client = ThreeZoneWeatherClient(zushi, near, far, fail_near=True)
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: client)
+
+    exit_code = main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+    assert exit_code == 0
+
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    # near失敗時は mid/high も far地点の値へフォールバック(実行は止めない)
+    assert float(row["sunset_cloud_cover_mid"]) == 10
+    assert float(row["sunset_cloud_cover_high"]) == 20
+    assert float(row["sunset_cloud_cover_low"]) == 90

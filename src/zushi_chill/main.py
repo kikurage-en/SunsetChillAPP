@@ -220,48 +220,79 @@ def _blend_final_sunset(
     return scores.sunset_score, scores.sunset_label
 
 
+def _fetch_west_summary(
+    args: argparse.Namespace,
+    settings: Settings,
+    run_time: datetime,
+    offset_km: float,
+) -> WeatherSummary:
+    latitude, longitude = sunset_cloud_point(
+        settings.latitude,
+        settings.longitude,
+        run_time.date(),
+        offset_km,
+    )
+    payload = OpenMeteoClient().fetch_forecast(
+        latitude=latitude,
+        longitude=longitude,
+        timezone=settings.timezone,
+        target_date=run_time.date() if args.date else None,
+    )
+    return parse_forecast(
+        payload,
+        location_name=settings.location_name,
+        latitude=latitude,
+        longitude=longitude,
+        timezone=settings.timezone,
+        run_time=run_time,
+        allow_missing_fields=settings.allow_missing_hourly_fields,
+    )
+
+
 def _resolve_sunset_cloud(
     args: argparse.Namespace,
     settings: Settings,
     summary: WeatherSummary,
     run_time: datetime,
 ) -> SunsetCloud:
-    """Sunset期待度に使う雲量を、日没方位へ ``offset_km`` 離れた地点から取得する。
+    """Sunset期待度に使う雲量を、日没方位の地点から層別に取得する。
 
+    遮蔽側の低層雲と総雲量は ``SUNSET_CLOUD_OFFSET_KM``(既定40km)の地点、発色源の
+    中・高層雲(日没後も日照が届く、観測者寄りの「キャンバス」)は
+    ``SUNSET_CLOUD_NEAR_OFFSET_KM``(既定20km)の地点から取る。
     ``SUNSET_CLOUD_OFFSET_KM<=0`` または ``--input-json``(オフライン再現)では
-    逗子の雲量を使う。西地点の取得に失敗しても逗子へフォールバックし、実行全体は
-    止めない(1回の欠測で通知を落とさない)。
+    逗子の雲量を使う。取得に失敗しても実行は止めない(far失敗=逗子へ、
+    near失敗=far地点の値へフォールバック)。
     """
     if settings.sunset_cloud_offset_km <= 0 or args.input_json:
         return SunsetCloud.from_summary(summary)
     try:
-        latitude, longitude = sunset_cloud_point(
-            settings.latitude,
-            settings.longitude,
-            run_time.date(),
-            settings.sunset_cloud_offset_km,
-        )
-        payload = OpenMeteoClient().fetch_forecast(
-            latitude=latitude,
-            longitude=longitude,
-            timezone=settings.timezone,
-            target_date=run_time.date() if args.date else None,
-        )
-        west = parse_forecast(
-            payload,
-            location_name=settings.location_name,
-            latitude=latitude,
-            longitude=longitude,
-            timezone=settings.timezone,
-            run_time=run_time,
-            allow_missing_fields=settings.allow_missing_hourly_fields,
-        )
-        return SunsetCloud.from_summary(west)
+        far = _fetch_west_summary(args, settings, run_time, settings.sunset_cloud_offset_km)
     except Exception as exc:
         logging.getLogger(__name__).warning(
             "Western sunset-cloud fetch failed; falling back to Zushi clouds: %s", exc
         )
         return SunsetCloud.from_summary(summary)
+
+    near_km = settings.sunset_cloud_near_offset_km
+    if near_km == settings.sunset_cloud_offset_km:
+        near: WeatherSummary = far
+    elif near_km <= 0:
+        near = summary
+    else:
+        try:
+            near = _fetch_west_summary(args, settings, run_time, near_km)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Near sunset-cloud fetch failed; using far-point mid/high clouds: %s", exc
+            )
+            near = far
+    return SunsetCloud(
+        cloud_cover=far.cloud_cover,
+        cloud_cover_low=far.cloud_cover_low,
+        cloud_cover_mid=near.cloud_cover_mid,
+        cloud_cover_high=near.cloud_cover_high,
+    )
 
 
 def _should_run_vision(run_time: datetime, settings: Settings) -> bool:

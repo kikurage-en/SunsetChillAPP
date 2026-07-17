@@ -162,6 +162,17 @@ def test_sunset_cloud_offset_km_rejects_negative(monkeypatch):
         Settings.from_env()
 
 
+def test_sunset_cloud_near_offset_km_defaults_and_bounds(monkeypatch):
+    assert Settings.from_env().sunset_cloud_near_offset_km == 20.0
+
+    monkeypatch.setenv("SUNSET_CLOUD_NEAR_OFFSET_KM", "0")
+    assert Settings.from_env().sunset_cloud_near_offset_km == 0.0
+
+    monkeypatch.setenv("SUNSET_CLOUD_NEAR_OFFSET_KM", "-1")
+    with pytest.raises(ConfigError, match="SUNSET_CLOUD_NEAR_OFFSET_KM"):
+        Settings.from_env()
+
+
 def test_sunsethue_settings_default_disabled(monkeypatch):
     settings = Settings.from_env()
     assert settings.sunsethue_enabled is False
