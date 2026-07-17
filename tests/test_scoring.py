@@ -44,64 +44,77 @@ def test_low_cloud_reduces_sunset_score(sample_summary):
 
 
 def test_high_cloud_bonus_increases_sunset_score(sample_summary):
-    without_bonus = replace(sample_summary, cloud_cover_low=50, cloud_cover_high=5)
-    with_bonus = replace(sample_summary, cloud_cover_low=50, cloud_cover_high=50)
+    # 天井(80)で差が潰れないよう、降水ペナルティ(-25)で天井の下に下げて勾配を観測する
+    without_bonus = replace(
+        sample_summary, cloud_cover_low=50, cloud_cover_high=5, precipitation_probability=40
+    )
+    with_bonus = replace(
+        sample_summary, cloud_cover_low=50, cloud_cover_high=50, precipitation_probability=40
+    )
 
     assert calculate_sunset_score(with_bonus) > calculate_sunset_score(without_bonus)
 
 
 def test_sunset_score_low_cloud_penalty_table(sample_summary):
+    # 好条件の上限は天井80に潰れるため、降水ペナルティ(-25)を併用して
+    # 低層雲ペナルティの全境界(0/-10/-20/-35/-50)を天井の下で観測する
     baseline = replace(
         sample_summary,
         cloud_cover_mid=0,
         cloud_cover_high=0,
-        precipitation_probability=0,
+        precipitation_probability=40,
         visibility=20000,
         wind_speed_10m=3,
     )
 
-    assert calculate_sunset_score(replace(baseline, cloud_cover_low=29)) == 100
-    assert calculate_sunset_score(replace(baseline, cloud_cover_low=30)) == 90
-    assert calculate_sunset_score(replace(baseline, cloud_cover_low=50)) == 80
-    assert calculate_sunset_score(replace(baseline, cloud_cover_low=70)) == 65
-    assert calculate_sunset_score(replace(baseline, cloud_cover_low=85)) == 50
+    assert calculate_sunset_score(replace(baseline, cloud_cover_low=29)) == 75
+    assert calculate_sunset_score(replace(baseline, cloud_cover_low=30)) == 65
+    assert calculate_sunset_score(replace(baseline, cloud_cover_low=50)) == 55
+    assert calculate_sunset_score(replace(baseline, cloud_cover_low=70)) == 40
+    assert calculate_sunset_score(replace(baseline, cloud_cover_low=85)) == 25
+
+    # ペナルティなし側は天井80で頭打ち(総雲量40%の fixture は超快晴例外に該当しない)
+    no_precip = replace(baseline, precipitation_probability=0)
+    assert calculate_sunset_score(replace(no_precip, cloud_cover_low=29)) == 80
 
 
 def test_sunset_score_precipitation_penalty_table(sample_summary):
+    # 低層雲ペナルティ(-20)を併用し、降水確率ペナルティの境界を天井80の下で観測する
     baseline = replace(
         sample_summary,
-        cloud_cover_low=0,
+        cloud_cover_low=50,
         cloud_cover_mid=0,
         cloud_cover_high=0,
         visibility=20000,
         wind_speed_10m=3,
     )
 
-    assert calculate_sunset_score(replace(baseline, precipitation_probability=19)) == 100
-    assert calculate_sunset_score(replace(baseline, precipitation_probability=20)) == 90
-    assert calculate_sunset_score(replace(baseline, precipitation_probability=40)) == 75
-    assert calculate_sunset_score(replace(baseline, precipitation_probability=60)) == 60
-    assert calculate_sunset_score(replace(baseline, precipitation_probability=80)) == 40
+    assert calculate_sunset_score(replace(baseline, precipitation_probability=19)) == 80
+    assert calculate_sunset_score(replace(baseline, precipitation_probability=20)) == 70
+    assert calculate_sunset_score(replace(baseline, precipitation_probability=40)) == 55
+    assert calculate_sunset_score(replace(baseline, precipitation_probability=60)) == 40
+    assert calculate_sunset_score(replace(baseline, precipitation_probability=80)) == 20
 
 
 def test_sunset_score_visibility_wind_and_cloud_bonus_tables(sample_summary):
+    # 降水ペナルティ(-25)を併用し、視程・風・雲ボーナスの各境界を天井80の下で観測する
     baseline = replace(
         sample_summary,
         cloud_cover_low=0,
         cloud_cover_mid=0,
         cloud_cover_high=0,
-        precipitation_probability=0,
+        precipitation_probability=40,
     )
 
-    assert calculate_sunset_score(replace(baseline, visibility=15000, wind_speed_10m=3)) == 100
-    assert calculate_sunset_score(replace(baseline, visibility=10000, wind_speed_10m=3)) == 95
-    assert calculate_sunset_score(replace(baseline, visibility=5000, wind_speed_10m=3)) == 85
-    assert calculate_sunset_score(replace(baseline, visibility=4999, wind_speed_10m=3)) == 50
-    assert calculate_sunset_score(replace(baseline, visibility=20000, wind_speed_10m=6)) == 95
-    assert calculate_sunset_score(replace(baseline, visibility=20000, wind_speed_10m=8)) == 90
+    assert calculate_sunset_score(replace(baseline, visibility=15000, wind_speed_10m=3)) == 75
+    assert calculate_sunset_score(replace(baseline, visibility=10000, wind_speed_10m=3)) == 70
+    assert calculate_sunset_score(replace(baseline, visibility=5000, wind_speed_10m=3)) == 60
+    assert calculate_sunset_score(replace(baseline, visibility=4999, wind_speed_10m=3)) == 45
+    assert calculate_sunset_score(replace(baseline, visibility=20000, wind_speed_10m=6)) == 70
+    assert calculate_sunset_score(replace(baseline, visibility=20000, wind_speed_10m=8)) == 65
     assert calculate_sunset_score(
         replace(baseline, visibility=20000, wind_speed_10m=3, cloud_cover_mid=20)
-    ) == 100
+    ) == 80
     assert calculate_sunset_score(
         replace(
             baseline,
@@ -110,7 +123,7 @@ def test_sunset_score_visibility_wind_and_cloud_bonus_tables(sample_summary):
             cloud_cover_low=50,
             cloud_cover_mid=20,
         )
-    ) == 85
+    ) == 60
     assert calculate_sunset_score(
         replace(
             baseline,
@@ -119,7 +132,35 @@ def test_sunset_score_visibility_wind_and_cloud_bonus_tables(sample_summary):
             cloud_cover_low=50,
             cloud_cover_high=20,
         )
-    ) == 90
+    ) == 65
+
+
+def test_sunset_score_ceiling_recalibration(sample_summary):
+    """天井の再校正: 実測(日没後Vision)がS帯(85+)に達したのは35日中1日のみで、
+    式が85+を出した8日の実測中央値は68だった(2026-07-17分析)。好条件でも上限80、
+    色を最大限に通す超快晴(総雲量<15%かつ低層雲<5%)のみ90まで許す。
+    """
+    perfect = replace(
+        sample_summary,
+        cloud_cover=40,
+        cloud_cover_low=0,
+        cloud_cover_mid=0,
+        cloud_cover_high=0,
+        precipitation_probability=0,
+        visibility=20000,
+        wind_speed_10m=3,
+    )
+    # 好条件でも通常の上限は80(旧実装では100)
+    assert calculate_sunset_score(perfect) == 80
+    # 超快晴(総雲量<15%かつ低層雲<5%)のみ90
+    ultra_clear = replace(perfect, cloud_cover=10, cloud_cover_low=0)
+    assert calculate_sunset_score(ultra_clear) == 90
+    # 境界: 総雲量15%または低層雲5%は例外に入らない
+    assert calculate_sunset_score(replace(perfect, cloud_cover=15, cloud_cover_low=0)) == 80
+    assert calculate_sunset_score(replace(perfect, cloud_cover=10, cloud_cover_low=5)) == 80
+    # 中位帯(80未満)のスコアは影響を受けない
+    mid_range = replace(perfect, cloud_cover_low=50, precipitation_probability=40)
+    assert calculate_sunset_score(mid_range) == 55
 
 
 def test_total_cloud_cover_caps_sunset_score(sample_summary):
@@ -166,8 +207,9 @@ def test_penalized_sky_cannot_return_to_full_score_via_bonuses(sample_summary):
         wind_speed_10m=3,
     )
 
-    # -10(低層雲) +5(中層雲) +10(高層雲) = 105 だが、ペナルティありの空は上限95
-    assert calculate_sunset_score(penalized_with_bonuses) == 95
+    # -10(低層雲) +5(中層雲) +10(高層雲) = 105 だが、ペナルティありの空は上限95、
+    # さらに天井80(総雲量40%は超快晴例外に該当しない)で 80 に制限される
+    assert calculate_sunset_score(penalized_with_bonuses) == 80
 
 
 def test_sunset_saturation_fix_against_recorded_sheet_inputs(sample_summary):
@@ -187,8 +229,8 @@ def test_sunset_saturation_fix_against_recorded_sheet_inputs(sample_summary):
         visibility=26120,
         wind_speed_10m=2.7,
     )
-    # 旧実装では 100。降水確率20%以上の上限90が効く
-    assert calculate_sunset_score(record_20260610_1700) == 90
+    # 旧実装では 100。降水確率20%以上の上限90に加え、天井80が効く
+    assert calculate_sunset_score(record_20260610_1700) == 80
 
     record_20260531_1700 = replace(
         sample_summary,
@@ -200,8 +242,8 @@ def test_sunset_saturation_fix_against_recorded_sheet_inputs(sample_summary):
         visibility=21820,
         wind_speed_10m=2,
     )
-    # ペナルティゼロの晴天は引き続き 100
-    assert calculate_sunset_score(record_20260531_1700) == 100
+    # ペナルティゼロの晴天も天井80(総雲量20.3%は超快晴例外<15%に該当しない)
+    assert calculate_sunset_score(record_20260531_1700) == 80
 
     record_20260609_1700 = replace(
         sample_summary,
@@ -444,9 +486,10 @@ def test_sunset_score_matches_19_jst_vision_ground_truth(sample_summary):
     mae = sum(abs(error) for error in errors) / len(errors)
     bias = sum(errors) / len(errors)
 
-    # 全データの集計誤差が補正前(MAE 20.3 / bias +9.7)から縮小していること
-    assert mae <= 16
-    assert abs(bias) <= 6
+    # 全データの集計誤差が補正前(MAE 20.3 / bias +9.7)から縮小していること。
+    # 天井再校正(2026-07-17)後は MAE 14.9 / bias +2.8 まで縮小
+    assert mae <= 15
+    assert abs(bias) <= 4
 
     # 補正の核心: 総雲量85%以上の厚い曇天(実測10〜25帯)は上限30
     assert scores["06-14"] == 30
@@ -454,8 +497,10 @@ def test_sunset_score_matches_19_jst_vision_ground_truth(sample_summary):
     assert scores["06-23"] == 30
     assert scores["06-24"] == 30
 
-    # 回帰防止: 快晴・高層雲主体の薄曇り(実測が高い日)は悪化させない
-    assert scores["06-13"] == 90
+    # 回帰防止: 快晴・高層雲主体の薄曇り(実測が高い日)は悪化させない。
+    # 06-13(実測92)は天井80になる(この行の逗子雲は low=5.3 で超快晴例外<5%に
+    # 僅かに届かない)。本番の Sunset用雲は西40km地点(この日 low=1)で例外が効く。
+    assert scores["06-13"] == 80
     assert scores["06-16"] == 65
     assert scores["06-18"] == 65
 
@@ -481,8 +526,8 @@ def test_thick_mid_cloud_caps_sunset_score(sample_summary):
     assert calculate_sunset_score(record_20260707_1700) == 60
     # さらに厚い中層雲(≥70%)は上限40
     assert calculate_sunset_score(replace(record_20260707_1700, cloud_cover_mid=75)) == 40
-    # 中層雲が薄ければ(<55%)キャップは効かず、快晴は 100 のまま(良日を壊さない)
-    assert calculate_sunset_score(replace(record_20260707_1700, cloud_cover_mid=54)) == 100
+    # 中層雲が薄ければ(<55%)mid キャップは効かず、天井80 まで戻る
+    assert calculate_sunset_score(replace(record_20260707_1700, cloud_cover_mid=54)) == 80
 
 
 def test_sunset_score_uses_western_cloud_when_provided(sample_summary):
@@ -513,8 +558,8 @@ def test_sunset_score_uses_western_cloud_when_provided(sample_summary):
         cloud_cover_high=90,
     )
 
-    # sunset_cloud 無し = 逗子基準で快晴 → 100
-    assert calculate_sunset_score(comfortable_clear_zushi) == 100
+    # sunset_cloud 無し = 逗子基準で超快晴(総雲量10%・低層0%) → 例外天井の90
+    assert calculate_sunset_score(comfortable_clear_zushi) == 90
     # 西が厚い雲 → 低層雲ペナルティ+総雲量85%以上キャップで 30 以下
     assert calculate_sunset_score(comfortable_clear_zushi, cloudy_west) <= 30
 

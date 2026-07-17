@@ -603,8 +603,8 @@ def test_western_cloud_fetch_failure_falls_back_to_zushi(tmp_path, monkeypatch):
     row = rows[0]
     # フォールバックにより Sunset用の雲=逗子の値
     assert float(row["sunset_cloud_cover"]) == 10
-    # 逗子が快晴なので Sunset期待度は高いまま
-    assert int(row["sunset_score"]) == 100
+    # 逗子が超快晴(総雲量10%・低層0%)なので例外天井の90
+    assert int(row["sunset_score"]) == 90
 
 
 def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
