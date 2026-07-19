@@ -1,6 +1,6 @@
 # 逗子サンセットチル指数 MVP
 
-逗子海岸の海の家スタッフ向けに、夕方の `Sunset期待度` と `Chill指数` を自動算出し、LINEグループへ投稿する内部検証用ツールです。一般公開向けの天気予報サービスではなく、2026年6月の目視検証とスコア調整を目的にしています。
+逗子海岸の海の家スタッフ向けに、夕方の `Sunset期待度` と `Chill指数` を自動算出し、LINEグループへ投稿する内部検証用ツールです。一般公開向けの天気予報サービスではなく、気象式・ライブカメラAI・外部ベンチマークを継続比較してスコアを改善することを目的にしています。日々の夕焼け評価は人手入力を前提とせず、保存したライブカメラ画像から自動記録します。
 
 外部向けには「天気予報」「確実に夕陽が見える」などの表現は使わず、「逗子サンセットチル指数」「夕方の来店参考指数」「Sunset期待度」などの表現を使います。
 
@@ -103,9 +103,11 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として、日没後の実況評価を**日没+20分**（`zushi-chill-sunset-eta` で当日の日没時刻から算出し `at` で予約）の `run_time` としてworkflowへ渡します。日没時刻は季節で変動するため、日没後のキャプチャ時刻も日没に連動します。日没+20分の実行は日没後のVision実況評価（ground truth）を兼ねます。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
+定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。さらに毎朝、当日の日没時刻と**日没+20分**を `zushi-chill-sunset-eta` で算出して `at` で予約します。日没時はLINEを送らず画像評価と保存だけを行い、日没+20分は残照評価を含む従来のLINE通知を行います。日没時刻は季節で変動するため、両方のキャプチャ時刻も日没に連動します。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。LINE本文ではこの時刻を表示し、各種数値は日没90分前から日没30分後までの対象時間帯の予測値を集計したものとして表示します。
 
-LINE送信前に `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+実行ごとに `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じ画像をGitHub Actions Artifactにも保存期間90日指定で保管し、将来の再採点元データとして残します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+
+画像Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
 手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` ではLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 
@@ -124,25 +126,38 @@ GITHUB_REF=main
 GITHUB_TOKEN=...
 ```
 
-Contaboのcronから以下を実行すると、既存の `.github/workflows/daily_chill.yml` が `manual_mode=send_line` で起動します。workflow側でライブカメラ画像をGitHub Pagesへ公開し、そのPages URLをLINE画像メッセージに添付します。
+Contaboのcronから以下を実行すると、既存の `.github/workflows/daily_chill.yml` が起動します。13:00 / 17:00と日没+20分は `manual_mode=send_line`、日没時の評価だけは `manual_mode=dry_run` です。workflow側でライブカメラ画像をGitHub Pagesへ公開し、送信実行ではそのPages URLをLINE画像メッセージに添付します。
 
 ```bash
 # 13:00 / 17:00 は固定時刻で予測を通知
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
 
-# 日没後の実況評価は日没+20分に at で予約する(日没時刻は季節で変動するため)
-RUN_TIME="$(zushi-chill-sunset-eta --minutes 20)"
-echo "zushi-chill-trigger-actions --date $(TZ=Asia/Tokyo date +%F) --run-time $RUN_TIME" | at "$RUN_TIME"
+# 日没時の画像評価と日没+20分の残照評価をまとめて予約する
+scripts/schedule_sunset_capture.sh
 ```
 
-日没+20分の実行は日没後の実測収集（ground truth）を兼ね、`13:00` / `17:00` と同じく `manual_mode=send_line`（既定）で起動します。日没後のカメラ画像のVision実況評価を含む行をログへ保存しつつ、LINEにも送信します。`zushi-chill-sunset-eta` は当日の日没+指定分の `HH:MM` を標準出力に返し、Open-Meteo取得に失敗した場合は非ゼロ終了するため、上記の `&&` 連鎖（`RT=$(...) && ... | at`）で at 予約はスキップされます。LINE送信せずログ保存だけ行いたい場合は `--manual-mode dry_run` を付けます。
+日没時の実行は `manual_mode=dry_run` で、画像取得・Vision評価・ログ保存だけを行います。日没+20分の実行は `manual_mode=send_line` で、残照評価をログへ保存しつつLINEにも送信します。`zushi-chill-sunset-eta` は当日の日没+指定分の `HH:MM` を返し、Open-Meteo取得に失敗した場合は非ゼロ終了するため、その日の予約は行われません。
 
-上記の日没+N分の `at` 予約ワンライナーは `scripts/schedule_sunset_capture.sh` にまとめてあります。Contaboのcronから朝に1回 `scripts/schedule_sunset_capture.sh [OFFSET_MINUTES]`（既定20）を呼ぶと、当日の日没+N分に日没後キャプチャのトリガーを `at` 予約します（`/opt/SunsetChillAPP` と `.venv` を前提とし、ログは `/var/log/zushi-chill-actions-trigger.log`）。
+Contaboのcronから朝に1回 `scripts/schedule_sunset_capture.sh [AFTERGLOW_OFFSET_MINUTES]`（既定20）を呼ぶと、当日の日没時と日没+N分の2件を予約します（`/opt/SunsetChillAPP` と `.venv` を前提とし、ログは `/var/log/zushi-chill-actions-trigger.log`）。引数を `0` にすると日没時だけを予約します。
+
+Debian / Ubuntu系のContaboでは `at` を有効にし、固定通知と日没連動予約をcronへ登録します。
 
 ```bash
-RUN_TIME="$(zushi-chill-sunset-eta --minutes 20)"
-echo "zushi-chill-trigger-actions --date $(TZ=Asia/Tokyo date +%F) --run-time $RUN_TIME --manual-mode dry_run" | at "$RUN_TIME"
+sudo apt-get update
+sudo apt-get install -y at
+sudo systemctl enable --now atd
+```
+
+```cron
+0 8 * * * /opt/SunsetChillAPP/scripts/schedule_sunset_capture.sh
+0 13 * * * cd /opt/SunsetChillAPP && /opt/SunsetChillAPP/.venv/bin/zushi-chill-trigger-actions --run-time 13:00 --manual-mode send_line >> /var/log/zushi-chill-actions-trigger.log 2>&1
+0 17 * * * cd /opt/SunsetChillAPP && /opt/SunsetChillAPP/.venv/bin/zushi-chill-trigger-actions --run-time 17:00 --manual-mode send_line >> /var/log/zushi-chill-actions-trigger.log 2>&1
+```
+
+```bash
+# 残照を日没+30分で評価する場合
+scripts/schedule_sunset_capture.sh 30
 ```
 
 実行前にpayloadだけ確認する場合は `--dry-run` を付けます。
@@ -168,33 +183,33 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 ## ライブカメラ画像の Vision 解析
 
-`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。解析は実行時刻と日没時刻の前後で2モードに分かれます。日没前（17時実行）は雲の構造から今夜の夕焼けを**予測**（LINE本文ラベル「ライブカメラAI予測」）、日没後（19:20実行）は実際の夕焼けを**実況評価**（ラベル「ライブカメラ実況評価」）します。解析結果（夕焼けスコア・空模様・短いコメント・使用モデル）は LINE 本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開 URL をダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE 送信・保存は継続します。
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。日没時ジョブを予約しても、この2設定がなければ画像の保存だけでVision評価値は記録されません。解析は3フェーズです。日没前は雲の構造から今夜の夕焼けを**予測**、日没時〜+10分は**太陽ディスクの見えやすさ**と**日没時の発色**を別々に評価、+10分より後は**残照**を評価します。解析結果はLINE本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開URLをダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE送信・保存は継続します。
 
-日没前（予測モード）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 Vision 8 割）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没後（実況評価モード）は ground truth なのでブレンドせず、`vision_sunset_score` として実測を記録します。`Chill指数` は Vision の影響を受けません。
+日没前（予測フェーズ）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 Vision 8 割）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没時・残照フェーズは予測へのブレンドに使わず、観測画像の代理指標として記録します。`Chill指数` は Vision の影響を受けません。
 
-ログには `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` の 4 カラムと、ブレンド結果の `final_sunset_score` / `final_sunset_label` の 2 カラムが追加されます。**既存の CSV（`logs/chill_predictions.csv`）や Google Sheets を引き続き使う場合は、ヘッダー行をこれらのカラム追加後の構成に移行してください**（ヘッダー不一致時は `ConfigError` で停止します。Google Sheets はヘッダー行を自動移行します）。
+従来の `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` に加え、`vision_evaluation_phase` / `vision_sun_disk_visibility` / `vision_sunset_color_score` / `vision_afterglow_score` を記録します。`vision_sunset_score` は後方互換の総合値として残します。同じAIによる画像採点は独立した真値ではなく**画像代理指標**ですが、元画像をArtifactに保存するため、将来モデルや評価基準を変えて再採点できます。既存のCSVを使う場合は末尾4列をヘッダーへ追加してください（不一致時は `ConfigError` で停止）。Google Sheetsのヘッダーは自動移行します。
 
 ## Sunsethue API による独立ベンチマーク（log-only）
 
 `SUNSETHUE_ENABLED=true` かつ `SUNSETHUE_API_KEY` が設定されている場合、各実行で [Sunsethue API](https://sunsethue.com/dev-api)（`GET https://api.sunsethue.com/event`）から逗子海岸の夕焼け品質予測を取得し、ログに記録します。Sunsethue は「日没時に光が雲へ届くか」を計算する ray-model で、西の水平線の抜けと上空の雲を内部で評価するため、座標は逗子海岸をそのまま渡します（`SUNSET_CLOUD_OFFSET_KM` の西地点分離は不要）。
 
-これは**式・Vision とは独立したベンチマーク**であり、**Chill 指数・Sunset 期待度・`final_sunset_score` のいずれも変えません**。目的は「式 `sunset_score` / Visionカメラ予測 / Sunsethue / 日没後Vision実測」を前向きに並べ、どの信号を主予測に採用するかを実測で選抜することです。取得に失敗してもメインのスコア算出・LINE 送信・保存は継続します（非致命）。
+これは**式・Vision とは独立したベンチマーク**であり、**Chill 指数・Sunset 期待度・`final_sunset_score` のいずれも変えません**。目的は「式 `sunset_score` / Visionカメラ予測 / Sunsethue」を、日没時の発色と+20分の残照という画像代理指標に対して前向きに比較することです。取得に失敗してもメインのスコア算出・LINE送信・保存は継続します（非致命）。
 
 ログには `sunsethue_quality`（0〜100、Sunsethue の `quality` 0〜1 を 100 倍）/ `sunsethue_cloud_cover`（%、`cloud_cover` 0〜1 を 100 倍）/ `sunsethue_quality_text`（Poor/Fair/Good/Great）の 3 カラムが追加されます（Google Sheets は自動移行）。認証は API キーを `key` クエリパラメータで渡します。Sunsethue は Cloudflare 配下でブラウザ以外の User-Agent を拒否するため、クライアントはブラウザ相当の User-Agent を送ります。無料枠は 1000 credits/日・**非商用**です。
 
-## 6月の検証運用
+## 前向き検証運用
 
 1. 13:00 JST に昼時点の見込みを確認
 2. 17:00 JST に夕方直前の見込みを確認（Vision「ライブカメラAI予測」も記録）
-3. 日没+20分（`zushi-chill-sunset-eta` で算出し `at` で予約）に日没後のカメラ画像をVisionで実況評価し、実測行として自動記録（日没後の実況評価行が ground truth。同一 `date` の17:00行と突合する）。LINEにも実況評価を送信する
-4. 日没前後に実際の空模様、夕焼け、快適度を確認
-5. 6月末に予測ログと実測評価（日没後行のVisionスコア）の乖離を確認し、スコア式を調整
+3. 日没時にカメラ画像を保存し、太陽ディスクの見えやすさと日没時の発色を自動記録する（LINE送信なし）
+4. 日没+20分に画像を保存して残照を自動記録し、LINEにも残照評価を送信する
+5. 蓄積後に、17:00の各予測と同一日の `vision_sunset_color_score` / `vision_afterglow_score` の乖離を別々に確認する
 
-式の乖離検証には、表示用のブレンド値 `final_sunset_score` ではなく**純式スコア `sunset_score`**（17:00行）と、同一 `date` の日没後行のVision実況評価スコア（`vision_sunset_score`）を突合します。乖離が大きい日を重点的に確認し、低層雲ペナルティ、高層雲ボーナス、中層雲ボーナス、湿度スコア、風スコア、降水リスク上限、Sunset期待度のChill指数への寄与率を見直します。
+式の乖離検証には、表示用のブレンド値 `final_sunset_score` ではなく**純式スコア `sunset_score`**（17:00行）を使います。同一 `date` の日没時行にある `vision_sunset_color_score` と、+20分行の `vision_afterglow_score` に対する誤差を別集計し、どちらの目的を改善した変更かを明示します。`vision_sun_disk_visibility` は遮蔽判定の診断指標として使います。乖離が大きい日は保存画像を再確認・再採点できます。
 
 ## スコア計算
 
-`Sunset期待度` は 100 点から低層雲、降水、視程、強風のペナルティを引き、中層雲と高層雲の条件が良い場合にボーナスを加えます。ただしペナルティが1つでもある場合は上限 95、降水確率 20%以上では上限 90 に制限し、ボーナスでペナルティを相殺して満点に戻ることを防ぎます。総雲量 70%以上では上限 65、85%以上では上限 30、低層雲と中層雲がどちらも70%以上では上限30、視程 5,000m 未満では上限 50 に制限します。厚い中層雲は低い夕日を遮るため、中層雲 55%以上では上限 60、70%以上では上限 40 に制限します。さらに、実測（日没後Vision）で 85 点以上の夕焼けは稀（35日中1日）である一方、式が 85 点以上を出した日の実測中央値は 68 だったため、好条件でも通常の上限は 80 とし、色を最大限に通す超快晴（総雲量 15%未満かつ低層雲 5%未満）のみ 90 まで許します。
+`Sunset期待度` は 100 点から低層雲、降水、視程、強風のペナルティを引き、中層雲と高層雲の条件が良い場合にボーナスを加えます。ただしペナルティが1つでもある場合は上限 95、降水確率 20%以上では上限 90 に制限し、ボーナスでペナルティを相殺して満点に戻ることを防ぎます。総雲量 70%以上では上限 65、85%以上では上限 30、低層雲と中層雲がどちらも70%以上では上限30、視程 5,000m 未満では上限 50 に制限します。厚い中層雲は低い夕日を遮るため、中層雲 55%以上では上限 60、70%以上では上限 40 に制限します。さらに、指標分離前の+20分Vision総合評価で85点以上が稀（35日中1日）だった履歴に基づき、好条件でも通常の上限は80とし、色を最大限に通す超快晴（総雲量15%未満かつ低層雲5%未満）のみ90まで許します。この旧Vision値は独立した真値ではなく、過去の画像代理指標です。
 
 夕焼けの見え方は「陽が沈む方角（西の水平線）の雲」に支配されるため、`Sunset期待度` の雲量は逗子海岸ではなく、当日の日没方位の地点から**雲の高さごとに距離を変えて**取得します。遮蔽側の低層雲・総雲量は `SUNSET_CLOUD_OFFSET_KM`（既定40km、光路上のブロッカー）、発色源の中・高層雲は `SUNSET_CLOUD_NEAR_OFFSET_KM`（既定20km、日没後も日照が届く観測者寄りのキャンバス）の地点の値を使います。日没方位は季節で変動する（逗子で夏至≈299°、冬至≈241°）ため、日付から都度計算します。遠地点の取得に失敗した場合は逗子海岸の雲量へ、近地点の取得に失敗した場合は遠地点の値へフォールバックします。ログには使用した雲量を `sunset_cloud_cover` / `sunset_cloud_cover_low`（遠地点）/ `sunset_cloud_cover_mid` / `sunset_cloud_cover_high`（近地点）として記録します。
 
@@ -207,7 +222,7 @@ final_sunset_score = round(
 )
 ```
 
-`SUNSET_VISION_BLEND_WEIGHT`（既定 0.8）が 0、Vision が無効・欠測、または日没後（実況評価モード）の実行では、ブレンドせず `final_sunset_score = sunset_score` とします。またブレンド結果には**上方キャップ `final_sunset_score ≤ sunset_score + 30`** を適用します。17:00 のカメラは逗子上空の見かけしか写せず「これから西から来る雲の壁」（式が西地点の予報で捕捉するもの）を見えないため、Vision の楽観による持ち上げ幅を制限します。下方修正は制限しません（目の前の悪い空を写しているカメラは信頼できるため）。**純式スコア `sunset_score` はブレンドで上書きせず別カラムで保持**するため、「式 vs 日没後Vision実測」の乖離検証を前向きに継続できます。表示ラベル（S〜D）は `final_sunset_score` を基準にします。
+`SUNSET_VISION_BLEND_WEIGHT`（既定 0.8）が 0、Vision が無効・欠測、または日没時・残照フェーズの実行では、ブレンドせず `final_sunset_score = sunset_score` とします。またブレンド結果には**上方キャップ `final_sunset_score ≤ sunset_score + 30`** を適用します。17:00 のカメラは逗子上空の見かけしか写せず「これから西から来る雲の壁」（式が西地点の予報で捕捉するもの）を見えないため、Vision の楽観による持ち上げ幅を制限します。下方修正は制限しません（目の前の悪い空を写しているカメラは信頼できるため）。**純式スコア `sunset_score` はブレンドで上書きせず別カラムで保持**し、同一日の `vision_sunset_color_score` と `vision_afterglow_score` に対する誤差を別々に検証します。表示ラベル（S〜D）は `final_sunset_score` を基準にします。
 
 `Chill指数` は体感温度、湿度、風、降水リスク、Sunset期待度（純式 `sunset_score`）を重み付きで合成します。Vision ブレンドの影響は受けません。Chill指数の雲量は逗子海岸の値を使います。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
 
@@ -245,10 +260,11 @@ ruff check .
 pytest
 ```
 
-スコア計算、ラベル境界、強制上限、メッセージ生成、Open-Meteo レスポンス解析、APIリトライ、dry-run CLI、CSV 保存、Google Sheets 保存アダプタをテストしています。LLM、画像生成、SNS投稿、自動最適化はMVPに含めていません。
+スコア計算、ラベル境界、強制上限、メッセージ生成、Open-Meteoレスポンス解析、APIリトライ、dry-run CLI、CSV・Google Sheets保存、Visionの3フェーズと個別評価値、日没連動スケジューラ、GitHub Actionsの画像Artifact契約をテストしています。SNS投稿、画像生成、自動最適化はMVPに含めていません。
 
 ## 今後の改善
 
-- 6月の実測データに基づくスコア重み調整
+- 保存画像を対象にした一括再採点CLI
+- 画像代理指標の蓄積に基づくスコア重み調整
 - SNS向け短文や画像生成の検討
-- Webカメラ画像解析や複数地点対応の検討
+- 複数地点対応の検討

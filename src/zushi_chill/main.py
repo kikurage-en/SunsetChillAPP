@@ -206,8 +206,8 @@ def _blend_final_sunset(
 ) -> tuple[int, str]:
     """表示用 Sunset期待度(式とVisionカメラAI予測のブレンド)とラベルを返す。
 
-    ブレンドするのは日没前(予測モード)でVision解析が成功した実行のみ。日没後
-    (実況評価=ground truth)・Vision欠測・重み0 ではブレンドせず純式スコアを返す。
+    ブレンドするのは日没前(予測モード)でVision解析が成功した実行のみ。日没時・
+    残照の画像評価、Vision欠測、重み0ではブレンドせず純式スコアを返す。
     純式スコア ``scores.sunset_score`` はここでは変えない(呼び出し側でログ保持)。
     """
     if vision is not None and mode == "predict" and settings.sunset_vision_blend_weight > 0:

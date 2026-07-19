@@ -1,854 +1,266 @@
-# 逗子サンセットチル指数 MVP 要件定義書
+# 逗子サンセットチル指数 現行要件
 
-## 1. プロジェクト概要
+最終更新: 2026-07-19
 
-### 1.1 目的
+この文書は現在の機能要件と受け入れ条件を定義する。操作・セットアップ手順は
+`README.md`、本番反映状況と前向き検証の判断は `STATUS.md`、スコア閾値と保存カラムの
+厳密な定義はコードとテストを正とする。
 
-逗子海岸の海の家スタッフ向けに、毎日夕方の「Sunset期待度」と「Chill指数」を自動算出し、LINEグループへ投稿するMVPを実装する。
+## 1. 目的と位置づけ
 
-2026年6月中はSNS投稿には使用せず、スタッフが実際の空模様・夕焼け・体感快適度を目視で検証する。
-6月末に予測指数と実測評価の乖離を分析し、計算式を調整したうえで、7月以降にSNS運用へ展開するか判断する。
+逗子海岸の海の家スタッフ向けに、夕方の `Sunset期待度` と `Chill指数` を算出し、
+LINEグループへ通知する。一般公開向けの気象予報サービスではなく、気象式・ライブ
+カメラAI・外部ベンチマークを比較しながら精度を改善する内部検証用ツールとする。
 
-### 1.2 MVPの位置づけ
+外部向けには「天気予報」「確実に夕陽が見える」などの断定表現を避け、
+「逗子サンセットチル指数」「夕方の来店参考指数」「Sunset期待度」を使用する。
 
-本MVPは、一般利用者向けの気象予報サービスではなく、店舗内部での検証用ツールとする。
+## 2. 対象範囲
 
-外部向け表現では「予報」という言葉の利用は避け、正式運用時も原則として「逗子サンセットチル指数」「夕方の来店参考指数」「Sunset期待度」などの表現を使用する。
+### 2.1 実装対象
 
-### 1.3 対象地点
+- Open-Meteoから逗子海岸と日没方位側の気象データを取得する。
+- 当日の日没時刻と、日没90分前〜30分後の評価時間帯を算出する。
+- `Sunset期待度` と `Chill指数` を0〜100で算出する。
+- 日没前のライブカメラ画像をVision LLMで解析し、表示用Sunset期待度へブレンドする。
+- 日没時と日没後の画像を自動取得し、発色と残照を人手なしで別評価する。
+- Sunsethue APIの予測をlog-onlyの独立ベンチマークとして保存する。
+- LINE Messaging APIでテキストと、取得できた場合はライブカメラ画像を送信する。
+- Google SheetsまたはCSVへ予測・画像評価・送信結果を保存する。
+- GitHub Actionsの `workflow_dispatch` を、Contaboのcronから起動する。
+- pytestとruffで主要な契約とロジックを検証する。
 
-* 対象エリア：逗子海岸周辺
-* 緯度経度：環境変数で指定可能にする
-* 初期値例：
+### 2.2 対象外
 
-  * `LOCATION_NAME=逗子海岸`
-  * `LATITUDE=35.2956`
-  * `LONGITUDE=139.5736`
-* タイムゾーン：`Asia/Tokyo`
+- Instagram、X、TikTokなどへの自動投稿
+- SNS投稿用画像の生成
+- 一般利用者向けWebアプリ・管理画面
+- 複数地点対応
+- 課金・ユーザー認証
+- 機械学習による自動的な重み更新
+- 人手による日次の夕焼け評価入力
 
-### 1.4 検証期間
+## 3. 気象データとスコア
 
-* 初期検証期間：2026年6月1日〜2026年6月30日
-* 通知頻度：1日2回
+### 3.1 Open-Meteo
 
-  * 13:00 JST：昼時点の見込み
-  * 17:00 JST：夕方直前の見込み
-* 追加で手動実行できるようにする
-
----
-
-## 2. 実装対象
-
-### 2.1 MVPで実装するもの
-
-* Open-Meteo APIから逗子海岸周辺の気象データを取得
-* 当日の日没時刻を取得
-* 日没前後の時間帯を抽出
-* Sunset期待度を算出
-* Chill指数を算出
-* スタッフ向けコメントを生成
-* LINE Messaging APIでスタッフLINEグループへテキスト投稿
-* 算出結果をGoogle SheetsまたはCSVに保存
-* GitHub Actionsで毎日自動実行
-* 手動実行用の `workflow_dispatch` を用意
-* pytestによる主要ロジックのテストを実装
-
-### 2.2 MVPで実装しないもの
-
-* SNS用画像生成
-* Instagram / X / TikTok等への自動投稿
-* 管理画面
-* ユーザー向けWebページ
-* 機械学習によるスコア最適化
-* Webカメラ画像解析
-* 一般公開向けの気象予報サービス
-* 複数地点対応
-* 課金・認証機能
-
----
-
-## 3. 利用技術
-
-### 3.1 推奨構成
-
-* 言語：Python 3.12
-* 実行環境：GitHub Actions
-* 気象API：Open-Meteo Forecast API
-* 通知：LINE Messaging API
-* 記録：
-
-  * 第1候補：Google Sheets
-  * 第2候補：CSVをGitHub Actions Artifactとして保存
-* テスト：pytest
-* Lint / Format：ruff
-* 設定管理：`.env` または GitHub Secrets
-
-### 3.2 推奨ディレクトリ構成
+Forecast APIから次のhourly変数と `daily.sunset` を取得する。
 
 ```txt
-.
-├── README.md
-├── REQUIREMENTS.md
-├── pyproject.toml
-├── .env.example
-├── src
-│   └── zushi_chill
-│       ├── __init__.py
-│       ├── config.py
-│       ├── weather_client.py
-│       ├── scoring.py
-│       ├── message_builder.py
-│       ├── line_client.py
-│       ├── storage.py
-│       └── main.py
-├── tests
-│   ├── test_scoring.py
-│   ├── test_message_builder.py
-│   └── fixtures
-│       └── open_meteo_sample.json
-└── .github
-    └── workflows
-        └── daily_chill.yml
+temperature_2m
+relative_humidity_2m
+apparent_temperature
+precipitation_probability
+precipitation
+weather_code
+cloud_cover
+cloud_cover_low
+cloud_cover_mid
+cloud_cover_high
+visibility
+wind_speed_10m
+wind_direction_10m
+wind_gusts_10m
 ```
 
----
+評価時間帯では気温・体感温度・湿度・雲量・風速を平均、降水確率・突風を最大、
+降水量を合計、視程を最小で集計する。必須値の欠損・非数値・評価対象不足は異常終了し、
+`ALLOW_MISSING_HOURLY_FIELDS` で指定したフィールドだけ欠損を許容する。
 
-## 4. 外部API要件
+### 3.2 Sunset期待度
 
-## 4.1 Open-Meteo API
+- 低層雲、降水、視程、強風を減点する。
+- 中層雲と高層雲が適量の場合は加点する。
+- 遮蔽側の低層雲・総雲量は日没方位40km地点を既定とする。
+- 発色源の中層雲・高層雲は日没方位20km地点を既定とする。
+- 遠地点取得失敗時は逗子、近地点取得失敗時は遠地点へフォールバックする。
+- 厚い総雲量・中層雲・低視程・降水条件では上限を適用する。
+- 通常の天井は80、超快晴条件のみ90まで許容する。
 
-### 4.1.1 エンドポイント
+厳密な閾値は `src/zushi_chill/scoring.py` とその回帰テストを正とする。
+
+### 3.3 Chill指数
+
+体感温度30%、湿度20%、風20%、降水リスク20%、純式のSunset期待度10%で合成する。
+降水、雨・雷雨系天気コード、強風・突風、低体感温度、厚い雲では上限を適用する。
+VisionブレンドはChill指数へ影響させない。
+
+### 3.4 表示用Sunset期待度
+
+日没前にVision解析が成功した場合のみ、純式 `sunset_score` と
+`vision_sunset_score` を `SUNSET_VISION_BLEND_WEIGHT` で合成し、
+`final_sunset_score` として表示する。既定のVision重みは0.8とし、Visionによる上方修正は
+純式+30までに制限する。下方修正は制限しない。
+
+純式 `sunset_score` は上書きしない。日没時・残照フェーズ、Vision欠測、重み0では、
+`final_sunset_score = sunset_score` とする。
+
+## 4. ライブカメラ画像評価
+
+### 4.1 評価フェーズ
+
+要求された `run_time` と当日の日没時刻から次のフェーズを決める。
+
+| フェーズ | 時刻 | 用途 |
+|---|---|---|
+| `predict` | 日没前 | 雲構造から日没時の夕焼けを予測 |
+| `sunset` | 日没時〜+10分 | 太陽ディスクの見えやすさと日没時の発色を別評価 |
+| `afterglow` | 日没+10分より後 | 残照だけを評価 |
+
+日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、日没+20分は
+`vision_afterglow_score` を記録する。`vision_sunset_score` は後方互換の総合値として残す。
+
+これらは同じVision LLMによる画像代理指標であり、独立したground truthとは扱わない。
+予測との誤差は日没時の発色と残照で別々に集計する。
+
+### 4.2 画像取得と保存
+
+- GitHub ActionsでYouTubeライブから1フレームを取得する。
+- ストリーム解決に失敗した場合はYouTubeライブサムネイルへフォールバックする。
+- 取得画像をGitHub Pagesへ公開し、LINE画像メッセージに使用する。
+- 取得に成功した画像をActions Artifactへ90日指定で保存する。
+- Artifact名と画像パスには対象日と `run_time` を含める。
+- 画像取得・Vision解析の失敗は非致命とし、気象式・保存・LINE処理を継続する。
+
+保存画像を別モデルで一括再採点する専用CLIは現時点では実装対象外とする。Artifactは
+将来の再採点元データとして保持する。
+
+## 5. 実行スケジュール
+
+GitHub Actions自身には `schedule` を持たせず、`workflow_dispatch` だけを公開する。
+Contaboのcronから次の実行を起動する。
+
+| 時刻 | `manual_mode` | LINE | 用途 |
+|---|---|---|---|
+| 13:00 | `send_line` | 送信 | 昼時点の見込み |
+| 17:00 | `send_line` | 送信 | 夕方直前の見込み・カメラAI予測 |
+| 当日の日没時 | `dry_run` | 送信しない | 日没時画像の評価・保存 |
+| 日没+20分 | `send_line` | 送信 | 残照評価・通知 |
+
+日没連動の2件は `scripts/schedule_sunset_capture.sh` が `zushi-chill-sunset-eta` と
+`at` を使って毎朝予約する。同じ日付・時刻・地点で `line_sent=true` の記録がある場合、
+LINEの重複送信を行わない。
+
+## 6. LINE通知
+
+- LINE Messaging APIのPush messageを使用する。
+- 表示値には `final_sunset_score`、Chill指数には純式 `sunset_score` を使用する。
+- Vision解析がある場合は予測・日没時評価・残照評価のラベルを区別する。
+- 日没時評価では太陽ディスクと発色、残照評価では残照の個別値を本文へ含める。
+- 画像URLが利用できる場合はテキストと画像を送信し、なければテキストだけ送信する。
+- 日没時の `dry_run` は本文生成と保存まで行い、LINEを送信しない。
+
+## 7. 保存要件
+
+### 7.1 保存先と更新
+
+`STORAGE_BACKEND` でGoogle SheetsまたはCSVを選択する。通常実行ではLINE送信前に
+`line_sent=false` で保存し、送信結果を同じ `date`、`run_time`、`location_name` の行へ
+反映する。
+
+Google Sheetsは旧ヘッダーが新ヘッダーのprefixと一致する場合に自動移行する。
+既存CSVはヘッダーを自動変更せず、不一致時は `ConfigError` とする。
+
+### 7.2 保存カラム
+
+保存スキーマは次の46列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
 
 ```txt
-https://api.open-meteo.com/v1/forecast
+date
+run_time
+location_name
+latitude
+longitude
+sunset_time
+target_window_start
+target_window_end
+chill_score
+chill_label
+sunset_score
+sunset_label
+temperature_2m
+apparent_temperature
+relative_humidity_2m
+precipitation_probability
+precipitation
+weather_code
+cloud_cover
+cloud_cover_low
+cloud_cover_mid
+cloud_cover_high
+visibility
+wind_speed_10m
+wind_direction_10m
+wind_gusts_10m
+comment
+line_sent
+error_message
+vision_sunset_score
+vision_sky_condition
+vision_comment
+vision_model
+sunset_cloud_cover
+sunset_cloud_cover_low
+sunset_cloud_cover_mid
+sunset_cloud_cover_high
+final_sunset_score
+final_sunset_label
+sunsethue_quality
+sunsethue_cloud_cover
+sunsethue_quality_text
+vision_evaluation_phase
+vision_sun_disk_visibility
+vision_sunset_color_score
+vision_afterglow_score
 ```
 
-### 4.1.2 必須パラメータ
-
-```txt
-latitude={LATITUDE}
-longitude={LONGITUDE}
-timezone=Asia/Tokyo
-forecast_days=1
-wind_speed_unit=ms
-hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m
-daily=sunset
-```
-
-### 4.1.3 取得する主な変数
-
-| 変数                          | 用途                |
-| --------------------------- | ----------------- |
-| `temperature_2m`            | 気温表示・ログ           |
-| `relative_humidity_2m`      | Chill指数           |
-| `apparent_temperature`      | Chill指数           |
-| `precipitation_probability` | Sunset期待度・Chill指数 |
-| `precipitation`             | 雨判定               |
-| `weather_code`              | 荒天・雨天判定           |
-| `cloud_cover`               | 参考値               |
-| `cloud_cover_low`           | Sunset期待度の主要変数    |
-| `cloud_cover_mid`           | Sunset期待度の補正      |
-| `cloud_cover_high`          | Sunset期待度の補正      |
-| `visibility`                | Sunset期待度の補正      |
-| `wind_speed_10m`            | Chill指数           |
-| `wind_direction_10m`        | LINE表示            |
-| `wind_gusts_10m`            | 強風判定              |
-| `daily.sunset`              | 評価対象時間帯の算出        |
-
-### 4.1.4 評価対象時間帯
-
-日没時刻を中心に、以下の時間帯を対象とする。
-
-```txt
-日没90分前 〜 日没30分後
-```
-
-ただしOpen-Meteoのhourlyデータは基本的に1時間単位であるため、対象時間帯に含まれる時間別データを抽出し、平均値または最大値を算出する。
-
-### 4.1.5 集計方針
-
-| 指標   | 集計方法            |
-| ---- | --------------- |
-| 気温   | 平均              |
-| 体感温度 | 平均              |
-| 湿度   | 平均              |
-| 降水確率 | 最大              |
-| 降水量  | 合計              |
-| 低層雲量 | 平均              |
-| 中層雲量 | 平均              |
-| 高層雲量 | 平均              |
-| 視程   | 最小              |
-| 風速   | 平均              |
-| 突風   | 最大              |
-| 風向   | 評価時間帯の中央値または代表値 |
-
----
-
-## 5. スコア算出要件
-
-## 5.1 出力する指数
-
-### 5.1.1 Sunset期待度
-
-夕陽・夕焼けが見えやすそうかを表す内部検証用スコア。
-
-* 範囲：0〜100
-* 高いほど夕陽・夕焼けが期待できる
-* 主に低層雲、降水、視程、強風、高層雲を評価する
-
-### 5.1.2 Chill指数
-
-海辺で夕方を過ごしやすそうかを表す内部検証用スコア。
-
-* 範囲：0〜100
-* 高いほど海の家での滞在に向く
-* 主に体感温度、湿度、風、降水リスク、Sunset期待度を評価する
-
-### 5.1.3 総合判定ラベル
-
-|    スコア | ラベル | 意味      |
-| -----: | --- | ------- |
-| 85〜100 | S   | かなり良い   |
-|  70〜84 | A   | 良い      |
-|  55〜69 | B   | 条件つきで良い |
-|  40〜54 | C   | やや微妙    |
-|   0〜39 | D   | あまり向かない |
-
----
-
-## 5.2 強制減点・Miss Chill判定
-
-以下の条件に該当する場合、Chill指数の上限を制限する。
-
-| 条件                    | 処理            |
-| --------------------- | ------------- |
-| 降水確率が70%以上            | Chill指数上限40   |
-| 評価時間帯の降水量が1.0mm以上     | Chill指数上限45   |
-| 平均風速が8m/s以上           | Chill指数上限55   |
-| 最大突風が12m/s以上          | Chill指数上限50   |
-| 体感温度が20〜21.9℃          | Chill指数上限80   |
-| 体感温度が18〜19.9℃          | Chill指数上限70   |
-| 体感温度が18℃未満            | Chill指数上限55   |
-| 総雲量が70〜84%             | Sunset期待度上限65 / Chill指数上限69 |
-| 総雲量が85%以上              | Sunset期待度上限45 / Chill指数上限65 |
-| 低層雲と中層雲がどちらも70%以上   | Sunset期待度上限45 / Chill指数上限65 |
-| 視程が5,000m未満           | Sunset期待度上限50 |
-| weather_codeが明確な雨・雷雨系 | Chill指数上限45   |
-
----
-
-## 5.3 Sunset期待度 初期計算式
-
-### 5.3.1 基本式
-
-```txt
-Sunset期待度 =
-100
-- 低層雲ペナルティ
-- 降水ペナルティ
-- 視程ペナルティ
-- 強風ペナルティ
-+ 中層雲ボーナス
-+ 高層雲ボーナス
-総雲量が多い場合は上限を制限
-```
-
-最終値は0〜100に丸める。
-
-### 5.3.2 低層雲ペナルティ
-
-|    低層雲量 | ペナルティ |
-| ------: | ----: |
-|   0〜29% |     0 |
-|  30〜49% |   -10 |
-|  50〜69% |   -20 |
-|  70〜84% |   -35 |
-| 85〜100% |   -50 |
-
-### 5.3.3 降水ペナルティ
-
-|    降水確率 | ペナルティ |
-| ------: | ----: |
-|   0〜19% |     0 |
-|  20〜39% |   -10 |
-|  40〜59% |   -25 |
-|  60〜79% |   -40 |
-| 80〜100% |   -60 |
-
-### 5.3.4 視程ペナルティ
-
-|           最小視程 | ペナルティ |
-| -------------: | ----: |
-|      15,000m以上 |     0 |
-| 10,000〜14,999m |    -5 |
-|   5,000〜9,999m |   -15 |
-|       5,000m未満 |   -30 |
-
-### 5.3.5 強風ペナルティ
-
-|       平均風速 | ペナルティ |
-| ---------: | ----: |
-|   0〜5.9m/s |     0 |
-| 6.0〜7.9m/s |    -5 |
-|   8.0m/s以上 |   -10 |
-
-### 5.3.6 中層雲ボーナス
-
-|   中層雲量 | ボーナス |
-| -----: | ---: |
-| 20〜60% |   +5 |
-|    その他 |    0 |
-
-### 5.3.7 高層雲ボーナス
-
-|   高層雲量 | ボーナス |
-| -----: | ---: |
-| 20〜70% |  +10 |
-|    その他 |    0 |
-
-### 5.3.8 雲量上限
-
-|                 条件 | Sunset期待度上限 |
-| -----------------: | ----------: |
-|          総雲量70〜84% |          65 |
-|         総雲量85〜100% |          45 |
-| 低層雲と中層雲がどちらも70%以上 |          45 |
-
----
-
-## 5.4 Chill指数 初期計算式
-
-### 5.4.1 基本式
-
-```txt
-Chill指数 =
-体感温度スコア * 0.30
-+ 湿度スコア * 0.20
-+ 風スコア * 0.20
-+ 降水リスクスコア * 0.20
-+ Sunset期待度 * 0.10
-```
-
-最終値は0〜100に丸める。
-
-### 5.4.2 体感温度スコア
-
-|                体感温度 | スコア |
-| ------------------: | --: |
-|              22〜28℃ | 100 |
-|          28.1〜30℃ |  80 |
-|           20〜21.9℃ |  70 |
-|          30.1〜32℃ |  60 |
-|           18〜19.9℃ |  45 |
-|          32.1〜34℃ |  40 |
-|           16〜17.9℃ |  25 |
-|        16℃未満 / 34℃超 |  20 |
-
-### 5.4.3 湿度スコア
-
-|              湿度 | スコア |
-| --------------: | --: |
-|          55〜75% | 100 |
-| 45〜54% / 76〜82% |  80 |
-| 35〜44% / 83〜88% |  60 |
-|           89%以上 |  40 |
-|           35%未満 |  50 |
-
-### 5.4.4 風スコア
-
-|                    平均風速 | スコア |
-| ----------------------: | --: |
-|              2.0〜5.0m/s | 100 |
-| 0.5〜1.9m/s / 5.1〜6.9m/s |  80 |
-|              7.0〜8.9m/s |  50 |
-|                9.0m/s以上 |  25 |
-|                0.5m/s未満 |  60 |
-
-### 5.4.5 降水リスクスコア
-
-|   降水確率 | スコア |
-| -----: | --: |
-|  0〜19% | 100 |
-| 20〜34% |  80 |
-| 35〜49% |  60 |
-| 50〜69% |  35 |
-|  70%以上 |  10 |
-
----
-
-## 6. LINE通知要件
-
-## 6.1 通知手段
-
-LINE Messaging APIのPush messageを使用する。
-
-### 6.1.1 必要な環境変数
-
-```txt
-LINE_CHANNEL_ACCESS_TOKEN=
-LINE_TARGET_ID=
-```
-
-`LINE_TARGET_ID` には、送信対象のユーザーID、グループID、または複数人チャットIDを設定する。
-
-### 6.1.2 投稿タイミング
-
-| 実行時刻      | 用途       |
-| --------- | -------- |
-| 13:00 JST | 昼時点の見込み  |
-| 17:00 JST | 夕方直前の見込み |
-
-GitHub ActionsではUTCで指定する。
-
-GitHub Actionsのscheduleイベントは遅延またはドロップされる場合があるため、各通知時刻に3回の起動機会を設ける。LINE本文とログの `run_time` は 13:00 / 17:00 として扱い、同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信しない。
-
-| 表示時刻 | Actions実行時刻 |
-| ---- | ----------- |
-| 13:00 | 04:07 / 04:22 / 04:37 UTC |
-| 17:00 | 08:07 / 08:22 / 08:37 UTC |
-
-### 6.1.3 LINE投稿フォーマット
-
-```txt
-【逗子サンセットチル指数｜{date} {run_time}時点】
-
-Chill指数：{chill_score} / 100（{chill_label}）
-Sunset期待度：{sunset_score} / 100（{sunset_label}）
-
-日没：{sunset_time}
-体感温度：{apparent_temperature}℃
-湿度：{humidity}%
-風：{wind_direction_label} {wind_speed}m/s
-突風：{wind_gusts}m/s
-降水確率：{precipitation_probability}%
-低層雲：{cloud_low}%
-中層雲：{cloud_mid}%
-高層雲：{cloud_high}%
-視程：{visibility_km}km
-
-コメント：
-{comment}
-
-検証メモ：
-実際の空模様と快適度を「◎ / ○ / △ / ×」で記録してください。
-Googleフォーム：
-{GOOGLE_FORM_URL}
-```
-
-### 6.1.4 コメント生成ルール
-
-LLMは使わず、ルールベースでコメントを生成する。
-
-例：
-
-| 条件                         | コメント                                      |
-| -------------------------- | ----------------------------------------- |
-| Chill指数80以上かつSunset期待度70以上 | 夕方の滞在環境、夕陽ともに期待できそうです。実際の空の抜け感を確認してください。  |
-| Chill指数70以上かつSunset期待度50未満 | 体感は良さそうですが、低層雲や降水リスクの影響で夕陽は控えめかもしれません。    |
-| Chill指数50未満                | 風・湿度・雨リスクのいずれかがネックです。実際の滞在感を重点的に確認してください。 |
-| 低層雲70%以上                   | 低層雲が多く、夕陽が隠れる可能性があります。                    |
-| 高層雲20〜70%かつ低層雲50%未満        | 高層雲がほどよく、夕焼け色が出る可能性があります。                 |
-| 風速8m/s以上                   | 風が強めです。海辺での体感は指数より厳しく感じる可能性があります。         |
-
----
-
-## 7. ログ保存要件
-
-## 7.1 保存先
-
-初期実装では以下のどちらかを選べるようにする。
-
-1. Google Sheets
-2. ローカルCSV
-
-環境変数 `STORAGE_BACKEND` で切り替える。
-
-```txt
-STORAGE_BACKEND=google_sheets
-```
-
-または
-
-```txt
-STORAGE_BACKEND=csv
-```
-
-## 7.2 予測ログの保存カラム
-
-| カラム                         | 内容        |
-| --------------------------- | --------- |
-| `date`                      | 対象日       |
-| `run_time`                  | 実行時刻      |
-| `location_name`             | 地点名       |
-| `latitude`                  | 緯度        |
-| `longitude`                 | 経度        |
-| `sunset_time`               | 日没時刻      |
-| `target_window_start`       | 評価開始時刻    |
-| `target_window_end`         | 評価終了時刻    |
-| `chill_score`               | Chill指数   |
-| `chill_label`               | Chill判定   |
-| `sunset_score`              | Sunset期待度 |
-| `sunset_label`              | Sunset判定  |
-| `temperature_2m`            | 平均気温      |
-| `apparent_temperature`      | 平均体感温度    |
-| `relative_humidity_2m`      | 平均湿度      |
-| `precipitation_probability` | 最大降水確率    |
-| `precipitation`             | 合計降水量     |
-| `weather_code`              | 代表天気コード   |
-| `cloud_cover`               | 平均雲量      |
-| `cloud_cover_low`           | 平均低層雲量    |
-| `cloud_cover_mid`           | 平均中層雲量    |
-| `cloud_cover_high`          | 平均高層雲量    |
-| `visibility`                | 最小視程      |
-| `wind_speed_10m`            | 平均風速      |
-| `wind_direction_10m`        | 代表風向      |
-| `wind_gusts_10m`            | 最大突風      |
-| `comment`                   | 生成コメント    |
-| `line_sent`                 | LINE送信成否  |
-| `error_message`             | エラー内容     |
-
-## 7.3 実測ログ
-
-実測ログはGoogleフォームで収集する想定とする。
-予測ログと突合しやすいように、Googleフォームには以下の項目を含める。
-
-| 項目    | 入力形式              |
-| ----- | ----------------- |
-| 日付    | 日付                |
-| 記録時刻  | 時刻                |
-| 空模様評価 | ◎ / ○ / △ / ×     |
-| 夕焼け評価 | ◎ / ○ / △ / ×     |
-| 快適度評価 | ◎ / ○ / △ / ×     |
-| 風の体感  | 弱い / ちょうどよい / 強い  |
-| 蒸し暑さ  | なし / ややあり / かなりあり |
-| 写真    | ファイルアップロード        |
-| メモ    | 自由記述              |
-
----
-
-## 8. GitHub Actions要件
-
-## 8.1 自動実行
-
-`.github/workflows/daily_chill.yml` を作成する。
-
-```yaml
-name: Daily Zushi Chill Index
-
-on:
-  schedule:
-    - cron: "7,22,37 4 * * *"  # 13:07/13:22/13:37 JST, displayed as 13:00
-    - cron: "7,22,37 8 * * *"  # 17:07/17:22/17:37 JST, displayed as 17:00
-  workflow_dispatch:
-
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
-
-      - name: Run chill index
-        env:
-          LOCATION_NAME: ${{ secrets.LOCATION_NAME }}
-          LATITUDE: ${{ secrets.LATITUDE }}
-          LONGITUDE: ${{ secrets.LONGITUDE }}
-          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_TARGET_ID: ${{ secrets.LINE_TARGET_ID }}
-          GOOGLE_FORM_URL: ${{ secrets.GOOGLE_FORM_URL }}
-          STORAGE_BACKEND: ${{ secrets.STORAGE_BACKEND }}
-          GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: |
-          python -m zushi_chill.main
-```
-
-## 8.2 手動実行
-
-`workflow_dispatch` により、GitHub UIから手動で実行可能にする。
-
-将来的には以下の入力を追加してもよい。
-
-```yaml
-workflow_dispatch:
-  inputs:
-    dry_run:
-      description: "LINE送信せずログだけ出す"
-      required: false
-      default: "false"
-```
-
----
-
-## 9. 環境変数
-
-`.env.example` を作成する。
-
-```txt
-# Location
-LOCATION_NAME=逗子海岸
-LATITUDE=35.2956
-LONGITUDE=139.5736
-TIMEZONE=Asia/Tokyo
-
-# LINE
-LINE_CHANNEL_ACCESS_TOKEN=
-LINE_TARGET_ID=
-
-# Form
-GOOGLE_FORM_URL=
-
-# Storage
-STORAGE_BACKEND=csv
-GOOGLE_SHEETS_SPREADSHEET_ID=
-GOOGLE_SERVICE_ACCOUNT_JSON=
-
-# Runtime
-DRY_RUN=false
-LOG_LEVEL=INFO
-```
-
----
-
-## 10. エラーハンドリング要件
-
-### 10.1 Open-Meteo API取得失敗
-
-* 最大3回リトライする
-* リトライ間隔は指数バックオフにする
-* 最終失敗時は処理を異常終了する
-* LINE送信は行わない
-* GitHub Actionsのログにエラーを出す
-
-### 10.2 LINE送信失敗
-
-* HTTPステータスコードとレスポンス本文をログに出す
-* 保存先には `line_sent=false` として記録する
-* 処理全体は異常終了扱いにする
-
-### 10.3 Google Sheets保存失敗
-
-* LINE送信前に保存する場合：保存失敗時はLINE送信しない
-* LINE送信後に保存する場合：保存失敗をログに出す
-* MVPでは「保存 → LINE送信」の順を推奨する
-
-### 10.4 データ欠損
-
-* 必須変数が欠損している場合は異常終了
-* 欠損許容する変数は設定で定義可能にする
-* 欠損値を0として扱わない
-
----
-
-## 11. テスト要件
-
-## 11.1 単体テスト
-
-### `scoring.py`
-
-以下をテストする。
-
-* Sunset期待度が0〜100に収まる
-* Chill指数が0〜100に収まる
-* 低層雲が多い場合にSunset期待度が下がる
-* 高層雲が適度な場合にSunset期待度が上がる
-* 降水確率が高い場合に両指数が下がる
-* 強風時にChill指数が下がる
-* 体感温度22〜28℃で体感温度スコアが高くなる
-* 体感温度34℃超で体感温度スコアが低くなる
-
-### `message_builder.py`
-
-以下をテストする。
-
-* 必須項目がすべて含まれている
-* 日付・時刻がJSTで表示される
-* GoogleフォームURLが含まれる
-* スコアに応じたコメントが出る
-
-### `weather_client.py`
-
-以下をテストする。
-
-* Open-Meteoレスポンスを正しくパースできる
-* 日没時刻を取得できる
-* 日没前後の評価時間帯を抽出できる
-* 欠損データ時に例外を出す
-
-## 11.2 統合テスト
-
-* fixtureのOpen-MeteoサンプルJSONからスコア算出できる
-* DRY_RUN時にLINE送信を行わず、メッセージ本文だけ出力できる
-* CSV保存ができる
-* Google Sheets保存はmockで確認する
-
----
-
-## 12. CLI要件
-
-以下のように実行できること。
-
-```bash
-python -m zushi_chill.main
-```
-
-オプション例：
-
-```bash
-python -m zushi_chill.main --dry-run
-python -m zushi_chill.main --date 2026-06-01
-python -m zushi_chill.main --run-time 13:00
-```
-
-MVPでは `--dry-run` の実装を必須とする。
-`--date` と `--run-time` は可能であれば実装する。
-
----
-
-## 13. 受け入れ条件
-
-## 13.1 必須受け入れ条件
-
-* GitHub Actionsで13:00 JSTと17:00 JSTに自動実行される
-* 手動実行できる
-* Open-Meteoから逗子海岸の気象データを取得できる
-* 日没時刻を取得できる
-* 日没前後の時間帯でデータを集計できる
-* Sunset期待度が算出される
-* Chill指数が算出される
-* LINEグループへテキスト投稿される
-* 算出結果がログ保存される
-* `--dry-run` でLINE送信なしの確認ができる
-* pytestが通る
-* READMEにセットアップ手順が記載されている
-
-## 13.2 品質条件
-
-* シークレット情報をコードに直書きしない
-* 例外発生時に原因が分かるログを出す
-* スコア計算ロジックは関数化し、テスト可能にする
-* APIクライアント、スコアリング、LINE送信、保存処理を分離する
-* MVP段階ではLLMに依存しない
-* 画像生成処理を含めない
-* SNS投稿処理を含めない
-
----
-
-## 14. READMEに記載する内容
-
-`README.md` には以下を記載する。
-
-* プロジェクト概要
-* MVPの目的
-* 外部公開向け予報サービスではないこと
-* セットアップ手順
-* LINE Messaging APIの準備
-* GitHub Secretsの設定
-* ローカル実行方法
-* dry-run方法
-* GitHub Actions実行方法
-* Google Sheets連携方法
-* 6月中の検証運用フロー
-* 実測評価の記録方法
-* スコア計算式の説明
-* 今後の改善方針
-
----
-
-## 15. 6月の運用フロー
-
-### 15.1 毎日の流れ
-
-1. 13:00 JSTに自動通知
-2. スタッフが内容を確認
-3. 17:00 JSTに夕方直前通知
-4. 日没前後にスタッフが実際の空模様・夕焼け・快適度を確認
-5. Googleフォームに実測評価を入力
-6. 必要に応じて写真をアップロード
-
-### 15.2 6月末の分析対象
-
-以下の乖離を確認する。
-
-| パターン                 | 意味         |
-| -------------------- | ---------- |
-| Sunset期待度80以上だが実測△/× | 夕陽期待度が過大評価 |
-| Sunset期待度50未満だが実測◎/○ | 夕陽期待度が過小評価 |
-| Chill指数80以上だが快適度△/×  | 滞在快適度が過大評価 |
-| Chill指数50未満だが快適度◎/○  | 滞在快適度が過小評価 |
-
-### 15.3 調整対象
-
-6月末に以下を調整する。
-
-* 低層雲ペナルティ
-* 高層雲ボーナス
-* 中層雲ボーナス
-* 湿度スコア
-* 風スコア
-* 降水リスク上限
-* Sunset期待度のChill指数への寄与率
-
----
-
-## 16. 法務・表現上の注意
-
-本MVPは内部検証用であり、外部向けに「天気予報」「気象予報」「確実に夕陽が見える」といった表現を行わない。
-
-正式なSNS運用に移行する場合も、以下の表現を推奨する。
-
-| 避けたい表現          | 推奨表現        |
-| --------------- | ----------- |
-| 天気予報            | 来店参考指数      |
-| 雨は降りません         | 雨リスクは低め     |
-| 夕陽が見えます         | 夕陽期待度は高め    |
-| SunSet Chill 予報 | 逗子サンセットチル指数 |
-| 確実におすすめ         | 今日は過ごしやすそう  |
-
-一般公開・継続運用する場合は、必要に応じて気象業務法・予報業務許可・気象予報士関与の要否を確認する。
-
----
-
-## 17. 将来拡張
-
-MVP後に検討する拡張は以下。
-
-* SNS投稿用の短文生成
-* Instagramストーリーズ用画像生成
-* X投稿用テキスト生成
-* 過去実測データに基づく重み調整
-* LightGBM等によるスコア補正
-* Webカメラ画像による空模様判定
-* 複数地点対応
-* 管理画面
-* スタッフ入力のLINE Webhook連携
-* 来店数・クーポン利用数との相関分析
-
----
-
-## 18. Codexへの実装指示
-
-この要件に基づき、まずは以下の順で実装する。
-
-1. Pythonプロジェクトの雛形を作成する
-2. Open-Meteo APIクライアントを実装する
-3. 日没前後の対象時間帯抽出ロジックを実装する
-4. Sunset期待度とChill指数の計算ロジックを実装する
-5. LINE投稿文生成ロジックを実装する
-6. LINE Messaging APIクライアントを実装する
-7. CSV保存を実装する
-8. Google Sheets保存を可能であれば実装する
-9. GitHub Actionsを設定する
-10. pytestを追加する
-11. READMEと `.env.example` を整備する
-
-初回実装では、Google Sheets連携よりもCSV保存とLINE通知の安定動作を優先する。
-Google Sheets連携が複雑になる場合は、CSV保存までをMVP完了条件としてよい。
+## 8. Sunsethueベンチマーク
+
+`SUNSETHUE_ENABLED=true` かつAPIキーがある場合、逗子海岸の座標をSunsethueへ渡し、
+`quality`、`cloud_cover`、`quality_text` を保存する。Sunsethueは式・Visionと独立した
+log-only信号とし、Sunset期待度・Chill指数・表示値を変更しない。失敗は非致命とする。
+
+## 9. エラーハンドリング
+
+- Open-Meteoは最大3回リトライし、最終失敗時はLINEを送らず異常終了する。
+- LINE送信前の保存失敗時はLINEを送信しない。
+- LINE送信失敗時は `line_sent=false` とエラー内容を保存して異常終了する。
+- LINE送信後の保存更新失敗は送信済みであることをログへ出して異常終了する。
+- Vision、画像取得、Sunsethueの失敗は警告を記録して処理を継続する。
+- シークレット値をコード・ログ・リポジトリへ保存しない。
+
+## 10. 設定
+
+環境変数の全一覧と既定値は `.env.example` を正とする。GitHub Actionsではシークレットを
+環境変数へ渡し、Contaboではリポジトリ直下の `.env` を読み込む。
+
+Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要である。
+`VISION_TARGET_HOURS` の既定 `16,17,18,19` は、逗子の日没時と日没+20分を通年で
+カバーする。
+
+## 11. テスト・受け入れ条件
+
+- `ruff check .` が成功する。
+- `pytest` が成功する。
+- スコア境界、強制上限、層別雲量、Visionブレンド上限を回帰テストする。
+- Visionの3フェーズ、個別画像評価値、旧形式応答の互換性をテストする。
+- CSVの46列出力とGoogle Sheetsの旧42列ヘッダー移行をテストする。
+- 日没時と日没+20分のスケジューラ契約をテストする。
+- GitHub Actionsの画像取得、Artifact保存、Pages公開、dry-run/send-line分岐を検証する。
+- dry-runではLINEを送らず、通常実行では送信結果を保存する。
+- 画像・Vision・Sunsethueの非致命エラーで主要処理が継続する。
+
+## 12. 法務・表現上の注意
+
+本ツールは内部検証用とし、外部向けに「天気予報」「気象予報」「確実に夕陽が見える」
+などの断定表現を使用しない。一般公開・継続運用へ移行する場合は、必要に応じて
+気象業務法、予報業務許可、気象予報士関与の要否を確認する。
+
+## 13. 今後の候補
+
+- 保存Artifactを対象にした一括再採点CLI
+- 画像代理指標のモデル間比較と評価基準の固定
+- サンプル蓄積後の主予測信号選抜
+- 残照光路の遠方雲サンプリング
+- 複数地点対応、管理画面、来店実績との相関分析
+- SNS向け短文・画像生成（公開運用の判断後）

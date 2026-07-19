@@ -4,6 +4,7 @@ import json
 from urllib.error import HTTPError
 
 import pytest
+
 from zushi_chill.line_client import LINE_PUSH_URL, LINE_REPLY_URL, LineClient, LineSendError
 
 

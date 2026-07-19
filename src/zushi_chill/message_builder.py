@@ -55,12 +55,27 @@ def build_line_message(
     )
     vision_section = ""
     if vision is not None:
-        vision_label = "ライブカメラAI予測" if vision_mode == "predict" else "ライブカメラ実況評価"
+        if vision_mode == "predict":
+            vision_label = "ライブカメラAI予測"
+        elif vision.evaluation_phase == "sunset":
+            vision_label = "ライブカメラ日没時評価"
+        elif vision.evaluation_phase == "afterglow":
+            vision_label = "ライブカメラ残照評価"
+        else:
+            vision_label = "ライブカメラ実況評価"
+        detail_lines = []
+        if vision.sun_disk_visibility is not None:
+            detail_lines.append(f"太陽ディスク：{vision.sun_disk_visibility} / 100")
+        if vision.sunset_color_score is not None:
+            detail_lines.append(f"日没時の発色：{vision.sunset_color_score} / 100")
+        if vision.afterglow_score is not None:
+            detail_lines.append(f"残照：{vision.afterglow_score} / 100")
+        detail_section = "" if not detail_lines else "\n" + "\n".join(detail_lines)
         vision_section = (
             f"\n\n📷 {vision_label}\n"
             f"【 {score_label(vision.sunset_score)} 】{vision.sunset_score} / 100"
             f"（{vision.sky_condition}）\n"
-            f"{vision.comment}"
+            f"{vision.comment}{detail_section}"
         )
     return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
 

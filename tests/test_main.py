@@ -388,6 +388,8 @@ def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
         sky_condition="partly_cloudy",
         comment="部分的な色",
         model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=55,
     )
     captured_kwargs: dict = {}
 
@@ -404,8 +406,8 @@ def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
 
     assert exit_code == 0
     assert fake_storage.records[-1].vision == vision
-    # 日没(18:51)後の19:20実行は実況評価のラベルになり、撮影/日没時刻が渡される
-    assert "カメラ実況評価" in fake_line_client.sent_messages[0]
+    # 日没(18:51)後の19:20実行は残照評価のラベルになり、撮影/日没時刻が渡される
+    assert "カメラ残照評価" in fake_line_client.sent_messages[0]
     assert captured_kwargs["capture_time"].strftime("%H:%M") == "19:20"
     assert captured_kwargs["sunset_time"].strftime("%H:%M") == "18:51"
 
@@ -653,14 +655,19 @@ def test_post_sunset_vision_is_not_blended(monkeypatch):
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "key")
     vision = VisionResult(
-        sunset_score=20, sky_condition="overcast", comment="実測", model="gemini-2.5-flash"
+        sunset_score=20,
+        sky_condition="overcast",
+        comment="画像代理評価",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=20,
     )
     monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
     monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
     monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
     monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: vision)
 
-    # 日没(18:51)後の19:20=実況評価モード → ground truth なのでブレンドしない
+    # 日没(18:51)後の19:20=残照画像評価フェーズなのでブレンドしない
     exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "19:20"])
     assert exit_code == 0
 

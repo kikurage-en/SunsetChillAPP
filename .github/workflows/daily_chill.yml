@@ -70,7 +70,9 @@ jobs:
           fi
           echo "RUN_DATE=$RUN_DATE" >> "$GITHUB_ENV"
           echo "RUN_TIME=$RUN_TIME" >> "$GITHUB_ENV"
-          echo "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/${RUN_TIME/:/}.jpg" >> "$GITHUB_ENV"
+          RUN_TIME_COMPACT="${RUN_TIME/:/}"
+          echo "RUN_TIME_COMPACT=$RUN_TIME_COMPACT" >> "$GITHUB_ENV"
+          echo "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/$RUN_TIME_COMPACT.jpg" >> "$GITHUB_ENV"
 
       - name: Capture live camera image
         run: |
@@ -108,6 +110,15 @@ jobs:
           done
 
           echo "::warning::Live camera image capture failed"
+
+      - name: Archive live camera image
+        if: env.LIVE_CAMERA_IMAGE_URL != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-camera-${{ env.RUN_DATE }}-${{ env.RUN_TIME_COMPACT }}
+          path: public/${{ env.LIVE_CAMERA_IMAGE_RELATIVE_PATH }}
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Configure Pages
         if: env.LIVE_CAMERA_IMAGE_URL != ''

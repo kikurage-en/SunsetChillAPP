@@ -50,8 +50,35 @@ def test_prediction_log_columns_match_requirements():
         "sunsethue_quality",
         "sunsethue_cloud_cover",
         "sunsethue_quality_text",
+        "vision_evaluation_phase",
+        "vision_sun_disk_visibility",
+        "vision_sunset_color_score",
+        "vision_afterglow_score",
     ]
     assert expected_columns == CSV_COLUMNS
+    requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
+    assert "保存スキーマは次の46列" in requirements
+    for column in expected_columns:
+        assert column in requirements
+
+
+def test_requirements_document_current_automated_image_evaluation():
+    requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
+
+    for text in (
+        "日没時と日没後の画像を自動取得",
+        "vision_sunset_color_score",
+        "vision_afterglow_score",
+        "独立したground truthとは扱わない",
+        "GitHub Actions自身には `schedule` を持たせず",
+    ):
+        assert text in requirements
+    for obsolete in (
+        "実測ログはGoogleフォームで収集する想定",
+        "MVP段階ではLLMに依存しない",
+        "Webカメラ画像解析",
+    ):
+        assert obsolete not in requirements
 
 
 def test_github_actions_manual_dispatch_is_configured():
@@ -85,10 +112,13 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "maxresdefault_live.jpg" in workflow
     assert "hqdefault_live.jpg" in workflow
     assert "curl --fail --location --silent --show-error" in workflow
+    assert "Archive live camera image" in workflow
+    assert "uses: actions/upload-artifact@v4" in workflow
+    assert "retention-days: 90" in workflow
     assert "uses: actions/configure-pages@v5" in workflow
     assert "uses: actions/upload-pages-artifact@v3" in workflow
     assert "uses: actions/deploy-pages@v4" in workflow
-    assert "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/${RUN_TIME/:/}.jpg" in workflow
+    assert "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/$RUN_TIME_COMPACT.jpg" in workflow
     assert (
         "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
         in workflow
@@ -110,6 +140,15 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}" in workflow
     assert 'RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"' in workflow
     assert "python -m zushi_chill.main" in workflow
+
+
+def test_sunset_capture_scheduler_collects_sunset_and_afterglow_images():
+    script = Path("scripts/schedule_sunset_capture.sh").read_text(encoding="utf-8")
+
+    assert '--minutes 0)' in script
+    assert "--manual-mode dry_run" in script
+    assert "--manual-mode send_line" in script
+    assert "AFTERGLOW_OFFSET_MINUTES" in script
 
 
 def test_pyproject_declares_runtime_and_cli_contracts():
@@ -169,6 +208,16 @@ def test_readme_documents_runtime_configuration():
         "GITHUB_TOKEN=",
     ]:
         assert setting in readme
+
+
+def test_readme_does_not_describe_implemented_vision_as_future_scope():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "## 前向き検証運用" in readme
+    assert "保存画像を別モデルで一括再採点する専用CLIは現時点では未実装" in readme
+    assert "## 6月の検証運用" not in readme
+    assert "LLM、画像生成、SNS投稿、自動最適化はMVPに含めていません" not in readme
+    assert "Webカメラ画像解析や複数地点対応の検討" not in readme
 
 
 def test_readme_documents_score_formulas_and_caps():

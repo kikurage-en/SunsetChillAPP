@@ -4,6 +4,7 @@ import csv
 from dataclasses import replace
 
 import pytest
+
 from zushi_chill.config import ConfigError, Settings
 from zushi_chill.models import PredictionRecord, ScoreResult, VisionResult
 from zushi_chill.storage import CSV_COLUMNS, CsvStorage, GoogleSheetsStorage, storage_from_settings
@@ -28,6 +29,10 @@ def test_csv_columns_include_vision_fields_after_error_message():
         "vision_sky_condition",
         "vision_comment",
         "vision_model",
+        "vision_evaluation_phase",
+        "vision_sun_disk_visibility",
+        "vision_sunset_color_score",
+        "vision_afterglow_score",
     ):
         assert column in CSV_COLUMNS
         assert CSV_COLUMNS.index(column) > CSV_COLUMNS.index("error_message")
@@ -41,6 +46,9 @@ def test_csv_storage_writes_vision_fields_when_present(tmp_path, sample_summary)
         sky_condition="golden_hour",
         comment="美しい夕焼け",
         model="gemini-2.5-flash",
+        evaluation_phase="sunset",
+        sun_disk_visibility=70,
+        sunset_color_score=82,
     )
 
     CsvStorage(path).save(
@@ -52,6 +60,10 @@ def test_csv_storage_writes_vision_fields_when_present(tmp_path, sample_summary)
     assert rows[0]["vision_sky_condition"] == "golden_hour"
     assert rows[0]["vision_comment"] == "美しい夕焼け"
     assert rows[0]["vision_model"] == "gemini-2.5-flash"
+    assert rows[0]["vision_evaluation_phase"] == "sunset"
+    assert rows[0]["vision_sun_disk_visibility"] == "70"
+    assert rows[0]["vision_sunset_color_score"] == "82"
+    assert rows[0]["vision_afterglow_score"] == ""
 
 
 def test_csv_storage_writes_empty_vision_fields_when_absent(tmp_path, sample_summary):
@@ -65,6 +77,10 @@ def test_csv_storage_writes_empty_vision_fields_when_absent(tmp_path, sample_sum
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
     assert rows[0]["vision_sunset_score"] == ""
     assert rows[0]["vision_model"] == ""
+    assert rows[0]["vision_evaluation_phase"] == ""
+    assert rows[0]["vision_sun_disk_visibility"] == ""
+    assert rows[0]["vision_sunset_color_score"] == ""
+    assert rows[0]["vision_afterglow_score"] == ""
 
 
 def test_csv_storage_writes_header_when_file_exists_but_empty(tmp_path, sample_summary):
@@ -226,7 +242,7 @@ def test_google_sheets_storage_appends_with_header(sample_summary):
 
 
 def test_google_sheets_storage_migrates_legacy_header(sample_summary):
-    legacy_header = CSV_COLUMNS[:-4]  # vision 4カラム追加前の旧ヘッダ
+    legacy_header = CSV_COLUMNS[:-4]  # 画像の分離評価4カラム追加前の旧ヘッダ
     fake_service = FakeSheetsService(
         get_values=[legacy_header, ["2026-06-01", "13:00", "逗子海岸"]],
         sheet_titles=["predictions"],
@@ -334,7 +350,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AP2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AT2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -358,7 +374,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AP3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AT3"
     assert fake_service.appends == []
 
 
@@ -414,7 +430,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:AP"
+    assert fake_service.last_get["range"] == "'predictions'!A:AT"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -461,7 +477,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AP2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AT2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

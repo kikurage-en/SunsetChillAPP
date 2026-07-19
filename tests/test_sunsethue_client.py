@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+
 from zushi_chill.sunsethue_client import SunsethueError, _parse_event, fetch_sunset_quality
 
 

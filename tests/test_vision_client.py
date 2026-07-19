@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+
 from zushi_chill import main as main_module
 from zushi_chill import vision_client
 from zushi_chill.config import Settings
@@ -27,10 +28,15 @@ class FakeResponse:
         return False
 
 
-def _gemini_body(score=72, condition="partly_cloudy", comment="薄い夕焼け") -> bytes:
-    inner = json.dumps(
-        {"sunset_score": score, "sky_condition": condition, "comment": comment}
-    )
+def _gemini_body(
+    score=72,
+    condition="partly_cloudy",
+    comment="薄い夕焼け",
+    **extra,
+) -> bytes:
+    result = {"sunset_score": score, "sky_condition": condition, "comment": comment}
+    result.update(extra)
+    inner = json.dumps(result)
     return json.dumps(
         {"candidates": [{"content": {"parts": [{"text": inner}]}}]}
     ).encode("utf-8")
@@ -206,6 +212,29 @@ def test_vision_mode_boundaries():
     assert vision_client.vision_mode(_RUN_1920, _SUNSET_1855) == "actual"
 
 
+def test_vision_evaluation_phase_boundaries():
+    ten_minutes_after = datetime(
+        2026, 6, 10, 19, 5, tzinfo=ZoneInfo("Asia/Tokyo")
+    )
+
+    assert (
+        vision_client.vision_evaluation_phase(_RUN_1700_0610, _SUNSET_1855)
+        == "predict"
+    )
+    assert (
+        vision_client.vision_evaluation_phase(_SUNSET_1855, _SUNSET_1855)
+        == "sunset"
+    )
+    assert (
+        vision_client.vision_evaluation_phase(ten_minutes_after, _SUNSET_1855)
+        == "sunset"
+    )
+    assert (
+        vision_client.vision_evaluation_phase(_RUN_1920, _SUNSET_1855)
+        == "afterglow"
+    )
+
+
 def test_build_prompt_predicts_sunset_from_pre_sunset_sky():
     prompt = vision_client.build_prompt(
         capture_time=_RUN_1700_0610, sunset_time=_SUNSET_1855
@@ -224,8 +253,19 @@ def test_build_prompt_evaluates_actual_sky_after_sunset():
 
     assert "19:20" in prompt
     assert "18:55" in prompt
-    assert "実況として評価" in prompt
+    assert "残照だけを評価" in prompt
+    assert "afterglow_score" in prompt
     assert "予測して採点" not in prompt
+
+
+def test_build_prompt_separates_disk_and_color_at_sunset():
+    prompt = vision_client.build_prompt(
+        capture_time=_SUNSET_1855, sunset_time=_SUNSET_1855
+    )
+
+    assert "太陽ディスク" in prompt
+    assert "sun_disk_visibility" in prompt
+    assert "sunset_color_score" in prompt
 
 
 def test_build_prompt_falls_back_to_generic_prompt_without_times():
@@ -250,3 +290,49 @@ def test_analyze_image_sends_mode_specific_prompt(monkeypatch, tmp_path):
     payload = json.loads(calls[0].data)
     prompt_text = payload["contents"][0]["parts"][1]["text"]
     assert "予測して採点" in prompt_text
+
+
+def test_analyze_image_records_separate_sunset_metrics(monkeypatch, tmp_path):
+    image = tmp_path / "sunset.jpg"
+    image.write_bytes(b"fakejpeg")
+    response = _gemini_body(
+        score=76,
+        sun_disk_visibility=68,
+        sunset_color_score=84,
+    )
+    monkeypatch.setattr(
+        vision_client, "urlopen", _fake_urlopen([FakeResponse(body=response)], [])
+    )
+
+    result = analyze_image(
+        image_path=image,
+        api_key="key",
+        capture_time=_SUNSET_1855,
+        sunset_time=_SUNSET_1855,
+    )
+
+    assert result.evaluation_phase == "sunset"
+    assert result.sun_disk_visibility == 68
+    assert result.sunset_color_score == 84
+    assert result.afterglow_score is None
+
+
+def test_analyze_image_uses_legacy_score_as_afterglow_fallback(monkeypatch, tmp_path):
+    image = tmp_path / "afterglow.jpg"
+    image.write_bytes(b"fakejpeg")
+    monkeypatch.setattr(
+        vision_client,
+        "urlopen",
+        _fake_urlopen([FakeResponse(body=_gemini_body(score=63))], []),
+    )
+
+    result = analyze_image(
+        image_path=image,
+        api_key="key",
+        capture_time=_RUN_1920,
+        sunset_time=_SUNSET_1855,
+    )
+
+    assert result.evaluation_phase == "afterglow"
+    assert result.afterglow_score == 63
+    assert result.sunset_color_score is None

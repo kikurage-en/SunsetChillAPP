@@ -51,6 +51,10 @@ CSV_COLUMNS = [
     "sunsethue_quality",
     "sunsethue_cloud_cover",
     "sunsethue_quality_text",
+    "vision_evaluation_phase",
+    "vision_sun_disk_visibility",
+    "vision_sunset_color_score",
+    "vision_afterglow_score",
 ]
 
 

@@ -123,6 +123,42 @@ def test_line_message_labels_vision_as_prediction_in_predict_mode(sample_summary
     assert "カメラ実況評価" not in message
 
 
+def test_line_message_shows_separate_sunset_image_scores(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=68,
+        sky_condition="golden_hour",
+        comment="太陽と発色を確認",
+        model="gemini-2.5-flash",
+        evaluation_phase="sunset",
+        sun_disk_visibility=80,
+        sunset_color_score=65,
+    )
+
+    message = build_line_message(sample_summary, scores, vision=vision)
+
+    assert "ライブカメラ日没時評価" in message
+    assert "太陽ディスク：80 / 100" in message
+    assert "日没時の発色：65 / 100" in message
+
+
+def test_line_message_shows_afterglow_score(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=55,
+        sky_condition="partly_cloudy",
+        comment="雲に残照あり",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=55,
+    )
+
+    message = build_line_message(sample_summary, scores, vision=vision)
+
+    assert "ライブカメラ残照評価" in message
+    assert "残照：55 / 100" in message
+
+
 def test_line_message_omits_vision_section_when_absent(sample_summary):
     scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -18,6 +18,23 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _JSON_SPEC = """次のJSONだけを返してください（前後に説明やコードブロックを付けない）:
 {
   "sunset_score": 0-100の整数,
+  "sky_condition": "clear" | "partly_cloudy" | "overcast" | "golden_hour" | "rain",
+  "comment": "50文字以内の日本語コメント"
+}"""
+
+_SUNSET_JSON_SPEC = """次のJSONだけを返してください（前後に説明やコードブロックを付けない）:
+{
+  "sunset_score": 日没時の総合品質を表す0-100の整数,
+  "sun_disk_visibility": 太陽ディスクの見えやすさを表す0-100の整数,
+  "sunset_color_score": 日没時の橙・赤・紫の発色を表す0-100の整数,
+  "sky_condition": "clear" | "partly_cloudy" | "overcast" | "golden_hour" | "rain",
+  "comment": "50文字以内の日本語コメント"
+}"""
+
+_AFTERGLOW_JSON_SPEC = """次のJSONだけを返してください（前後に説明やコードブロックを付けない）:
+{
+  "sunset_score": 残照の品質と同じ0-100の整数,
+  "afterglow_score": 日没後の橙・赤・紫の残照を表す0-100の整数,
   "sky_condition": "clear" | "partly_cloudy" | "overcast" | "golden_hour" | "rain",
   "comment": "50文字以内の日本語コメント"
 }"""
@@ -39,6 +56,15 @@ def vision_mode(capture_time: datetime, sunset_time: datetime) -> str:
     return "predict" if capture_time < sunset_time else "actual"
 
 
+def vision_evaluation_phase(capture_time: datetime, sunset_time: datetime) -> str:
+    """画像が予測・日没時・残照のどの評価に使われるかを返す。"""
+    if capture_time < sunset_time:
+        return "predict"
+    if capture_time <= sunset_time + timedelta(minutes=10):
+        return "sunset"
+    return "afterglow"
+
+
 def build_prompt(
     *,
     capture_time: datetime | None = None,
@@ -52,7 +78,8 @@ def build_prompt(
         f"以下は逗子海岸のライブカメラ画像です。"
         f"撮影時刻は{capture_label}、本日の日没時刻は{sunset_label}です。"
     )
-    if vision_mode(capture_time, sunset_time) == "predict":
+    phase = vision_evaluation_phase(capture_time, sunset_time)
+    if phase == "predict":
         return (
             f"{header}\n"
             "日没前の画像なので、現在の夕焼け色の有無ではなく、"
@@ -61,11 +88,23 @@ def build_prompt(
             f"{_JSON_SPEC}\n\n"
             f"sunset_score の基準（日没時に予測される夕焼けとして採点）:\n{_SCORE_RUBRIC}"
         )
+    if phase == "sunset":
+        return (
+            f"{header}\n"
+            "日没時の画像です。太陽ディスクが雲や地形で隠れていないかと、"
+            "空に実際に出ている夕焼け色を別々に評価してください。"
+            "太陽が画角外の場合は、水平線付近の直射光の見え方から判断してください。\n"
+            f"{_SUNSET_JSON_SPEC}\n\n"
+            f"sunset_score と sunset_color_score の基準:\n{_SCORE_RUBRIC}\n"
+            "sun_disk_visibility は色の鮮やかさではなく、太陽ディスクまたは直射光の"
+            "見えやすさだけを採点してください。"
+        )
     return (
         f"{header}\n"
-        "日没後の画像なので、実際の夕焼け・空模様を実況として評価してください。\n"
-        f"{_JSON_SPEC}\n\n"
-        f"sunset_score の基準:\n{_SCORE_RUBRIC}"
+        "日没から10分以上経過した画像です。太陽ディスクではなく、中・高層雲や空に"
+        "残っている橙・赤・紫の残照だけを評価してください。\n"
+        f"{_AFTERGLOW_JSON_SPEC}\n\n"
+        f"sunset_score と afterglow_score の基準:\n{_SCORE_RUBRIC}"
     )
 
 
@@ -131,7 +170,12 @@ def analyze_image(
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise VisionError(f"Gemini request failed: {exc}") from exc
 
-    return _parse_response(raw, model=model)
+    phase = (
+        vision_evaluation_phase(capture_time, sunset_time)
+        if capture_time is not None and sunset_time is not None
+        else ""
+    )
+    return _parse_response(raw, model=model, evaluation_phase=phase)
 
 
 def _load_image_bytes(
@@ -158,7 +202,9 @@ def _load_image_bytes(
     raise VisionError("Either image_path or image_url is required")
 
 
-def _parse_response(raw: Any, *, model: str) -> VisionResult:
+def _parse_response(
+    raw: Any, *, model: str, evaluation_phase: str = ""
+) -> VisionResult:
     try:
         text = raw["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError, TypeError) as exc:
@@ -175,9 +221,32 @@ def _parse_response(raw: Any, *, model: str) -> VisionResult:
         raise VisionError(f"Gemini JSON missing expected fields: {parsed}") from exc
 
     sunset_score = max(0, min(100, sunset_score))
+    sun_disk_visibility = _optional_score(parsed, "sun_disk_visibility")
+    sunset_color_score = _optional_score(parsed, "sunset_color_score")
+    afterglow_score = _optional_score(parsed, "afterglow_score")
+    # 旧形式の応答でも、日没時の発色・残照は従来の総合スコアを代理値として保存できる。
+    if evaluation_phase == "sunset" and sunset_color_score is None:
+        sunset_color_score = sunset_score
+    if evaluation_phase == "afterglow" and afterglow_score is None:
+        afterglow_score = sunset_score
     return VisionResult(
         sunset_score=sunset_score,
         sky_condition=sky_condition,
         comment=comment,
         model=model,
+        evaluation_phase=evaluation_phase,
+        sun_disk_visibility=sun_disk_visibility,
+        sunset_color_score=sunset_color_score,
+        afterglow_score=afterglow_score,
     )
+
+
+def _optional_score(parsed: dict[str, Any], key: str) -> int | None:
+    value = parsed.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        score = int(value)
+    except (TypeError, ValueError) as exc:
+        raise VisionError(f"Gemini JSON contains invalid {key}: {parsed}") from exc
+    return max(0, min(100, score))

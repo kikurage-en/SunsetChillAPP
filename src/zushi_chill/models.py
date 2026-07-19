@@ -69,6 +69,10 @@ class VisionResult:
     sky_condition: str
     comment: str
     model: str
+    evaluation_phase: str = ""
+    sun_disk_visibility: int | None = None
+    sunset_color_score: int | None = None
+    afterglow_score: int | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,24 @@ class PredictionRecord:
                 "sunsethue_quality": self.sunsethue.quality if self.sunsethue else "",
                 "sunsethue_cloud_cover": self.sunsethue.cloud_cover if self.sunsethue else "",
                 "sunsethue_quality_text": self.sunsethue.quality_text if self.sunsethue else "",
+                "vision_evaluation_phase": (
+                    self.vision.evaluation_phase if self.vision else ""
+                ),
+                "vision_sun_disk_visibility": (
+                    self.vision.sun_disk_visibility
+                    if self.vision and self.vision.sun_disk_visibility is not None
+                    else ""
+                ),
+                "vision_sunset_color_score": (
+                    self.vision.sunset_color_score
+                    if self.vision and self.vision.sunset_color_score is not None
+                    else ""
+                ),
+                "vision_afterglow_score": (
+                    self.vision.afterglow_score
+                    if self.vision and self.vision.afterglow_score is not None
+                    else ""
+                ),
             }
         )
         return data

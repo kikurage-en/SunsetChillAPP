@@ -4,6 +4,7 @@ import json
 from urllib.error import HTTPError
 
 import pytest
+
 from zushi_chill.github_actions_trigger import (
     GITHUB_API_BASE_URL,
     GitHubActionsTriggerError,

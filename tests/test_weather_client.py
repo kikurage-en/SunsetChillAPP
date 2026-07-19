@@ -6,6 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+
 from zushi_chill.weather_client import OpenMeteoClient, WeatherDataError, parse_forecast
 
 

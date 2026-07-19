@@ -31,7 +31,7 @@ def test_blend_sunset_score_weights_vision_against_formula():
 
 def test_blend_uplift_is_capped_but_downgrade_is_not():
     """Vision上方キャップ: 17:00のカメラは「これから西から来る雲の壁」を見えない
-    (2026-07-17: 式10=西40km低層雲97.7%を捕捉・実測15に対し Vision 70)ため、
+    (2026-07-17: 式10=西40km低層雲97.7%を捕捉・旧画像代理値15に対しVision 70)ため、
     上方修正は式+30まで。下方修正(7/07型: 式80・Vision15が的中)は制限しない。
     """
     # 7/17 実例: 旧ブレンド58 → キャップで40
@@ -147,8 +147,8 @@ def test_sunset_score_visibility_wind_and_cloud_bonus_tables(sample_summary):
 
 
 def test_sunset_score_ceiling_recalibration(sample_summary):
-    """天井の再校正: 実測(日没後Vision)がS帯(85+)に達したのは35日中1日のみで、
-    式が85+を出した8日の実測中央値は68だった(2026-07-17分析)。好条件でも上限80、
+    """天井の再校正: 旧+20分Vision画像代理値がS帯(85+)に達したのは35日中1日のみで、
+    式が85+を出した8日の代理値中央値は68だった(2026-07-17分析)。好条件でも上限80、
     色を最大限に通す超快晴(総雲量<15%かつ低層雲<5%)のみ90まで許す。
     """
     perfect = replace(
@@ -448,17 +448,17 @@ def test_chill_force_caps(sample_summary):
     assert calculate_chill_score(replace(comfortable, weather_code=61), 100) <= 45
 
 
-def test_sunset_score_matches_19_jst_vision_ground_truth(sample_summary):
-    """17:00天気ベース予測 vs 19:20 Vision実況評価(ground truth)の乖離検証。
+def test_sunset_score_matches_legacy_vision_image_proxy(sample_summary):
+    """17:00天気ベース予測 vs 旧19:20 Vision画像代理値の乖離検証。
 
     SunsetChillログ(Google Sheets predictions)の2026-06-12〜06-24における
-    「17:00行のsunset_score」と「同日19:20行のvision_sunset_score(実測)」の
+    「17:00行のsunset_score」と「同日19:20行のvision_sunset_score(旧代理値)」の
     13ペア。総雲量85%以上の上限を45→30へ下げた補正後、全ペアの集計誤差が
     縮小すること(MAE 20.3→15.7、bias +9.7→+5.1)を全データで証明する。
     部分的な出力assertでは集計悪化を見逃すため、13ペア全てと集計境界を検証する。
 
-    各行: (日付, low, mid, high, cloud_cover, precip_prob, visibility, wind, 実測GT)
-    06-21(総雲量65%・実測45)はペナルティゼロ+ボーナスで100に飽和する既知の
+    各行: (日付, low, mid, high, cloud_cover, precip_prob, visibility, wind, 画像代理値)
+    06-21(総雲量65%・代理値45)はペナルティゼロ+ボーナスで100に飽和する既知の
     外れ値(N=1のため今回は補正対象外、将来サンプル蓄積後に再評価)。
     """
     pairs = [
@@ -502,14 +502,15 @@ def test_sunset_score_matches_19_jst_vision_ground_truth(sample_summary):
     assert mae <= 15
     assert abs(bias) <= 4
 
-    # 補正の核心: 総雲量85%以上の厚い曇天(実測10〜25帯)は上限30
+    # 補正の核心: 総雲量85%以上の厚い曇天(旧画像代理値10〜25帯)は上限30
     assert scores["06-14"] == 30
     assert scores["06-17"] == 30
     assert scores["06-23"] == 30
     assert scores["06-24"] == 30
 
-    # 回帰防止: 快晴・高層雲主体の薄曇り(実測が高い日)は悪化させない。
-    # 06-13(実測92)は天井80になる(この行の逗子雲は low=5.3 で超快晴例外<5%に
+    # 回帰防止: 快晴・高層雲主体の薄曇り(旧画像代理値が高い日)は悪化させない。
+    # 06-13(旧画像代理値92)は天井80になる(この行の逗子雲は low=5.3 で
+    # 超快晴例外<5%に
     # 僅かに届かない)。本番の Sunset用雲は西40km地点(この日 low=1)で例外が効く。
     assert scores["06-13"] == 80
     assert scores["06-16"] == 65
@@ -521,7 +522,7 @@ def test_thick_mid_cloud_caps_sunset_score(sample_summary):
     中層雲が厚い日の過大評価を是正する。
 
     2026-07-07 17:00(総雲量57%・中層57%・高層0%)は式が 100 に張り付いたが、
-    日没後Vision実測は 15(overcast)だった。中層雲キャップで過大評価を抑える。
+    旧+20分Vision画像代理値は15(overcast)だった。中層雲キャップで過大評価を抑える。
     """
     record_20260707_1700 = replace(
         sample_summary,
@@ -543,7 +544,8 @@ def test_thick_mid_cloud_caps_sunset_score(sample_summary):
 
 def test_sunset_score_uses_western_cloud_when_provided(sample_summary):
     """Sunset期待度は西の日没方位地点の雲で算出する。逗子が快晴でも、陽の沈む先が
-    厚い雲なら夕焼けは出ない(2026-07-04型: 逗子 total60% だが西 total100%・実測15)。
+    厚い雲なら夕焼けは出ない
+    (2026-07-04型: 逗子 total60% だが西 total100%・旧画像代理値15)。
 
     一方 Chill指数の雲キャップは逗子の雲を使うため、西の雲では抑制されない。
     """

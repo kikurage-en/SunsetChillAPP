@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+
 from zushi_chill import config as config_module
 from zushi_chill.models import WeatherSummary
 from zushi_chill.weather_client import parse_forecast

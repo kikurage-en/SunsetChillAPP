@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from zushi_chill.config import ConfigError, Settings
 
 
