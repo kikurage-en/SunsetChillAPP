@@ -1,6 +1,6 @@
 # 検証運用ステータス
 
-最終更新: 2026-07-21
+最終更新: 2026-07-22
 
 このファイルは進行中の検証運用の現状と保留中の判断を記録する Truth Source。別セッション（コールドスタート）から現状を把握するための入口。仕様の詳細は `README.md`、算出ロジックはコードが正。
 
@@ -15,9 +15,13 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 - **評価層**: ライブカメラ画像を日没時と日没+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、+20分は `vision_afterglow_score` をVisionで別評価する。取得成功画像はActions Artifactへ90日指定で保存し、将来の再採点元データとして保持する（専用の一括再採点CLIは未実装）。
 - **降水確率の用途分離**: LINEの現地天気参考値とChill指数は気象庁・神奈川県東部の6時間降水確率を優先し、欠測時はOpen-Meteoへフォールバックする。Sunset期待度は地点・時刻粒度を優先してOpen-Meteoを維持する。両値は別列で前向き比較する。
 - **LINE天気参考欄**: 情報過多を避け、日没・実行時刻に最も近い気温・湿度・風・降水確率だけを表示する。Chill指数は表示用気温とは分離し、対象時間帯平均の体感温度を維持する。
+- **LINE冒頭**: サービス名や括弧を付けず、`YYYY-MM-DD HH:MM` だけを表示する。
 - **予測コメント**: 人手確認を促す旧定型文を廃止し、LINE表示用の最終Sunset期待度とChill指数の組み合わせを予測文へ変換する。気象要因の補足は優先度順で1件だけ表示する。
+- **dry-runのLINE抑止**: `manual_mode=dry_run` は通常通知だけでなく失敗通知も送信しない。検証実行の成否はGitHub Actions上で確認する。
 
 **運用反映**: `main` がTruth Sourceで、GitHub Actions `daily_chill.yml` は `GITHUB_REF=main` を実行する。Contabo上のcheckoutはpushだけでは更新されないため、反映時に `git pull` が必要。更新後のcronは13:00 / 17:00を固定時刻、毎朝8時に `scripts/schedule_sunset_capture.sh` で**日没時と日没+20分を動的予約**する。日没時は `dry_run` で評価・保存のみ、+20分は `send_line`。保存スキーマは59列で、Google Sheetsの既存46列ヘッダーと列幅は次回実行時に自動移行する。
+
+**2026-07-22運用確認**: Contaboのcheckoutを最新`main`へ同期した。最新workflowのdry-run（Actions run `29842953215`、commit `f62c6b5`）は、ruff 0.4.10、全214テスト、画像取得・Artifact保存・Pages公開、気象庁降水確率20%を含む新形式メッセージ生成、Google Sheets保存まで成功し、通常LINEと失敗通知はともにスキップされた。先行run `29842513490` で判明したruff版差によるlint失敗は `b4c9423` で修正し、dry-run失敗時にもLINE通知しない条件を `f62c6b5` と契約テストで固定した。
 
 ## 前向き検証（進行中）: 主予測信号の選抜
 
