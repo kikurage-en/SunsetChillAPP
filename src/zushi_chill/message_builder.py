@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult, WeatherSummary
+from zushi_chill.models import (
+    JmaPrecipitationForecast,
+    ScoreResult,
+    SunsetCloud,
+    VisionResult,
+    WeatherSummary,
+)
 from zushi_chill.scoring import has_dry_high_precipitation_conflict, score_label
 
 
@@ -11,29 +17,51 @@ def build_comment(
 ) -> str:
     # 雲に関する所見は Sunset期待度を駆動する「夕焼け方向(西の空)」の雲で判断する。
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
-    if scores.chill_score >= 80 and scores.sunset_score >= 70:
-        parts = ["夕方の滞在環境、夕陽ともに期待できそうです。実際の空の抜け感を確認してください。"]
-    elif scores.chill_score >= 70 and scores.sunset_score < 50:
-        parts = ["体感は良さそうですが、低層雲や降水リスクの影響で夕陽は控えめかもしれません。"]
-    elif scores.chill_score < 50:
-        parts = [
-            "風・湿度・雨リスクのいずれかがネックです。実際の滞在感を重点的に確認してください。"
-        ]
+    sunset_band = _comment_band(scores.sunset_score)
+    chill_band = _comment_band(scores.chill_score)
+    if sunset_band == "good" and chill_band == "good":
+        headline = "夕焼け条件・海辺の快適さともに良好な見込みです。"
+    elif sunset_band == "good":
+        headline = "夕焼け条件は良好ですが、海辺の快適さは控えめな見込みです。"
+    elif chill_band == "good":
+        headline = "海辺の快適さは良好ですが、夕焼け条件は控えめな見込みです。"
+    elif sunset_band == "low" and chill_band == "low":
+        headline = "夕焼け条件・海辺の快適さともに低調な見込みです。"
+    elif sunset_band == "low":
+        headline = "海辺の快適さは中程度ですが、夕焼け条件は低調な見込みです。"
+    elif chill_band == "low":
+        headline = "夕焼け条件は中程度ですが、海辺の快適さは低調な見込みです。"
     else:
-        parts = ["夕方の実際の空模様と海辺の体感を確認してください。"]
+        headline = "夕焼け条件・海辺の快適さともに中程度の見込みです。"
 
+    details: list[str] = []
     if cloud.cloud_cover_low >= 70:
-        parts.append("低層雲が多く、夕陽が隠れる可能性があります。")
-    if 20 <= cloud.cloud_cover_high <= 70 and cloud.cloud_cover_low < 50:
-        parts.append("高層雲がほどよく、夕焼け色が出る可能性があります。")
+        details.append("低層雲が多く、夕陽が隠れる可能性があります。")
+    if summary.apparent_temperature >= 32:
+        details.append("体感温度が高く、海辺では蒸し暑さが強い見込みです。")
+    elif summary.apparent_temperature >= 28:
+        details.append("海辺ではやや蒸し暑く感じる見込みです。")
     if summary.wind_speed_10m >= 8:
-        parts.append("風が強めです。海辺での体感は指数より厳しく感じる可能性があります。")
+        details.append("風が強く、海辺の快適さを下げる見込みです。")
+    if 20 <= cloud.cloud_cover_high <= 70 and cloud.cloud_cover_low < 50:
+        details.append("高層雲がほどよく、夕焼け色が出る可能性があります。")
     if has_dry_high_precipitation_conflict(summary, cloud):
-        parts.append(
-            "降水確率と予想雨量・西空の雲が食い違うため、夕焼け予測の不確実性が高いです。"
+        details.insert(
+            0,
+            "Sunset算出用の降水信号と予想雨量・西空の雲が食い違うため、"
+            "夕焼け予測の不確実性が高いです。",
         )
 
-    return "\n".join(parts)
+    # コメント欄も情報過多にしない。総評1文に、優先度が最も高い1件だけ補足する。
+    return "\n".join([headline, *details[:1]])
+
+
+def _comment_band(score: int) -> str:
+    if score >= 70:
+        return "good"
+    if score >= 55:
+        return "medium"
+    return "low"
 
 
 def build_line_message(
@@ -43,11 +71,20 @@ def build_line_message(
     vision: VisionResult | None = None,
     vision_mode: str = "actual",
     sunset_cloud: SunsetCloud | None = None,
+    jma_precipitation: JmaPrecipitationForecast | None = None,
     final_sunset_score: int | None = None,
     final_sunset_label: str | None = None,
 ) -> str:
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
-    comment = scores.comment or build_comment(summary, scores, sunset_cloud)
+    comment_scores = scores
+    if final_sunset_score is not None:
+        comment_scores = ScoreResult(
+            sunset_score=final_sunset_score,
+            sunset_label=final_sunset_label or score_label(final_sunset_score),
+            chill_score=scores.chill_score,
+            chill_label=scores.chill_label,
+        )
+    comment = scores.comment or build_comment(summary, comment_scores, sunset_cloud)
     # 表示する Sunset期待度は Vision ブレンド後の値(未指定なら純式スコア)。
     display_sunset_score = (
         final_sunset_score if final_sunset_score is not None else scores.sunset_score
@@ -81,7 +118,13 @@ def build_line_message(
             f"（{vision.sky_condition}）\n"
             f"{vision.comment}{detail_section}"
         )
-    return f"""【逗子サンセットチル指数｜{summary.date} {summary.run_time}】
+    precipitation_line = _precipitation_probability_line(summary, jma_precipitation)
+    display_temperature = (
+        summary.temperature_2m_at_run_time
+        if summary.temperature_2m_at_run_time is not None
+        else summary.temperature_2m
+    )
+    return f"""{summary.date} {summary.run_time}
 
 Sunset期待度【 {display_sunset_label} 】{display_sunset_score} / 100
 Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
@@ -89,16 +132,23 @@ Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
 {comment}
 
 日没：{summary.sunset_time.strftime("%H:%M")}
-対象時間帯：{summary.target_window_start.strftime("%H:%M")}〜{summary.target_window_end.strftime("%H:%M")}
-体感温度：{summary.apparent_temperature:.1f}℃
+気温：{display_temperature:.1f}℃
 湿度：{summary.relative_humidity_2m:.0f}%
 風：{wind_direction_label(summary.wind_direction_10m)} {summary.wind_speed_10m:.1f}m/s
-突風：{summary.wind_gusts_10m:.1f}m/s
-降水確率（最大）：{summary.precipitation_probability:.0f}%
+{precipitation_line}
 
 夕焼け方向の雲
 {cloud_line}
 視程：{summary.visibility / 1000:.1f}km{vision_section}"""
+
+
+def _precipitation_probability_line(
+    summary: WeatherSummary,
+    jma_precipitation: JmaPrecipitationForecast | None,
+) -> str:
+    if jma_precipitation is None:
+        return f"降水確率：{summary.precipitation_probability:.0f}%"
+    return f"降水確率：{jma_precipitation.probability}%"
 
 
 def wind_direction_label(degrees: float) -> str:

@@ -48,6 +48,31 @@ def test_scores_are_clamped(sample_summary):
     assert 0 <= scores.chill_score <= 100
 
 
+def test_jma_probability_changes_chill_but_not_sunset(sample_summary):
+    summary = replace(
+        sample_summary,
+        apparent_temperature=25,
+        relative_humidity_2m=65,
+        wind_speed_10m=3,
+        wind_gusts_10m=6,
+        precipitation_probability=87,
+        precipitation=0,
+        weather_code=1,
+        cloud_cover=20,
+        cloud_cover_low=10,
+        cloud_cover_mid=10,
+    )
+
+    open_meteo_only = calculate_scores(summary)
+    jma_for_chill = calculate_scores(
+        summary,
+        chill_precipitation_probability=20,
+    )
+
+    assert jma_for_chill.sunset_score == open_meteo_only.sunset_score
+    assert jma_for_chill.chill_score > open_meteo_only.chill_score
+
+
 def test_low_cloud_reduces_sunset_score(sample_summary):
     clear = replace(sample_summary, cloud_cover_low=20)
     cloudy = replace(sample_summary, cloud_cover_low=90)

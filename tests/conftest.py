@@ -35,6 +35,10 @@ def isolate_ci_job_env(monkeypatch):
         "LIVE_CAMERA_VIDEO_ID",
         "LIVE_CAMERA_IMAGE_BASE_URL",
         "LIVE_CAMERA_IMAGE_URL",
+        "JMA_FORECAST_ENABLED",
+        "JMA_OFFICE_CODE",
+        "JMA_AREA_CODE",
+        "JMA_TIMEOUT_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
 

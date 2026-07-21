@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import csv
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
 from zushi_chill.config import ConfigError, Settings
-from zushi_chill.models import PredictionRecord, ScoreResult, VisionResult
+from zushi_chill.models import (
+    JmaPrecipitationForecast,
+    PredictionRecord,
+    ScoreResult,
+    VisionResult,
+)
 from zushi_chill.storage import CSV_COLUMNS, CsvStorage, GoogleSheetsStorage, storage_from_settings
 
 
@@ -46,8 +52,8 @@ def test_csv_columns_include_vision_fields_after_error_message():
         assert CSV_COLUMNS.index(column) > CSV_COLUMNS.index("error_message")
 
 
-def test_csv_columns_append_sunset_hour_diagnostics():
-    assert CSV_COLUMNS[-8:] == [
+def test_csv_columns_append_sunset_hour_diagnostics_and_jma_forecast():
+    assert CSV_COLUMNS[-13:] == [
         "precipitation_probability_before_sunset",
         "precipitation_before_sunset",
         "weather_code_before_sunset",
@@ -56,7 +62,41 @@ def test_csv_columns_append_sunset_hour_diagnostics():
         "precipitation_at_sunset",
         "weather_code_at_sunset",
         "visibility_at_sunset",
+        "jma_precipitation_probability",
+        "jma_precipitation_period_start",
+        "jma_precipitation_period_end",
+        "jma_precipitation_area",
+        "jma_report_time",
     ]
+
+
+def test_csv_storage_writes_jma_precipitation_forecast(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
+    period_start = sample_summary.sunset_time.replace(hour=18, minute=0)
+    jma = JmaPrecipitationForecast(
+        probability=20,
+        period_start=period_start,
+        period_end=period_start + timedelta(hours=6),
+        area_name="東部",
+        report_time=period_start.replace(hour=17),
+    )
+
+    CsvStorage(path).save(
+        PredictionRecord(
+            summary=sample_summary,
+            scores=scores,
+            line_sent=False,
+            jma_precipitation=jma,
+        )
+    )
+
+    row = next(csv.DictReader(path.open(encoding="utf-8")))
+    assert row["jma_precipitation_probability"] == "20"
+    assert row["jma_precipitation_period_start"].endswith("18:00+09:00")
+    assert row["jma_precipitation_period_end"].endswith("00:00+09:00")
+    assert row["jma_precipitation_area"] == "東部"
+    assert row["jma_report_time"].endswith("17:00+09:00")
 
 
 def test_csv_storage_writes_vision_fields_when_present(tmp_path, sample_summary):
@@ -290,7 +330,7 @@ def test_google_sheets_storage_migrates_legacy_header(sample_summary):
                     "appendDimension": {
                         "sheetId": 0,
                         "dimension": "COLUMNS",
-                        "length": 8,
+                        "length": 13,
                     }
                 }
             ]
@@ -387,7 +427,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BB2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BG2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -411,7 +451,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BB3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BG3"
     assert fake_service.appends == []
 
 
@@ -467,7 +507,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:BB"
+    assert fake_service.last_get["range"] == "'predictions'!A:BG"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -514,7 +554,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BB2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BG2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

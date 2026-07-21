@@ -17,7 +17,9 @@ TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
 
-def _bool_from_env(value: str | None, *, default: bool = False) -> bool:
+def _bool_from_env(
+    value: str | None, *, default: bool = False, name: str = "DRY_RUN"
+) -> bool:
     if value is None or not value.strip():
         return default
     normalized = value.strip().lower()
@@ -25,7 +27,7 @@ def _bool_from_env(value: str | None, *, default: bool = False) -> bool:
         return True
     if normalized in FALSE_VALUES:
         return False
-    raise ConfigError("DRY_RUN must be one of: 1, true, yes, on, 0, false, no, off")
+    raise ConfigError(f"{name} must be one of: 1, true, yes, on, 0, false, no, off")
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,10 @@ class Settings:
     sunsethue_enabled: bool = False
     sunsethue_api_key: str = ""
     sunsethue_timeout_seconds: int = 20
+    jma_forecast_enabled: bool = False
+    jma_office_code: str = "140000"
+    jma_area_code: str = "140010"
+    jma_timeout_seconds: int = 20
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -130,6 +136,7 @@ class Settings:
             "SUNSET_VISION_BLEND_WEIGHT", default=0.8
         )
         sunsethue_timeout_seconds = _positive_int_from_env("SUNSETHUE_TIMEOUT_SECONDS", default=20)
+        jma_timeout_seconds = _positive_int_from_env("JMA_TIMEOUT_SECONDS", default=20)
 
         return cls(
             location_name=_env("LOCATION_NAME", "逗子海岸"),
@@ -168,6 +175,13 @@ class Settings:
             sunsethue_enabled=_bool_from_env(_env("SUNSETHUE_ENABLED", "")),
             sunsethue_api_key=_env("SUNSETHUE_API_KEY", ""),
             sunsethue_timeout_seconds=sunsethue_timeout_seconds,
+            jma_forecast_enabled=_bool_from_env(
+                _env("JMA_FORECAST_ENABLED", ""),
+                name="JMA_FORECAST_ENABLED",
+            ),
+            jma_office_code=_forecast_code_from_env("JMA_OFFICE_CODE", "140000"),
+            jma_area_code=_forecast_code_from_env("JMA_AREA_CODE", "140010"),
+            jma_timeout_seconds=jma_timeout_seconds,
         )
 
     def require_line(self) -> None:
@@ -253,6 +267,13 @@ def _positive_int_from_env(name: str, *, default: int) -> int:
     if parsed <= 0:
         raise ConfigError(f"{name} must be a positive integer")
     return parsed
+
+
+def _forecast_code_from_env(name: str, default: str) -> str:
+    value = _env(name, default)
+    if len(value) != 6 or not value.isdigit():
+        raise ConfigError(f"{name} must be a 6-digit code")
+    return value
 
 
 def _non_negative_float_from_env(name: str, *, default: float) -> float:

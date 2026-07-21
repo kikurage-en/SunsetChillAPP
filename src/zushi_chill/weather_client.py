@@ -34,6 +34,10 @@ HOURLY_FIELDS = (
     "wind_direction_10m",
     "wind_gusts_10m",
 )
+PRECEDING_HOUR_FIELDS = frozenset(
+    {"precipitation_probability", "precipitation", "wind_gusts_10m"}
+)
+
 
 class WeatherDataError(RuntimeError):
     """Raised when weather data cannot be fetched or parsed safely."""
@@ -131,6 +135,11 @@ def parse_forecast(
     indexes = _target_window_indexes(times, window_start, window_end)
     if not indexes:
         raise WeatherDataError("No hourly rows found in the sunset target window")
+    preceding_hour_indexes = _preceding_hour_window_indexes(
+        times, window_start, window_end
+    )
+    if not preceding_hour_indexes:
+        raise WeatherDataError("No preceding-hour rows found in the sunset target window")
 
     allow_missing_fields = allow_missing_fields or frozenset()
     unknown_allowed_fields = set(allow_missing_fields) - set(HOURLY_FIELDS)
@@ -144,7 +153,7 @@ def parse_forecast(
         field: _values_for_indexes(
             hourly,
             field,
-            indexes,
+            preceding_hour_indexes if field in PRECEDING_HOUR_FIELDS else indexes,
             len(times),
             allow_missing=field in allow_missing_fields,
         )
@@ -182,6 +191,13 @@ def parse_forecast(
         )
     }
     run_time = datetime.now(tz) if run_time is None else run_time.astimezone(tz)
+    run_time_temperature = _value_for_index(
+        hourly,
+        "temperature_2m",
+        _nearest_time_index(times, run_time),
+        len(times),
+        allow_missing="temperature_2m" in allow_missing_fields,
+    )
 
     return WeatherSummary(
         date=sunset_time.date().isoformat(),
@@ -216,6 +232,11 @@ def parse_forecast(
         precipitation_at_sunset=at_sunset["precipitation"],
         weather_code_at_sunset=_optional_int(at_sunset["weather_code"]),
         visibility_at_sunset=at_sunset["visibility"],
+        temperature_2m_at_run_time=(
+            run_time_temperature
+            if run_time_temperature is not None
+            else _mean(values["temperature_2m"])
+        ),
     )
 
 
@@ -249,6 +270,18 @@ def _target_window_indexes(
     return indexes
 
 
+def _preceding_hour_window_indexes(
+    times: list[datetime], window_start: datetime, window_end: datetime
+) -> list[int]:
+    """Return rows whose preceding one-hour interval overlaps the target window."""
+    indexes = []
+    for index, item_time in enumerate(times):
+        item_start = item_time - timedelta(hours=1)
+        if item_time > window_start and item_start < window_end:
+            indexes.append(index)
+    return indexes
+
+
 def _sunset_diagnostic_indexes(
     times: list[datetime], sunset_time: datetime
 ) -> tuple[int, int]:
@@ -257,6 +290,13 @@ def _sunset_diagnostic_indexes(
     if not before or not at_or_after:
         raise WeatherDataError("Hourly rows do not bracket sunset time")
     return before[-1], at_or_after[0]
+
+
+def _nearest_time_index(times: list[datetime], target_time: datetime) -> int:
+    return min(
+        range(len(times)),
+        key=lambda index: abs((times[index] - target_time).total_seconds()),
+    )
 
 
 def _values_for_indexes(

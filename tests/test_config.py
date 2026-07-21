@@ -187,6 +187,28 @@ def test_sunsethue_settings_default_disabled(monkeypatch):
     assert enabled.sunsethue_api_key == "abc123"
 
 
+def test_jma_forecast_settings_defaults_and_validation(monkeypatch):
+    settings = Settings.from_env()
+    assert settings.jma_forecast_enabled is False
+    assert settings.jma_office_code == "140000"
+    assert settings.jma_area_code == "140010"
+    assert settings.jma_timeout_seconds == 20
+
+    monkeypatch.setenv("JMA_FORECAST_ENABLED", "true")
+    monkeypatch.setenv("JMA_OFFICE_CODE", "130000")
+    monkeypatch.setenv("JMA_AREA_CODE", "130010")
+    monkeypatch.setenv("JMA_TIMEOUT_SECONDS", "10")
+    enabled = Settings.from_env()
+    assert enabled.jma_forecast_enabled is True
+    assert enabled.jma_office_code == "130000"
+    assert enabled.jma_area_code == "130010"
+    assert enabled.jma_timeout_seconds == 10
+
+    monkeypatch.setenv("JMA_AREA_CODE", "kanagawa")
+    with pytest.raises(ConfigError, match="JMA_AREA_CODE"):
+        Settings.from_env()
+
+
 def test_settings_normalizes_and_limits_google_sheets_worksheet_name(monkeypatch):
     monkeypatch.setenv("GOOGLE_SHEETS_WORKSHEET", " predictions ")
 

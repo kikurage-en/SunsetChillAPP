@@ -17,10 +17,17 @@ def score_label(score: int) -> str:
 
 
 def calculate_scores(
-    summary: WeatherSummary, sunset_cloud: SunsetCloud | None = None
+    summary: WeatherSummary,
+    sunset_cloud: SunsetCloud | None = None,
+    *,
+    chill_precipitation_probability: float | None = None,
 ) -> ScoreResult:
     sunset_score = calculate_sunset_score(summary, sunset_cloud)
-    chill_score = calculate_chill_score(summary, sunset_score)
+    chill_score = calculate_chill_score(
+        summary,
+        sunset_score,
+        precipitation_probability=chill_precipitation_probability,
+    )
     return ScoreResult(
         sunset_score=sunset_score,
         sunset_label=score_label(sunset_score),
@@ -101,17 +108,29 @@ def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weigh
     return _clamp_score(blended)
 
 
-def calculate_chill_score(summary: WeatherSummary, sunset_score: int) -> int:
+def calculate_chill_score(
+    summary: WeatherSummary,
+    sunset_score: int,
+    *,
+    precipitation_probability: float | None = None,
+) -> int:
+    # 現地向けのChill指数は、取得できた場合は一般の天気予報と同じ定義である
+    # 気象庁の6時間降水確率を使う。欠測時はOpen-Meteoへフォールバックする。
+    precipitation_probability = (
+        summary.precipitation_probability
+        if precipitation_probability is None
+        else precipitation_probability
+    )
     score = (
         apparent_temperature_score(summary.apparent_temperature) * 0.30
         + humidity_score(summary.relative_humidity_2m) * 0.20
         + wind_score(summary.wind_speed_10m) * 0.20
-        + precipitation_risk_score(summary.precipitation_probability) * 0.20
+        + precipitation_risk_score(precipitation_probability) * 0.20
         + sunset_score * 0.10
     )
 
     caps: list[int] = []
-    if summary.precipitation_probability >= 70:
+    if precipitation_probability >= 70:
         caps.append(40)
     if summary.precipitation >= 1.0:
         caps.append(45)

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from zushi_chill import main as main_module
 from zushi_chill import vision_client
 from zushi_chill.line_client import LineSendError
-from zushi_chill.models import VisionResult
+from zushi_chill.models import JmaPrecipitationForecast, VisionResult
 from zushi_chill.weather_client import WeatherDataError
 
 
@@ -41,7 +43,7 @@ def test_dry_run_prints_message_and_does_not_send_line(tmp_path, monkeypatch, ca
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert "逗子サンセットチル指数" in output
+    assert output.startswith("2026-06-01 13:00\n")
     assert csv_path.exists()
     assert fake_weather_client.target_date.isoformat() == "2026-06-01"
 
@@ -90,10 +92,44 @@ def test_dry_run_environment_value_prevents_line_send(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert "逗子サンセットチル指数" in output
+    assert output.startswith("2026-06-01 13:00\n")
     assert len(fake_storage.records) == 1
     assert fake_storage.records[0].line_sent is False
     assert fake_line_client.sent_messages == []
+
+
+def test_dry_run_uses_jma_probability_for_message_and_record(monkeypatch, capsys):
+    fake_storage = MemoryStorage()
+    period_start = datetime(2026, 6, 1, 18, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+    class FakeJmaClient:
+        def __init__(self, *, timeout):
+            assert timeout == 20
+
+        def fetch_precipitation_probability(self, **kwargs):
+            assert kwargs["office_code"] == "140000"
+            assert kwargs["area_code"] == "140010"
+            return JmaPrecipitationForecast(
+                probability=20,
+                period_start=period_start,
+                period_end=period_start + timedelta(hours=6),
+                area_name="東部",
+                report_time=period_start.replace(hour=17),
+            )
+
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("JMA_FORECAST_ENABLED", "true")
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: FakeWeatherClient())
+    monkeypatch.setattr(main_module, "JmaForecastClient", FakeJmaClient)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "13:00"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "降水確率：20%" in output
+    assert fake_storage.records[0].jma_precipitation is not None
+    assert fake_storage.records[0].jma_precipitation.probability == 20
 
 
 def test_input_json_missing_file_returns_error(tmp_path, monkeypatch):

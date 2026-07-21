@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 
 from zushi_chill.message_builder import build_comment, build_line_message, wind_direction_label
-from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult
+from zushi_chill.models import (
+    JmaPrecipitationForecast,
+    ScoreResult,
+    SunsetCloud,
+    VisionResult,
+)
 
 
 def test_headline_shows_blended_final_sunset_score(sample_summary):
@@ -21,6 +27,20 @@ def test_headline_shows_blended_final_sunset_score(sample_summary):
     # final 未指定なら純式スコアをそのまま表示(後方互換)
     plain = build_line_message(sample_summary, scores)
     assert "Sunset期待度【 C 】40 / 100" in plain
+
+
+def test_comment_uses_displayed_final_sunset_score(sample_summary):
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=80, chill_label="A")
+
+    message = build_line_message(
+        sample_summary,
+        scores,
+        final_sunset_score=40,
+        final_sunset_label="C",
+    )
+
+    assert "海辺の快適さは良好ですが、夕焼け条件は控えめ" in message
+    assert "夕焼け条件・海辺の快適さともに良好" not in message
 
 
 def test_message_and_comment_use_western_sunset_cloud(sample_summary):
@@ -62,16 +82,18 @@ def test_line_message_contains_required_fields(sample_summary):
         replace(scores, comment=build_comment(sample_summary, scores)),
     )
 
-    assert "【逗子サンセットチル指数｜2026-06-01 13:00】" in message
+    assert message.startswith("2026-06-01 13:00\n")
+    assert "逗子サンセットチル指数｜" not in message
     assert "Sunset期待度【 S 】90 / 100" in message
     assert "Chill指数【 S 】88 / 100" in message
     assert "日没：18:51" in message
-    assert "対象時間帯：17:21〜19:21" in message
-    assert "体感温度：" in message
+    assert "気温：26.0℃" in message
     assert "湿度：" in message
     assert "風：" in message
-    assert "突風：" in message
-    assert "降水確率（最大）：" in message
+    assert "降水確率：" in message
+    assert "対象時間帯：" not in message
+    assert "体感温度：" not in message
+    assert "突風：" not in message
     assert "夕焼け方向の雲" in message
     assert "低層 " in message
     assert "中層 " in message
@@ -80,6 +102,41 @@ def test_line_message_contains_required_fields(sample_summary):
     assert "コメント：" in message
     assert "検証メモ" not in message
     assert "Googleフォーム" not in message
+
+
+def test_line_message_uses_jma_six_hour_probability_when_available(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=72, chill_label="A")
+    period_start = sample_summary.sunset_time.replace(hour=18, minute=0)
+    jma = JmaPrecipitationForecast(
+        probability=20,
+        period_start=period_start,
+        period_end=period_start + timedelta(hours=6),
+        area_name="東部",
+        report_time=period_start.replace(hour=17),
+    )
+
+    message = build_line_message(
+        sample_summary,
+        scores,
+        jma_precipitation=jma,
+    )
+
+    assert "降水確率：20%" in message
+    assert "Open-Meteo" not in message
+
+
+def test_line_message_uses_temperature_nearest_to_run_time(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=72, chill_label="A")
+    summary = replace(
+        sample_summary,
+        temperature_2m=30.0,
+        temperature_2m_at_run_time=24.5,
+    )
+
+    message = build_line_message(summary, scores)
+
+    assert "気温：24.5℃" in message
+    assert "気温：30.0℃" not in message
 
 
 def test_line_message_includes_vision_section_when_present(sample_summary):
@@ -182,7 +239,7 @@ def test_line_message_uses_internal_validation_wording(sample_summary):
     assert "確実" not in message
     assert "時点" not in message
     assert "発表" not in message
-    assert "対象時間帯" in message
+    assert "対象時間帯" not in message
     assert "検証メモ" not in message
 
 
@@ -199,12 +256,27 @@ def test_comment_changes_by_scores_and_weather(sample_summary):
     high_cloud = replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50)
     windy = replace(sample_summary, wind_speed_10m=8)
 
-    assert "夕方の滞在環境" in build_comment(sample_summary, good)
-    assert "体感は良さそう" in build_comment(sample_summary, comfortable_but_low_sunset)
-    assert "ネック" in build_comment(sample_summary, bad)
+    assert "ともに良好な見込み" in build_comment(sample_summary, good)
+    assert "海辺の快適さは良好" in build_comment(
+        sample_summary, comfortable_but_low_sunset
+    )
+    assert "ともに低調な見込み" in build_comment(sample_summary, bad)
     assert "低層雲が多く" in build_comment(low_cloud, good)
     assert "高層雲がほどよく" in build_comment(high_cloud, good)
-    assert "風が強め" in build_comment(windy, good)
+    assert "風が強く" in build_comment(windy, good)
+
+
+def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary):
+    summary = replace(sample_summary, apparent_temperature=34.4)
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=60, chill_label="B")
+
+    comment = build_comment(summary, scores)
+
+    assert comment.splitlines() == [
+        "夕焼け条件は良好ですが、海辺の快適さは控えめな見込みです。",
+        "体感温度が高く、海辺では蒸し暑さが強い見込みです。",
+    ]
+    assert "確認してください" not in comment
 
 
 def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summary):

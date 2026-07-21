@@ -10,10 +10,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from zushi_chill.config import ConfigError, Settings
+from zushi_chill.jma_client import JmaForecastClient
 from zushi_chill.line_client import LineClient
 from zushi_chill.live_camera import build_capture_relative_path, build_capture_url
 from zushi_chill.message_builder import build_comment, build_line_message
 from zushi_chill.models import (
+    JmaPrecipitationForecast,
     PredictionRecord,
     ScoreResult,
     SunsetCloud,
@@ -66,10 +68,17 @@ def main(argv: list[str] | None = None) -> int:
             allow_missing_fields=settings.allow_missing_hourly_fields,
         )
         sunset_cloud = _resolve_sunset_cloud(args, settings, summary, run_time)
-        scores_without_comment = calculate_scores(summary, sunset_cloud)
-        scores = replace(
-            scores_without_comment,
-            comment=build_comment(summary, scores_without_comment, sunset_cloud),
+        jma_precipitation = _collect_jma_precipitation(
+            settings,
+            summary,
+            offline=bool(args.input_json),
+        )
+        scores_without_comment = calculate_scores(
+            summary,
+            sunset_cloud,
+            chill_precipitation_probability=(
+                jma_precipitation.probability if jma_precipitation else None
+            ),
         )
         live_camera_image_url = settings.live_camera_image_url or build_capture_url(
             settings.live_camera_image_base_url,
@@ -80,7 +89,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         mode = vision_mode(run_time, summary.sunset_time)
         final_sunset_score, final_sunset_label = _blend_final_sunset(
-            scores, vision_result, mode, settings
+            scores_without_comment, vision_result, mode, settings
+        )
+        comment_scores = replace(
+            scores_without_comment,
+            sunset_score=final_sunset_score,
+            sunset_label=final_sunset_label,
+        )
+        scores = replace(
+            scores_without_comment,
+            comment=build_comment(summary, comment_scores, sunset_cloud),
         )
         sunsethue_result = _collect_sunsethue(settings, run_time)
         message = build_line_message(
@@ -89,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             vision=vision_result,
             vision_mode=mode,
             sunset_cloud=sunset_cloud,
+            jma_precipitation=jma_precipitation,
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
         )
@@ -103,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                 final_sunset_score=final_sunset_score,
                 final_sunset_label=final_sunset_label,
                 sunsethue=sunsethue_result,
+                jma_precipitation=jma_precipitation,
             )
             storage.save(record)
             print(message)
@@ -117,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
             sunsethue=sunsethue_result,
+            jma_precipitation=jma_precipitation,
         )
         storage.save(pending_record)
         try:
@@ -145,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                 final_sunset_score=final_sunset_score,
                 final_sunset_label=final_sunset_label,
                 sunsethue=sunsethue_result,
+                jma_precipitation=jma_precipitation,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -164,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
             sunsethue=sunsethue_result,
+            jma_precipitation=jma_precipitation,
         )
         try:
             storage.replace_latest(sent_record)
@@ -195,6 +218,35 @@ def _collect_sunsethue(settings: Settings, run_time: datetime) -> SunsethueResul
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("Sunsethue fetch failed; continuing: %s", exc)
+        return None
+
+
+def _collect_jma_precipitation(
+    settings: Settings,
+    summary: WeatherSummary,
+    *,
+    offline: bool,
+) -> JmaPrecipitationForecast | None:
+    """Fetch JMA's public six-hour PoP for LINE display and Chill scoring.
+
+    The request is non-fatal: replay runs and temporary JMA failures retain the existing
+    Open-Meteo value, while successful values are persisted for forward validation.
+    """
+    if offline or not settings.jma_forecast_enabled:
+        return None
+    try:
+        return JmaForecastClient(
+            timeout=settings.jma_timeout_seconds
+        ).fetch_precipitation_probability(
+            office_code=settings.jma_office_code,
+            area_code=settings.jma_area_code,
+            target_time=summary.sunset_time,
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "JMA precipitation forecast fetch failed; using Open-Meteo fallback: %s",
+            exc,
+        )
         return None
 
 

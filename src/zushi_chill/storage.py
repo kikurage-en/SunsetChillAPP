@@ -63,6 +63,11 @@ CSV_COLUMNS = [
     "precipitation_at_sunset",
     "weather_code_at_sunset",
     "visibility_at_sunset",
+    "jma_precipitation_probability",
+    "jma_precipitation_period_start",
+    "jma_precipitation_period_end",
+    "jma_precipitation_area",
+    "jma_report_time",
 ]
 
 

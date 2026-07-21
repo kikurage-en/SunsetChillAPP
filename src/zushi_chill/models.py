@@ -38,6 +38,9 @@ class WeatherSummary:
     precipitation_at_sunset: float | None = None
     weather_code_at_sunset: int | None = None
     visibility_at_sunset: float | None = None
+    # LINEの天気参考値として表示する、実行時刻に最も近いhourly気温。
+    # Chill指数は従来どおり apparent_temperature の対象時間帯平均を使う。
+    temperature_2m_at_run_time: float | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,17 @@ class SunsethueResult:
 
 
 @dataclass(frozen=True)
+class JmaPrecipitationForecast:
+    """気象庁の一次細分区域向け6時間降水確率。"""
+
+    probability: int
+    period_start: datetime
+    period_end: datetime
+    area_name: str
+    report_time: datetime
+
+
+@dataclass(frozen=True)
 class PredictionRecord:
     summary: WeatherSummary
     scores: ScoreResult
@@ -109,9 +123,12 @@ class PredictionRecord:
     final_sunset_score: int | None = None
     final_sunset_label: str | None = None
     sunsethue: SunsethueResult | None = None
+    jma_precipitation: JmaPrecipitationForecast | None = None
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
+        # 表示専用値。保存スキーマの temperature_2m は校正用の対象時間帯平均を維持する。
+        data.pop("temperature_2m_at_run_time", None)
         for field in (
             "precipitation_probability_before_sunset",
             "precipitation_before_sunset",
@@ -175,6 +192,27 @@ class PredictionRecord:
                 "vision_afterglow_score": (
                     self.vision.afterglow_score
                     if self.vision and self.vision.afterglow_score is not None
+                    else ""
+                ),
+                "jma_precipitation_probability": (
+                    self.jma_precipitation.probability if self.jma_precipitation else ""
+                ),
+                "jma_precipitation_period_start": (
+                    self.jma_precipitation.period_start.isoformat(timespec="minutes")
+                    if self.jma_precipitation
+                    else ""
+                ),
+                "jma_precipitation_period_end": (
+                    self.jma_precipitation.period_end.isoformat(timespec="minutes")
+                    if self.jma_precipitation
+                    else ""
+                ),
+                "jma_precipitation_area": (
+                    self.jma_precipitation.area_name if self.jma_precipitation else ""
+                ),
+                "jma_report_time": (
+                    self.jma_precipitation.report_time.isoformat(timespec="minutes")
+                    if self.jma_precipitation
                     else ""
                 ),
             }

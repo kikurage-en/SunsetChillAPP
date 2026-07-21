@@ -62,10 +62,15 @@ def test_prediction_log_columns_match_requirements():
         "precipitation_at_sunset",
         "weather_code_at_sunset",
         "visibility_at_sunset",
+        "jma_precipitation_probability",
+        "jma_precipitation_period_start",
+        "jma_precipitation_period_end",
+        "jma_precipitation_area",
+        "jma_report_time",
     ]
     assert expected_columns == CSV_COLUMNS
     requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
-    assert "保存スキーマは次の54列" in requirements
+    assert "保存スキーマは次の59列" in requirements
     for column in expected_columns:
         assert column in requirements
 
@@ -111,6 +116,9 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "LIVE_CAMERA_URL:" in workflow
     assert "LIVE_CAMERA_VIDEO_ID:" in workflow
     assert "LIVE_CAMERA_IMAGE_BASE_URL:" in workflow
+    assert 'JMA_FORECAST_ENABLED: "true"' in workflow
+    assert 'JMA_OFFICE_CODE: "140000"' in workflow
+    assert 'JMA_AREA_CODE: "140010"' in workflow
     assert 'LIVE_CAMERA_IMAGE_BASE_URL: ""' in workflow
     assert "echo \"Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}\"" in workflow
     assert "Capture live camera image" in workflow

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -17,10 +18,26 @@ def test_parse_forecast_extracts_sunset_and_target_window(sample_summary):
     assert sample_summary.precipitation_probability == 10
     assert sample_summary.precipitation == 0
     assert sample_summary.visibility == 18000
+    assert sample_summary.temperature_2m_at_run_time == 26.0
+
+
+def test_parse_forecast_selects_temperature_nearest_to_run_time(sample_payload):
+    sample_payload["hourly"]["temperature_2m"][19] = 18.2
+
+    summary = parse_forecast(
+        sample_payload,
+        location_name="逗子海岸",
+        latitude=35.2956,
+        longitude=139.5736,
+        timezone="Asia/Tokyo",
+        run_time=datetime(2026, 6, 1, 19, 14, tzinfo=ZoneInfo("Asia/Tokyo")),
+    )
+
+    assert summary.temperature_2m_at_run_time == 18.2
 
 
 def test_parse_forecast_includes_hourly_rows_that_overlap_target_window(sample_payload):
-    sample_payload["hourly"]["precipitation_probability"][17] = 55
+    sample_payload["hourly"]["precipitation_probability"][20] = 55
 
     summary = parse_forecast(
         sample_payload,
@@ -41,8 +58,6 @@ def test_parse_forecast_aggregates_target_window_fields_by_requirement(sample_pa
         "temperature_2m": [20, 22, 24],
         "apparent_temperature": [21, 23, 25],
         "relative_humidity_2m": [60, 70, 80],
-        "precipitation_probability": [10, 60, 30],
-        "precipitation": [0.2, 0.3, 0.4],
         "weather_code": [1, 2, 3],
         "cloud_cover": [20, 40, 60],
         "cloud_cover_low": [10, 30, 50],
@@ -51,10 +66,19 @@ def test_parse_forecast_aggregates_target_window_fields_by_requirement(sample_pa
         "visibility": [12000, 8000, 15000],
         "wind_speed_10m": [2, 4, 6],
         "wind_direction_10m": [90, 90, 90],
-        "wind_gusts_10m": [5, 9, 7],
     }
     for field, values in values_by_field.items():
         for index, value in zip(indexes, values, strict=True):
+            hourly[field][index] = value
+    # Open-Meteoの降水系・突風は各タイムスタンプまでの「直前1時間」値。
+    # 17:21〜19:21に重なる行は18:00 / 19:00 / 20:00になる。
+    preceding_hour_values = {
+        "precipitation_probability": [60, 30, 10],
+        "precipitation": [0.3, 0.4, 0.2],
+        "wind_gusts_10m": [9, 7, 5],
+    }
+    for field, values in preceding_hour_values.items():
+        for index, value in zip([18, 19, 20], values, strict=True):
             hourly[field][index] = value
 
     summary = parse_forecast(
@@ -88,6 +112,22 @@ def test_parse_forecast_aggregates_target_window_fields_by_requirement(sample_pa
     assert summary.precipitation_at_sunset == 0.4
     assert summary.weather_code_at_sunset == 3
     assert summary.visibility_at_sunset == 15000.0
+
+
+def test_parse_forecast_aligns_preceding_hour_fields_to_their_intervals(sample_payload):
+    hourly = sample_payload["hourly"]
+    hourly["precipitation_probability"][17] = 99  # 16:00〜17:00: 対象外
+    hourly["precipitation_probability"][20] = 55  # 19:00〜20:00: 対象内
+
+    summary = parse_forecast(
+        sample_payload,
+        location_name="逗子海岸",
+        latitude=35.2956,
+        longitude=139.5736,
+        timezone="Asia/Tokyo",
+    )
+
+    assert summary.precipitation_probability == 55
 
 
 def test_parse_forecast_uses_circular_mean_for_wind_direction(sample_payload):

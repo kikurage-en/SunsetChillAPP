@@ -37,6 +37,10 @@ jobs:
       LIVE_CAMERA_URL: ${{ secrets.LIVE_CAMERA_URL || 'https://www.youtube.com/watch?v=Q5AAi9KOjG0' }}
       LIVE_CAMERA_VIDEO_ID: ${{ secrets.LIVE_CAMERA_VIDEO_ID || 'Q5AAi9KOjG0' }}
       LIVE_CAMERA_IMAGE_BASE_URL: ${{ secrets.LIVE_CAMERA_IMAGE_BASE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+      JMA_FORECAST_ENABLED: "true"
+      JMA_OFFICE_CODE: "140000"
+      JMA_AREA_CODE: "140010"
+      JMA_TIMEOUT_SECONDS: "20"
     steps:
       - uses: actions/checkout@v4
 
