@@ -55,6 +55,14 @@ CSV_COLUMNS = [
     "vision_sun_disk_visibility",
     "vision_sunset_color_score",
     "vision_afterglow_score",
+    "precipitation_probability_before_sunset",
+    "precipitation_before_sunset",
+    "weather_code_before_sunset",
+    "visibility_before_sunset",
+    "precipitation_probability_at_sunset",
+    "precipitation_at_sunset",
+    "weather_code_at_sunset",
+    "visibility_at_sunset",
 ]
 
 
@@ -214,6 +222,7 @@ class GoogleSheetsStorage:
     def _ensure_header(self) -> None:
         service = self._service_client()
         self._ensure_worksheet()
+        self._ensure_column_capacity(len(CSV_COLUMNS))
         range_name = _sheet_range(self.worksheet, f"A1:{_column_letter(len(CSV_COLUMNS))}1")
         result = (
             service.spreadsheets()
@@ -236,6 +245,35 @@ class GoogleSheetsStorage:
             valueInputOption="RAW",
             body={"values": [CSV_COLUMNS]},
         ).execute()
+
+    def _ensure_column_capacity(self, required_columns: int) -> None:
+        service = self._service_client()
+        result = service.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute()
+        for sheet in result.get("sheets", []):
+            properties = sheet.get("properties", {})
+            if properties.get("title") != self.worksheet:
+                continue
+            sheet_id = properties.get("sheetId")
+            column_count = properties.get("gridProperties", {}).get("columnCount")
+            if not isinstance(sheet_id, int) or not isinstance(column_count, int):
+                return
+            if column_count >= required_columns:
+                return
+            service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={
+                    "requests": [
+                        {
+                            "appendDimension": {
+                                "sheetId": sheet_id,
+                                "dimension": "COLUMNS",
+                                "length": required_columns - column_count,
+                            }
+                        }
+                    ]
+                },
+            ).execute()
+            return
 
     def _ensure_worksheet(self) -> None:
         service = self._service_client()

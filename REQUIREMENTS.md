@@ -1,6 +1,6 @@
 # 逗子サンセットチル指数 現行要件
 
-最終更新: 2026-07-19
+最終更新: 2026-07-21
 
 この文書は現在の機能要件と受け入れ条件を定義する。操作・セットアップ手順は
 `README.md`、本番反映状況と前向き検証の判断は `STATUS.md`、スコア閾値と保存カラムの
@@ -67,6 +67,10 @@ wind_gusts_10m
 降水量を合計、視程を最小で集計する。必須値の欠損・非数値・評価対象不足は異常終了し、
 `ALLOW_MISSING_HOURLY_FIELDS` で指定したフィールドだけ欠損を許容する。
 
+校正用として、日没時刻を挟む直前のhourly行と最初のhourly行について、降水確率・
+降水量・天気コード・視程を集計値とは別に保存する。日没18:54の場合は18:00を
+`before_sunset`、19:00を `at_sunset` とする。
+
 ### 3.2 Sunset期待度
 
 - 低層雲、降水、視程、強風を減点する。
@@ -75,6 +79,9 @@ wind_gusts_10m
 - 発色源の中層雲・高層雲は日没方位20km地点を既定とする。
 - 遠地点取得失敗時は逗子、近地点取得失敗時は遠地点へフォールバックする。
 - 厚い総雲量・中層雲・低視程・降水条件では上限を適用する。
+- 降水確率80%以上でも、評価時間帯の予想雨量0、晴天コード0/1、西側総雲量50%未満、
+  西側低層雲30%未満が同時成立する場合は、予報信号の不一致として降水減点を暫定-25とする。
+  この条件は「雨なし」の断定ではなく、夕焼け予測の不確実性が高いことも本文へ表示する。
 - 通常の天井は80、超快晴条件のみ90まで許容する。
 
 厳密な閾値は `src/zushi_chill/scoring.py` とその回帰テストを正とする。
@@ -149,6 +156,8 @@ LINEの重複送信を行わない。
 - 日没時評価では太陽ディスクと発色、残照評価では残照の個別値を本文へ含める。
 - 画像URLが利用できる場合はテキストと画像を送信し、なければテキストだけ送信する。
 - 日没時の `dry_run` は本文生成と保存まで行い、LINEを送信しない。
+- 高い降水確率と雨量・晴天コード・西空の薄い雲が食い違う場合は、予測の不確実性が
+  高い旨をコメントへ含める。
 
 ## 7. 保存要件
 
@@ -163,7 +172,7 @@ Google Sheetsは旧ヘッダーが新ヘッダーのprefixと一致する場合�
 
 ### 7.2 保存カラム
 
-保存スキーマは次の46列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
+保存スキーマは次の54列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
 
 ```txt
 date
@@ -212,6 +221,14 @@ vision_evaluation_phase
 vision_sun_disk_visibility
 vision_sunset_color_score
 vision_afterglow_score
+precipitation_probability_before_sunset
+precipitation_before_sunset
+weather_code_before_sunset
+visibility_before_sunset
+precipitation_probability_at_sunset
+precipitation_at_sunset
+weather_code_at_sunset
+visibility_at_sunset
 ```
 
 ## 8. Sunsethueベンチマーク
@@ -244,7 +261,9 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 - `pytest` が成功する。
 - スコア境界、強制上限、層別雲量、Visionブレンド上限を回帰テストする。
 - Visionの3フェーズ、個別画像評価値、旧形式応答の互換性をテストする。
-- CSVの46列出力とGoogle Sheetsの旧42列ヘッダー移行をテストする。
+- CSVの54列出力とGoogle Sheetsの旧46列ヘッダー・列幅移行をテストする。
+- 2026-07-21型の条件付き降水減点と、2026-07-16型へ緩和が誤適用されないことを
+  回帰テストする。
 - 日没時と日没+20分のスケジューラ契約をテストする。
 - GitHub Actionsの画像取得、Artifact保存、Pages公開、dry-run/send-line分岐を検証する。
 - dry-runではLINEを送らず、通常実行では送信結果を保存する。
@@ -261,6 +280,9 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 - 保存Artifactを対象にした一括再採点CLI
 - 画像代理指標のモデル間比較と評価基準の固定
 - サンプル蓄積後の主予測信号選抜
+- 高降水確率・雨量0型を同型N≥10で再評価する。日没前後の診断8列、日没時の発色、
+  +20分の残照、保存画像を同日単位で突合し、補正後の純式が画像代理値を20点以上
+  上回る例が3件に達した場合はN=10を待たず見直す。
 - 残照光路の遠方雲サンプリング
 - 複数地点対応、管理画面、来店実績との相関分析
 - SNS向け短文・画像生成（公開運用の判断後）

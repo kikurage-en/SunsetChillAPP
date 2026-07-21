@@ -207,6 +207,26 @@ def test_comment_changes_by_scores_and_weather(sample_summary):
     assert "風が強め" in build_comment(windy, good)
 
 
+def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summary):
+    summary = replace(
+        sample_summary,
+        precipitation_probability=87,
+        precipitation=0,
+        weather_code=0,
+    )
+    cloud = SunsetCloud(
+        cloud_cover=17,
+        cloud_cover_low=10,
+        cloud_cover_mid=13.3,
+        cloud_cover_high=0,
+    )
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=40, chill_label="C")
+
+    comment = build_comment(summary, scores, cloud)
+
+    assert "予測の不確実性が高い" in comment
+
+
 def test_wind_direction_label_boundaries():
     assert wind_direction_label(0) == "北"
     assert wind_direction_label(360) == "北"

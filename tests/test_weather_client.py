@@ -79,6 +79,15 @@ def test_parse_forecast_aggregates_target_window_fields_by_requirement(sample_pa
     assert summary.wind_speed_10m == 4.0
     assert summary.wind_direction_10m == 90.0
     assert summary.wind_gusts_10m == 9.0
+    # 日没18:51を挟む18:00 / 19:00の値を、集計値とは別に校正用へ残す。
+    assert summary.precipitation_probability_before_sunset == 60.0
+    assert summary.precipitation_before_sunset == 0.3
+    assert summary.weather_code_before_sunset == 2
+    assert summary.visibility_before_sunset == 8000.0
+    assert summary.precipitation_probability_at_sunset == 30.0
+    assert summary.precipitation_at_sunset == 0.4
+    assert summary.weather_code_at_sunset == 3
+    assert summary.visibility_at_sunset == 15000.0
 
 
 def test_parse_forecast_uses_circular_mean_for_wind_direction(sample_payload):

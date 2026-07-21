@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from zushi_chill.models import ScoreResult, SunsetCloud, VisionResult, WeatherSummary
-from zushi_chill.scoring import score_label
+from zushi_chill.scoring import has_dry_high_precipitation_conflict, score_label
 
 
 def build_comment(
@@ -28,6 +28,10 @@ def build_comment(
         parts.append("高層雲がほどよく、夕焼け色が出る可能性があります。")
     if summary.wind_speed_10m >= 8:
         parts.append("風が強めです。海辺での体感は指数より厳しく感じる可能性があります。")
+    if has_dry_high_precipitation_conflict(summary, cloud):
+        parts.append(
+            "降水確率と予想雨量・西空の雲が食い違うため、夕焼け予測の不確実性が高いです。"
+        )
 
     return "\n".join(parts)
 

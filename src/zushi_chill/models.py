@@ -28,6 +28,16 @@ class WeatherSummary:
     wind_speed_10m: float
     wind_direction_10m: float
     wind_gusts_10m: float
+    # 日没時刻を挟む2つのOpen-Meteo時間値。集計窓の最大値・合計値だけでは、
+    # 高い降水確率と雨量0の食い違いがどの時間帯にあったかを再検証できないため残す。
+    precipitation_probability_before_sunset: float | None = None
+    precipitation_before_sunset: float | None = None
+    weather_code_before_sunset: int | None = None
+    visibility_before_sunset: float | None = None
+    precipitation_probability_at_sunset: float | None = None
+    precipitation_at_sunset: float | None = None
+    weather_code_at_sunset: int | None = None
+    visibility_at_sunset: float | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +112,18 @@ class PredictionRecord:
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
+        for field in (
+            "precipitation_probability_before_sunset",
+            "precipitation_before_sunset",
+            "weather_code_before_sunset",
+            "visibility_before_sunset",
+            "precipitation_probability_at_sunset",
+            "precipitation_at_sunset",
+            "weather_code_at_sunset",
+            "visibility_at_sunset",
+        ):
+            if data[field] is None:
+                data[field] = ""
         sunset_cloud = self.sunset_cloud
         # 表示用ブレンド値。未設定の実行(欠測・ブレンド無効)は純式スコアを既定にする。
         final_sunset_score = (

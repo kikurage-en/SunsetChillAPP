@@ -37,7 +37,7 @@ def calculate_sunset_score(
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
     penalties = (
         _low_cloud_penalty(cloud.cloud_cover_low)
-        + _precipitation_penalty(summary.precipitation_probability)
+        + _sunset_precipitation_penalty(summary, cloud)
         + _visibility_penalty(summary.visibility)
         + _wind_penalty(summary.wind_speed_10m)
     )
@@ -81,6 +81,11 @@ def calculate_sunset_score(
 # 式からの持ち上げは +30 までに制限する。下方修正は制限しない(目の前の悪い空を
 # 写しているカメラは信頼できる)。
 VISION_UPLIFT_CAP = 30
+
+# 2026-06-12 / 2026-07-21型: アンサンブルの降水確率だけが80%以上でも、
+# 決定論的な雨量・天気コード・西空の雲が晴天側なら、一律-60は過小評価になった。
+# 同型はN=2しかないため、強減点を解除せず暫定的に-25まで緩和する。
+DRY_HIGH_PRECIPITATION_PENALTY = -25
 
 
 def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weight: float) -> int:
@@ -132,6 +137,24 @@ def calculate_chill_score(summary: WeatherSummary, sunset_score: int) -> int:
         score = min(score, min(caps))
 
     return _clamp_score(score)
+
+
+def has_dry_high_precipitation_conflict(
+    summary: WeatherSummary, sunset_cloud: SunsetCloud | None = None
+) -> bool:
+    """降水確率だけが高く、日没方向の決定論的な場が晴天側かを返す。
+
+    この条件は「雨が降らない」と断定するものではなく、アンサンブル降水確率と
+    雨量・天気コード・西空の雲が食い違うため、夕焼け予測の不確実性が高い印。
+    """
+    cloud = sunset_cloud or SunsetCloud.from_summary(summary)
+    return (
+        summary.precipitation_probability >= 80
+        and summary.precipitation <= 0
+        and summary.weather_code in {0, 1}
+        and cloud.cloud_cover < 50
+        and cloud.cloud_cover_low < 30
+    )
 
 
 def apparent_temperature_score(value: float) -> int:
@@ -210,6 +233,15 @@ def _precipitation_penalty(value: float) -> int:
     if value <= 79:
         return -40
     return -60
+
+
+def _sunset_precipitation_penalty(
+    summary: WeatherSummary, sunset_cloud: SunsetCloud
+) -> int:
+    penalty = _precipitation_penalty(summary.precipitation_probability)
+    if has_dry_high_precipitation_conflict(summary, sunset_cloud):
+        return max(penalty, DRY_HIGH_PRECIPITATION_PENALTY)
+    return penalty
 
 
 def _visibility_penalty(value: float) -> int:

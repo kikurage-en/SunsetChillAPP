@@ -21,6 +21,14 @@ def test_csv_storage_writes_prediction_record(tmp_path, sample_summary):
     assert rows[0]["date"] == "2026-06-01"
     assert rows[0]["chill_score"] == "88"
     assert rows[0]["line_sent"] == "False"
+    assert rows[0]["precipitation_probability_before_sunset"] == "10.0"
+    assert rows[0]["precipitation_before_sunset"] == "0.0"
+    assert rows[0]["weather_code_before_sunset"] == "1"
+    assert rows[0]["visibility_before_sunset"] == "18000.0"
+    assert rows[0]["precipitation_probability_at_sunset"] == "10.0"
+    assert rows[0]["precipitation_at_sunset"] == "0.0"
+    assert rows[0]["weather_code_at_sunset"] == "1"
+    assert rows[0]["visibility_at_sunset"] == "18000.0"
 
 
 def test_csv_columns_include_vision_fields_after_error_message():
@@ -36,6 +44,19 @@ def test_csv_columns_include_vision_fields_after_error_message():
     ):
         assert column in CSV_COLUMNS
         assert CSV_COLUMNS.index(column) > CSV_COLUMNS.index("error_message")
+
+
+def test_csv_columns_append_sunset_hour_diagnostics():
+    assert CSV_COLUMNS[-8:] == [
+        "precipitation_probability_before_sunset",
+        "precipitation_before_sunset",
+        "weather_code_before_sunset",
+        "visibility_before_sunset",
+        "precipitation_probability_at_sunset",
+        "precipitation_at_sunset",
+        "weather_code_at_sunset",
+        "visibility_at_sunset",
+    ]
 
 
 def test_csv_storage_writes_vision_fields_when_present(tmp_path, sample_summary):
@@ -242,10 +263,11 @@ def test_google_sheets_storage_appends_with_header(sample_summary):
 
 
 def test_google_sheets_storage_migrates_legacy_header(sample_summary):
-    legacy_header = CSV_COLUMNS[:-4]  # 画像の分離評価4カラム追加前の旧ヘッダ
+    legacy_header = CSV_COLUMNS[:46]  # 2026-07-21以前の46列ヘッダ
     fake_service = FakeSheetsService(
         get_values=[legacy_header, ["2026-06-01", "13:00", "逗子海岸"]],
         sheet_titles=["predictions"],
+        column_count=46,
     )
     storage = GoogleSheetsStorage(
         spreadsheet_id="sheet-id",
@@ -260,6 +282,21 @@ def test_google_sheets_storage_migrates_legacy_header(sample_summary):
     # 旧ヘッダ（新構成の prefix）は raise せず、ヘッダ行が新構成へ更新される
     assert any(update["body"]["values"] == [CSV_COLUMNS] for update in fake_service.updates)
     assert fake_service.appends[0]["body"]["values"][0][0:3] == ["2026-06-01", "13:00", "逗子海岸"]
+    assert any(
+        update["body"]
+        == {
+            "requests": [
+                {
+                    "appendDimension": {
+                        "sheetId": 0,
+                        "dimension": "COLUMNS",
+                        "length": 8,
+                    }
+                }
+            ]
+        }
+        for update in fake_service.batch_updates
+    )
 
 
 def test_google_sheets_storage_rejects_unrelated_header(sample_summary):
@@ -350,7 +387,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:AT2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BB2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -374,7 +411,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:AT3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BB3"
     assert fake_service.appends == []
 
 
@@ -430,7 +467,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:AT"
+    assert fake_service.last_get["range"] == "'predictions'!A:BB"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -477,7 +514,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:AT2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BB2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):
@@ -529,9 +566,10 @@ def test_google_sheets_storage_rejects_non_object_service_account_json(sample_su
 
 
 class FakeSheetsService:
-    def __init__(self, *, get_values, sheet_titles):
+    def __init__(self, *, get_values, sheet_titles, column_count=None):
         self.get_values = get_values
         self.sheet_titles = sheet_titles
+        self.column_count = column_count
         self.updates = []
         self.appends = []
         self.batch_updates = []
@@ -545,12 +583,19 @@ class FakeSheetsService:
     def get(self, **kwargs):
         self.last_get = kwargs
         if "range" not in kwargs:
+            sheets = []
+            for index, title in enumerate(self.sheet_titles):
+                properties = {"title": title}
+                if self.column_count is not None:
+                    properties.update(
+                        {
+                            "sheetId": index,
+                            "gridProperties": {"columnCount": self.column_count},
+                        }
+                    )
+                sheets.append({"properties": properties})
             return FakeExecute(
-                {
-                    "sheets": [
-                        {"properties": {"title": title}} for title in self.sheet_titles
-                    ]
-                }
+                {"sheets": sheets}
             )
         return FakeExecute({"values": self.get_values})
 

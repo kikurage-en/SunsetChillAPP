@@ -150,6 +150,37 @@ def parse_forecast(
         )
         for field in HOURLY_FIELDS
     }
+    before_sunset_index, at_sunset_index = _sunset_diagnostic_indexes(times, sunset_time)
+    before_sunset = {
+        field: _value_for_index(
+            hourly,
+            field,
+            before_sunset_index,
+            len(times),
+            allow_missing=field in allow_missing_fields,
+        )
+        for field in (
+            "precipitation_probability",
+            "precipitation",
+            "weather_code",
+            "visibility",
+        )
+    }
+    at_sunset = {
+        field: _value_for_index(
+            hourly,
+            field,
+            at_sunset_index,
+            len(times),
+            allow_missing=field in allow_missing_fields,
+        )
+        for field in (
+            "precipitation_probability",
+            "precipitation",
+            "weather_code",
+            "visibility",
+        )
+    }
     run_time = datetime.now(tz) if run_time is None else run_time.astimezone(tz)
 
     return WeatherSummary(
@@ -175,6 +206,16 @@ def parse_forecast(
         wind_speed_10m=_mean(values["wind_speed_10m"]),
         wind_direction_10m=_circular_mean_degrees(values["wind_direction_10m"]),
         wind_gusts_10m=max(values["wind_gusts_10m"]),
+        precipitation_probability_before_sunset=before_sunset[
+            "precipitation_probability"
+        ],
+        precipitation_before_sunset=before_sunset["precipitation"],
+        weather_code_before_sunset=_optional_int(before_sunset["weather_code"]),
+        visibility_before_sunset=before_sunset["visibility"],
+        precipitation_probability_at_sunset=at_sunset["precipitation_probability"],
+        precipitation_at_sunset=at_sunset["precipitation"],
+        weather_code_at_sunset=_optional_int(at_sunset["weather_code"]),
+        visibility_at_sunset=at_sunset["visibility"],
     )
 
 
@@ -208,6 +249,16 @@ def _target_window_indexes(
     return indexes
 
 
+def _sunset_diagnostic_indexes(
+    times: list[datetime], sunset_time: datetime
+) -> tuple[int, int]:
+    before = [index for index, item_time in enumerate(times) if item_time < sunset_time]
+    at_or_after = [index for index, item_time in enumerate(times) if item_time >= sunset_time]
+    if not before or not at_or_after:
+        raise WeatherDataError("Hourly rows do not bracket sunset time")
+    return before[-1], at_or_after[0]
+
+
 def _values_for_indexes(
     hourly: Mapping[str, Any],
     field: str,
@@ -229,6 +280,32 @@ def _values_for_indexes(
         return [float(value) for value in selected]
     except (TypeError, ValueError) as exc:
         raise WeatherDataError(f"hourly.{field} contains non-numeric data") from exc
+
+
+def _value_for_index(
+    hourly: Mapping[str, Any],
+    field: str,
+    index: int,
+    expected_len: int,
+    *,
+    allow_missing: bool = False,
+) -> float | None:
+    raw_values = hourly.get(field)
+    if not isinstance(raw_values, list) or len(raw_values) != expected_len:
+        raise WeatherDataError(f"hourly.{field} is missing or length does not match hourly.time")
+    value = raw_values[index]
+    if value is None:
+        if allow_missing:
+            return None
+        raise WeatherDataError(f"hourly.{field} contains missing data around sunset")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise WeatherDataError(f"hourly.{field} contains non-numeric data") from exc
+
+
+def _optional_int(value: float | None) -> int | None:
+    return None if value is None else int(value)
 
 
 def _mean(values: list[float]) -> float:

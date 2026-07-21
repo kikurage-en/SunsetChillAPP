@@ -9,6 +9,7 @@ from zushi_chill.scoring import (
     calculate_chill_score,
     calculate_scores,
     calculate_sunset_score,
+    has_dry_high_precipitation_conflict,
     humidity_score,
     precipitation_risk_score,
     score_label,
@@ -105,6 +106,55 @@ def test_sunset_score_precipitation_penalty_table(sample_summary):
     assert calculate_sunset_score(replace(baseline, precipitation_probability=40)) == 55
     assert calculate_sunset_score(replace(baseline, precipitation_probability=60)) == 40
     assert calculate_sunset_score(replace(baseline, precipitation_probability=80)) == 20
+
+
+def test_dry_high_precipitation_conflict_uses_provisional_penalty(sample_summary):
+    """7/21型は降水確率87%でも、雨量0・晴天コード・西空の低層雲10%だった。
+
+    一律-60では日没時発色80に対して式40まで落ちたため、同型N=2の暫定補正として
+    -25へ緩和する。湿度はSunset期待度へ直接入れず、視程と画像で別評価する。
+    """
+    july_21 = replace(
+        sample_summary,
+        precipitation_probability=87,
+        precipitation=0,
+        weather_code=0,
+        visibility=19600,
+        wind_speed_10m=3.3,
+    )
+    west = SunsetCloud(
+        cloud_cover=17,
+        cloud_cover_low=10,
+        cloud_cover_mid=13.3,
+        cloud_cover_high=0,
+    )
+
+    assert has_dry_high_precipitation_conflict(july_21, west) is True
+    assert calculate_sunset_score(july_21, west) == 75
+
+
+def test_dry_high_precipitation_relief_is_not_applied_to_cloudier_case(sample_summary):
+    """7/16型は雨量0でも天気コード2で、旧画像代理値25に対し式60と既に楽観的。
+
+    高い降水確率を一律で緩和すると悪化するため、晴天コード0/1だけを暫定対象にする。
+    """
+    july_16 = replace(
+        sample_summary,
+        precipitation_probability=75,
+        precipitation=0,
+        weather_code=2,
+        visibility=14360,
+        wind_speed_10m=3.3,
+    )
+    west = SunsetCloud(
+        cloud_cover=28.3,
+        cloud_cover_low=26.7,
+        cloud_cover_mid=23.3,
+        cloud_cover_high=11,
+    )
+
+    assert has_dry_high_precipitation_conflict(july_16, west) is False
+    assert calculate_sunset_score(july_16, west) == 60
 
 
 def test_sunset_score_visibility_wind_and_cloud_bonus_tables(sample_summary):
@@ -498,15 +548,19 @@ def test_sunset_score_matches_legacy_vision_image_proxy(sample_summary):
     bias = sum(errors) / len(errors)
 
     # 全データの集計誤差が補正前(MAE 20.3 / bias +9.7)から縮小していること。
-    # 天井再校正(2026-07-17)後は MAE 14.9 / bias +2.8 まで縮小
-    assert mae <= 15
-    assert abs(bias) <= 4
+    # 7/21型の暫定補正後は MAE 12.2 / bias +5.5。MAEは改善する一方で楽観biasが
+    # 2.8→5.5へ増えるため、N=2の条件を広げず前向きサンプルで再校正する。
+    assert mae <= 12.3
+    assert abs(bias) <= 5.5
 
     # 補正の核心: 総雲量85%以上の厚い曇天(旧画像代理値10〜25帯)は上限30
     assert scores["06-14"] == 30
     assert scores["06-17"] == 30
     assert scores["06-23"] == 30
     assert scores["06-24"] == 30
+
+    # 高降水確率94%でも雨量0・晴天コード・薄い雲だった06-12は、旧30→65で代理値65。
+    assert scores["06-12"] == 65
 
     # 回帰防止: 快晴・高層雲主体の薄曇り(旧画像代理値が高い日)は悪化させない。
     # 06-13(旧画像代理値92)は天井80になる(この行の逗子雲は low=5.3 で
