@@ -66,7 +66,7 @@ def parse_jma_precipitation_probability(
     area_code: str,
     target_time: datetime,
 ) -> JmaPrecipitationForecast:
-    if not isinstance(payload, Sequence) or isinstance(payload, (str, bytes)) or not payload:
+    if not isinstance(payload, Sequence) or isinstance(payload, str | bytes) or not payload:
         raise JmaForecastError("JMA forecast payload must be a non-empty list")
     short_term = payload[0]
     if not isinstance(short_term, Mapping):
