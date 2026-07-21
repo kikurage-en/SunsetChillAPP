@@ -124,7 +124,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 画像Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
-手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` ではLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
+手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` では通常通知・失敗通知のどちらもLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 
 `STORAGE_BACKEND=csv` の場合、CSV は `CSV_PATH`（未指定時は `logs/chill_predictions.csv`）に保存され、Actions Artifact としてアップロードされます。`STORAGE_BACKEND=google_sheets` の場合は Google Sheets へ保存し、CSV Artifact は作成しません。
 

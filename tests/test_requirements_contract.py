@@ -156,6 +156,11 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}" in workflow
     assert 'RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"' in workflow
     assert "python -m zushi_chill.main" in workflow
+    assert (
+        "if: ${{ failure() && (github.event_name != 'workflow_dispatch' || "
+        "github.event.inputs.manual_mode != 'dry_run') }}"
+        in workflow
+    )
 
 
 def test_sunset_capture_scheduler_collects_sunset_and_afterglow_images():
