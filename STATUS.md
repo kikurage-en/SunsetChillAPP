@@ -23,6 +23,8 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 
 **2026-07-22運用確認**: Contaboのcheckoutを最新`main`へ同期した。最新workflowのdry-run（Actions run `29842953215`、commit `f62c6b5`）は、ruff 0.4.10、全214テスト、画像取得・Artifact保存・Pages公開、気象庁降水確率20%を含む新形式メッセージ生成、Google Sheets保存まで成功し、通常LINEと失敗通知はともにスキップされた。先行run `29842513490` で判明したruff版差によるlint失敗は `b4c9423` で修正し、dry-run失敗時にもLINE通知しない条件を `f62c6b5` と契約テストで固定した。
 
+**2026-07-22 LINE送信上限事象**: 18:53の日没時ジョブ（Actions run `29909734788`）は`dry_run`として画像評価・Artifact保存・Google Sheets保存まで正常完了し、設計どおりLINEを送信しなかった。19:13の残照ジョブ（Actions run `29911054728`）も画像評価・Artifact保存・Google Sheets保存まで完了したが、LINE Messaging APIが月間送信上限到達を示すHTTP 429（`You have reached your monthly limit.`）を返したため、メッセージは未送信となった。同じLINE経路を使う失敗通知も429となり送信できなかった。Sheetsでは両ジョブの行を確認済みで、18:53は`line_sent=false`（エラーなし）、19:13は`line_sent=false`、429の`error_message`、`vision_evaluation_phase=afterglow`、`vision_afterglow_score=65`が保存されている。これにより、LINE送信の成否にかかわらず評価ログを先に保存する現行仕様が本番でも機能したことを確認した。LINE公式アカウントはライトプランへ変更済み。プラン変更後の送信復旧は次回の定期送信で確認する。料金・上限値は外部サービス側で変更され得るため、本リポジトリには固定値として記録しない。
+
 ## 前向き検証（進行中）: 主予測信号の選抜
 
 Sheets 各行で予測信号を突合し、どれが日没時の発色・残照の画像評価に最も近いかで主予測信号を選抜する。
