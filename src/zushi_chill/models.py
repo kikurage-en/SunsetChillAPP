@@ -94,6 +94,29 @@ class ScoreResult:
 
 
 @dataclass(frozen=True)
+class SunsetScoreBreakdown:
+    """純式Sunset期待度の加減点内訳と上限適用前後の値。"""
+
+    low_cloud_penalty: int
+    precipitation_penalty: int
+    visibility_penalty: int
+    wind_penalty: int
+    mid_cloud_bonus: int
+    high_cloud_bonus: int
+    score_before_caps: int
+    final_score: int
+
+
+@dataclass(frozen=True)
+class SunsetBlendResult:
+    """表示用ブレンド値とVision上方キャップの診断情報。"""
+
+    final_score: int
+    uncapped_score: int
+    uplift_cap_applied: bool
+
+
+@dataclass(frozen=True)
 class VisionResult:
     sunset_score: int
     sky_condition: str
@@ -141,6 +164,12 @@ class PredictionRecord:
     final_sunset_label: str | None = None
     sunsethue: SunsethueResult | None = None
     jma_precipitation: JmaPrecipitationForecast | None = None
+    sunset_score_breakdown: SunsetScoreBreakdown | None = None
+    uncapped_final_sunset_score: int | None = None
+    vision_uplift_cap_applied: bool = False
+    live_camera_capture_source: str = ""
+    live_camera_captured_at: str = ""
+    live_camera_image_sha256: str = ""
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
@@ -264,6 +293,50 @@ class PredictionRecord:
                     if sunset_cloud and sunset_cloud.cloud_cover_high_at_sunset is not None
                     else ""
                 ),
+                "sunset_low_cloud_penalty": (
+                    self.sunset_score_breakdown.low_cloud_penalty
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "sunset_precipitation_penalty": (
+                    self.sunset_score_breakdown.precipitation_penalty
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "sunset_visibility_penalty": (
+                    self.sunset_score_breakdown.visibility_penalty
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "sunset_wind_penalty": (
+                    self.sunset_score_breakdown.wind_penalty
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "sunset_mid_cloud_bonus": (
+                    self.sunset_score_breakdown.mid_cloud_bonus
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "sunset_high_cloud_bonus": (
+                    self.sunset_score_breakdown.high_cloud_bonus
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "sunset_score_before_caps": (
+                    self.sunset_score_breakdown.score_before_caps
+                    if self.sunset_score_breakdown
+                    else ""
+                ),
+                "uncapped_final_sunset_score": (
+                    self.uncapped_final_sunset_score
+                    if self.uncapped_final_sunset_score is not None
+                    else ""
+                ),
+                "vision_uplift_cap_applied": self.vision_uplift_cap_applied,
+                "live_camera_capture_source": self.live_camera_capture_source,
+                "live_camera_captured_at": self.live_camera_captured_at,
+                "live_camera_image_sha256": self.live_camera_image_sha256,
             }
         )
         return data

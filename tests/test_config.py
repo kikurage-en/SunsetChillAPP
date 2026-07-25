@@ -278,6 +278,18 @@ def test_settings_validates_positive_integer_runtime_values(monkeypatch):
         Settings.from_env()
 
 
+def test_settings_reads_live_camera_capture_metadata(monkeypatch):
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURE_SOURCE", "youtube_live_thumbnail")
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURED_AT", "2026-07-24T17:00:24+09:00")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_SHA256", "abc123")
+
+    settings = Settings.from_env()
+
+    assert settings.live_camera_capture_source == "youtube_live_thumbnail"
+    assert settings.live_camera_captured_at == "2026-07-24T17:00:24+09:00"
+    assert settings.live_camera_image_sha256 == "abc123"
+
+
 def test_settings_parses_vision_target_hours(monkeypatch):
     monkeypatch.setenv("VISION_TARGET_HOURS", "17,19")
 

@@ -29,6 +29,31 @@ def test_headline_shows_blended_final_sunset_score(sample_summary):
     assert "Sunset期待度【 C 】40 / 100" in plain
 
 
+def test_large_prediction_gap_uses_one_simple_line(sample_summary):
+    scores = ScoreResult(sunset_score=5, sunset_label="D", chill_score=46, chill_label="C")
+    vision = VisionResult(
+        sunset_score=68,
+        sky_condition="partly_cloudy",
+        comment="期待できます。",
+        model="gemini-2.5-flash",
+    )
+
+    message = build_line_message(
+        sample_summary,
+        scores,
+        vision=vision,
+        vision_mode="predict",
+        final_sunset_score=35,
+        final_sunset_label="D",
+        sunset_prediction_has_range=True,
+    )
+
+    assert "Sunset期待度【 D 】35 / 100\n※空の変化が大きく、予測に幅があります。" in message
+    assert "気象式" not in message
+    assert "上方補正" not in message
+    assert "安全上限" not in message
+
+
 def test_comment_uses_displayed_final_sunset_score(sample_summary):
     scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=80, chill_label="A")
 
@@ -353,7 +378,7 @@ def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summa
 
     comment = build_comment(summary, scores, cloud)
 
-    assert "予測の不確実性が高い" in comment
+    assert "空の変化が大きく、予測に幅があります。" in comment
 
 
 def test_wind_direction_label_boundaries():

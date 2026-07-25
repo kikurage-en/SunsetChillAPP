@@ -82,6 +82,11 @@ jobs:
         run: |
           mkdir -p "public/$(dirname "$LIVE_CAMERA_IMAGE_RELATIVE_PATH")"
           IMAGE_PATH="public/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
+          record_capture_metadata() {
+            echo "LIVE_CAMERA_CAPTURE_SOURCE=$1" >> "$GITHUB_ENV"
+            echo "LIVE_CAMERA_CAPTURED_AT=$(date --iso-8601=seconds)" >> "$GITHUB_ENV"
+            echo "LIVE_CAMERA_IMAGE_SHA256=$(sha256sum "$IMAGE_PATH" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+          }
           set +e
           STREAM_URL="$(yt-dlp --no-playlist --format "best[protocol^=m3u8]/best" --get-url "$LIVE_CAMERA_URL" 2>yt-dlp-error.log | head -n 1)"
           YT_DLP_STATUS=$?
@@ -96,6 +101,7 @@ jobs:
           fi
           if [ -n "$STREAM_URL" ] && ffmpeg -hide_banner -loglevel error -y -i "$STREAM_URL" -frames:v 1 "$IMAGE_PATH"; then
             echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+            record_capture_metadata "stream"
             exit 0
           fi
 
@@ -109,6 +115,11 @@ jobs:
             if curl --fail --location --silent --show-error --output "$IMAGE_PATH" "$thumbnail_url"; then
               echo "Captured fallback thumbnail: $thumbnail_url"
               echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+              if [[ "$thumbnail_url" == *_live.jpg ]]; then
+                record_capture_metadata "youtube_live_thumbnail"
+              else
+                record_capture_metadata "youtube_static_thumbnail"
+              fi
               exit 0
             fi
           done

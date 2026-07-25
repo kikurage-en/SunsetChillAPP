@@ -76,10 +76,22 @@ def test_prediction_log_columns_match_requirements():
         "sunset_cloud_cover_low_at_sunset",
         "sunset_cloud_cover_mid_at_sunset",
         "sunset_cloud_cover_high_at_sunset",
+        "sunset_low_cloud_penalty",
+        "sunset_precipitation_penalty",
+        "sunset_visibility_penalty",
+        "sunset_wind_penalty",
+        "sunset_mid_cloud_bonus",
+        "sunset_high_cloud_bonus",
+        "sunset_score_before_caps",
+        "uncapped_final_sunset_score",
+        "vision_uplift_cap_applied",
+        "live_camera_capture_source",
+        "live_camera_captured_at",
+        "live_camera_image_sha256",
     ]
     assert expected_columns == CSV_COLUMNS
     requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
-    assert "保存スキーマは次の68列" in requirements
+    assert "保存スキーマは次の80列" in requirements
     for column in expected_columns:
         assert column in requirements
 
@@ -137,6 +149,10 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "maxresdefault_live.jpg" in workflow
     assert "hqdefault_live.jpg" in workflow
     assert "curl --fail --location --silent --show-error" in workflow
+    assert 'record_capture_metadata "stream"' in workflow
+    assert 'record_capture_metadata "youtube_live_thumbnail"' in workflow
+    assert "LIVE_CAMERA_CAPTURED_AT=" in workflow
+    assert "LIVE_CAMERA_IMAGE_SHA256=" in workflow
     assert "Archive live camera image" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
     assert "retention-days: 90" in workflow

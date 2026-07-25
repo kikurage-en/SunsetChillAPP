@@ -12,6 +12,7 @@ from zushi_chill.models import (
     PredictionRecord,
     ScoreResult,
     SunsetCloud,
+    SunsetScoreBreakdown,
     VisionResult,
 )
 from zushi_chill.storage import CSV_COLUMNS, CsvStorage, GoogleSheetsStorage, storage_from_settings
@@ -70,7 +71,7 @@ def test_csv_columns_include_vision_fields_after_error_message():
 
 
 def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
-    assert CSV_COLUMNS[-22:] == [
+    assert CSV_COLUMNS[46:68] == [
         "precipitation_probability_before_sunset",
         "precipitation_before_sunset",
         "weather_code_before_sunset",
@@ -94,6 +95,60 @@ def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
         "sunset_cloud_cover_mid_at_sunset",
         "sunset_cloud_cover_high_at_sunset",
     ]
+    assert CSV_COLUMNS[-12:] == [
+        "sunset_low_cloud_penalty",
+        "sunset_precipitation_penalty",
+        "sunset_visibility_penalty",
+        "sunset_wind_penalty",
+        "sunset_mid_cloud_bonus",
+        "sunset_high_cloud_bonus",
+        "sunset_score_before_caps",
+        "uncapped_final_sunset_score",
+        "vision_uplift_cap_applied",
+        "live_camera_capture_source",
+        "live_camera_captured_at",
+        "live_camera_image_sha256",
+    ]
+
+
+def test_csv_storage_writes_prediction_diagnostics(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    scores = ScoreResult(sunset_score=5, sunset_label="D", chill_score=46, chill_label="C")
+    breakdown = SunsetScoreBreakdown(
+        low_cloud_penalty=-20,
+        precipitation_penalty=-60,
+        visibility_penalty=-30,
+        wind_penalty=0,
+        mid_cloud_bonus=5,
+        high_cloud_bonus=10,
+        score_before_caps=5,
+        final_score=5,
+    )
+
+    CsvStorage(path).save(
+        PredictionRecord(
+            summary=sample_summary,
+            scores=scores,
+            line_sent=True,
+            sunset_score_breakdown=breakdown,
+            uncapped_final_sunset_score=55,
+            vision_uplift_cap_applied=True,
+            live_camera_capture_source="youtube_live_thumbnail",
+            live_camera_captured_at="2026-07-24T17:00:24+09:00",
+            live_camera_image_sha256="abc123",
+        )
+    )
+
+    row = next(csv.DictReader(path.open(encoding="utf-8")))
+    assert row["sunset_low_cloud_penalty"] == "-20"
+    assert row["sunset_precipitation_penalty"] == "-60"
+    assert row["sunset_visibility_penalty"] == "-30"
+    assert row["sunset_mid_cloud_bonus"] == "5"
+    assert row["uncapped_final_sunset_score"] == "55"
+    assert row["vision_uplift_cap_applied"] == "True"
+    assert row["live_camera_capture_source"] == "youtube_live_thumbnail"
+    assert row["live_camera_captured_at"] == "2026-07-24T17:00:24+09:00"
+    assert row["live_camera_image_sha256"] == "abc123"
 
 
 def test_csv_storage_writes_jma_precipitation_forecast(tmp_path, sample_summary):
@@ -328,7 +383,7 @@ def test_google_sheets_storage_appends_with_header(sample_summary):
     assert fake_service.batch_updates == []
 
 
-@pytest.mark.parametrize("legacy_size", [46, 59])
+@pytest.mark.parametrize("legacy_size", [46, 59, 68])
 def test_google_sheets_storage_migrates_legacy_header(sample_summary, legacy_size):
     legacy_header = CSV_COLUMNS[:legacy_size]
     fake_service = FakeSheetsService(
@@ -454,7 +509,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BP2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:CB2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -478,7 +533,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BP3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:CB3"
     assert fake_service.appends == []
 
 
@@ -534,7 +589,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:BP"
+    assert fake_service.last_get["range"] == "'predictions'!A:CB"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -581,7 +636,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BP2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:CB2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

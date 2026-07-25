@@ -32,7 +32,9 @@ def capture_live_camera_image(
     output_path: str | Path,
     live_camera_video_id: str = "",
     timeout_seconds: int = 20,
-) -> None:
+) -> str:
+    """画像を取得し、実際に使用した取得元を返す。"""
+
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -42,14 +44,16 @@ def capture_live_camera_image(
         output_path=output,
         timeout_seconds=timeout_seconds,
     ):
-        return
+        return "stream"
 
-    if live_camera_video_id and _capture_youtube_thumbnail(
-        live_camera_video_id,
-        output_path=output,
-        timeout_seconds=timeout_seconds,
-    ):
-        return
+    if live_camera_video_id:
+        capture_source = _capture_youtube_thumbnail(
+            live_camera_video_id,
+            output_path=output,
+            timeout_seconds=timeout_seconds,
+        )
+        if capture_source:
+            return capture_source
 
     raise LiveCameraError("Live camera image capture failed")
 
@@ -119,7 +123,7 @@ def _capture_stream_frame(
 
 def _capture_youtube_thumbnail(
     video_id: str, *, output_path: Path, timeout_seconds: int
-) -> bool:
+) -> str:
     for thumbnail_url in _youtube_thumbnail_urls(video_id):
         try:
             with urlopen(thumbnail_url, timeout=timeout_seconds) as response:
@@ -130,8 +134,12 @@ def _capture_youtube_thumbnail(
         if image:
             output_path.write_bytes(image)
             LOGGER.info("Captured fallback thumbnail: %s", thumbnail_url)
-            return True
-    return False
+            return (
+                "youtube_live_thumbnail"
+                if thumbnail_url.endswith("_live.jpg")
+                else "youtube_static_thumbnail"
+            )
+    return ""
 
 
 def _youtube_thumbnail_urls(video_id: str) -> list[str]:

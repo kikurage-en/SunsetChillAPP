@@ -9,6 +9,8 @@ from zushi_chill.models import (
 )
 from zushi_chill.scoring import has_dry_high_precipitation_conflict, score_label
 
+PREDICTION_RANGE_TEXT = "空の変化が大きく、予測に幅があります。"
+
 
 def build_comment(
     summary: WeatherSummary,
@@ -58,11 +60,9 @@ def build_comment(
         details.insert(
             0,
             (
-                "Sunset算出用の降水信号と予想雨量・西空の雲が食い違うため、"
-                "夕焼け予測の不確実性が高いです。"
+                PREDICTION_RANGE_TEXT
                 if prediction
-                else "Sunset算出用の降水信号と予想雨量・西空の雲が食い違い、"
-                "算出条件の不確実性が高い状態です。"
+                else "空の変化が大きい状態です。"
             ),
         )
 
@@ -119,6 +119,7 @@ def build_line_message(
     jma_precipitation: JmaPrecipitationForecast | None = None,
     final_sunset_score: int | None = None,
     final_sunset_label: str | None = None,
+    sunset_prediction_has_range: bool = False,
 ) -> str:
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
     comment_scores = scores
@@ -140,6 +141,9 @@ def build_line_message(
         final_sunset_score if final_sunset_score is not None else scores.sunset_score
     )
     display_sunset_label = final_sunset_label or scores.sunset_label
+    range_note = ""
+    if sunset_prediction_has_range and PREDICTION_RANGE_TEXT not in comment:
+        range_note = f"\n※{PREDICTION_RANGE_TEXT}"
     use_sunset_snapshot = vision_mode == "predict" and summary.sunset_snapshot_time is not None
     display_cloud_low = (
         cloud.cloud_cover_low_at_sunset
@@ -213,7 +217,7 @@ def build_line_message(
         sunset_line = f"日没：{summary.sunset_time.strftime('%H:%M')}"
     return f"""{summary.date} {summary.run_time}
 
-Sunset期待度【 {display_sunset_label} 】{display_sunset_score} / 100
+Sunset期待度【 {display_sunset_label} 】{display_sunset_score} / 100{range_note}
 Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
 コメント：
 {comment}

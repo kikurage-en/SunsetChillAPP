@@ -656,6 +656,9 @@ def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
     monkeypatch.setenv("LINE_TARGET_ID", "group-id")
     monkeypatch.setenv("VISION_ENABLED", "true")
     monkeypatch.setenv("VISION_API_KEY", "key")
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURE_SOURCE", "youtube_live_thumbnail")
+    monkeypatch.setenv("LIVE_CAMERA_CAPTURED_AT", "2026-07-24T17:00:24+09:00")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_SHA256", "abc123")
     vision = VisionResult(
         sunset_score=20, sky_condition="overcast", comment="曇り", model="gemini-2.5-flash"
     )
@@ -674,11 +677,19 @@ def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
     # 純式スコアは上書きされず、ブレンド結果は別値として保持
     assert record.final_sunset_score == expected
     assert expected != formula  # Vision(20)が式を引き下げている
+    assert record.sunset_score_breakdown is not None
+    assert record.sunset_score_breakdown.final_score == formula
+    assert record.uncapped_final_sunset_score == expected
+    assert record.vision_uplift_cap_applied is False
+    assert record.live_camera_capture_source == "youtube_live_thumbnail"
+    assert record.live_camera_captured_at == "2026-07-24T17:00:24+09:00"
+    assert record.live_camera_image_sha256 == "abc123"
     # LINE本文の Sunset期待度 見出しはブレンド値
     assert (
         f"Sunset期待度【 {score_label(expected)} 】{expected} / 100"
         in fake_line_client.sent_messages[0]
     )
+    assert "※空の変化が大きく、予測に幅があります。" in fake_line_client.sent_messages[0]
 
 
 def test_post_sunset_vision_is_not_blended(monkeypatch):

@@ -6,10 +6,13 @@ from zushi_chill.models import SunsetCloud
 from zushi_chill.scoring import (
     apparent_temperature_score,
     blend_sunset_score,
+    blend_sunset_score_with_diagnostics,
     calculate_chill_score,
     calculate_scores,
     calculate_sunset_score,
+    calculate_sunset_score_breakdown,
     has_dry_high_precipitation_conflict,
+    has_large_sunset_disagreement,
     humidity_score,
     precipitation_risk_score,
     score_label,
@@ -39,6 +42,45 @@ def test_blend_uplift_is_capped_but_downgrade_is_not():
     assert blend_sunset_score(10, 70, 0.8) == 40
     # 下方修正は自由(0.2*80 + 0.8*15 = 28)
     assert blend_sunset_score(80, 15, 0.8) == 28
+
+
+def test_blend_diagnostics_preserve_uncapped_score_and_cap_state():
+    result = blend_sunset_score_with_diagnostics(5, 68, 0.8)
+
+    assert result.final_score == 35
+    assert result.uncapped_score == 55
+    assert result.uplift_cap_applied is True
+    assert has_large_sunset_disagreement(5, 68) is True
+    assert has_large_sunset_disagreement(40, 69) is False
+
+
+def test_sunset_score_breakdown_explains_july_24_gap(sample_summary):
+    summary = replace(
+        sample_summary,
+        precipitation_probability=94,
+        precipitation=0,
+        weather_code=2,
+        visibility=3500,
+        wind_speed_10m=3.4,
+    )
+    cloud = SunsetCloud(
+        cloud_cover=66.3,
+        cloud_cover_low=52,
+        cloud_cover_mid=33,
+        cloud_cover_high=68,
+    )
+
+    result = calculate_sunset_score_breakdown(summary, cloud)
+
+    assert result.low_cloud_penalty == -20
+    assert result.precipitation_penalty == -60
+    assert result.visibility_penalty == -30
+    assert result.wind_penalty == 0
+    assert result.mid_cloud_bonus == 5
+    assert result.high_cloud_bonus == 10
+    assert result.score_before_caps == 5
+    assert result.final_score == 5
+    assert calculate_sunset_score(summary, cloud) == result.final_score
 
 
 def test_display_snapshots_do_not_change_sunset_or_chill_scores(sample_summary):

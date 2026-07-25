@@ -18,12 +18,19 @@ from zushi_chill.models import (
     JmaPrecipitationForecast,
     PredictionRecord,
     ScoreResult,
+    SunsetBlendResult,
     SunsetCloud,
     SunsethueResult,
     VisionResult,
     WeatherSummary,
 )
-from zushi_chill.scoring import blend_sunset_score, calculate_scores, score_label
+from zushi_chill.scoring import (
+    blend_sunset_score_with_diagnostics,
+    calculate_scores,
+    calculate_sunset_score_breakdown,
+    has_large_sunset_disagreement,
+    score_label,
+)
 from zushi_chill.storage import storage_from_settings
 from zushi_chill.sunset_geometry import sunset_cloud_point
 from zushi_chill.sunsethue_client import fetch_sunset_quality
@@ -80,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
                 jma_precipitation.probability if jma_precipitation else None
             ),
         )
+        sunset_score_breakdown = calculate_sunset_score_breakdown(summary, sunset_cloud)
         live_camera_image_url = settings.live_camera_image_url or build_capture_url(
             settings.live_camera_image_base_url,
             build_capture_relative_path(run_time),
@@ -88,8 +96,20 @@ def main(argv: list[str] | None = None) -> int:
             settings, run_time, live_camera_image_url, summary.sunset_time
         )
         mode = vision_mode(run_time, summary.sunset_time)
-        final_sunset_score, final_sunset_label = _blend_final_sunset(
+        sunset_blend, final_sunset_label = _blend_final_sunset(
             scores_without_comment, vision_result, mode, settings
+        )
+        final_sunset_score = sunset_blend.final_score
+        sunset_prediction_has_range = bool(
+            mode == "predict"
+            and vision_result is not None
+            and (
+                has_large_sunset_disagreement(
+                    scores_without_comment.sunset_score,
+                    vision_result.sunset_score,
+                )
+                or sunset_blend.uplift_cap_applied
+            )
         )
         comment_scores = replace(
             scores_without_comment,
@@ -115,35 +135,32 @@ def main(argv: list[str] | None = None) -> int:
             jma_precipitation=jma_precipitation,
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
+            sunset_prediction_has_range=sunset_prediction_has_range,
         )
+        record_kwargs = {
+            "summary": summary,
+            "scores": scores,
+            "vision": vision_result,
+            "sunset_cloud": sunset_cloud,
+            "final_sunset_score": final_sunset_score,
+            "final_sunset_label": final_sunset_label,
+            "sunsethue": sunsethue_result,
+            "jma_precipitation": jma_precipitation,
+            "sunset_score_breakdown": sunset_score_breakdown,
+            "uncapped_final_sunset_score": sunset_blend.uncapped_score,
+            "vision_uplift_cap_applied": sunset_blend.uplift_cap_applied,
+            "live_camera_capture_source": settings.live_camera_capture_source,
+            "live_camera_captured_at": settings.live_camera_captured_at,
+            "live_camera_image_sha256": settings.live_camera_image_sha256,
+        }
 
         if dry_run:
-            record = PredictionRecord(
-                summary=summary,
-                scores=scores,
-                line_sent=False,
-                vision=vision_result,
-                sunset_cloud=sunset_cloud,
-                final_sunset_score=final_sunset_score,
-                final_sunset_label=final_sunset_label,
-                sunsethue=sunsethue_result,
-                jma_precipitation=jma_precipitation,
-            )
+            record = PredictionRecord(line_sent=False, **record_kwargs)
             storage.save(record)
             print(message)
             return 0
 
-        pending_record = PredictionRecord(
-            summary=summary,
-            scores=scores,
-            line_sent=False,
-            vision=vision_result,
-            sunset_cloud=sunset_cloud,
-            final_sunset_score=final_sunset_score,
-            final_sunset_label=final_sunset_label,
-            sunsethue=sunsethue_result,
-            jma_precipitation=jma_precipitation,
-        )
+        pending_record = PredictionRecord(line_sent=False, **record_kwargs)
         storage.save(pending_record)
         try:
             settings.require_line()
@@ -162,16 +179,9 @@ def main(argv: list[str] | None = None) -> int:
                 line_client.push_text(message)
         except Exception as exc:
             failed_record = PredictionRecord(
-                summary=summary,
-                scores=scores,
                 line_sent=False,
                 error_message=str(exc),
-                vision=vision_result,
-                sunset_cloud=sunset_cloud,
-                final_sunset_score=final_sunset_score,
-                final_sunset_label=final_sunset_label,
-                sunsethue=sunsethue_result,
-                jma_precipitation=jma_precipitation,
+                **record_kwargs,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -182,17 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             raise
 
-        sent_record = PredictionRecord(
-            summary=summary,
-            scores=scores,
-            line_sent=True,
-            vision=vision_result,
-            sunset_cloud=sunset_cloud,
-            final_sunset_score=final_sunset_score,
-            final_sunset_label=final_sunset_label,
-            sunsethue=sunsethue_result,
-            jma_precipitation=jma_precipitation,
-        )
+        sent_record = PredictionRecord(line_sent=True, **record_kwargs)
         try:
             storage.replace_latest(sent_record)
         except Exception:
@@ -260,7 +260,7 @@ def _blend_final_sunset(
     vision: VisionResult | None,
     mode: str,
     settings: Settings,
-) -> tuple[int, str]:
+) -> tuple[SunsetBlendResult, str]:
     """表示用 Sunset期待度(式とVisionカメラAI予測のブレンド)とラベルを返す。
 
     ブレンドするのは日没前(予測モード)でVision解析が成功した実行のみ。日没時・
@@ -268,13 +268,18 @@ def _blend_final_sunset(
     純式スコア ``scores.sunset_score`` はここでは変えない(呼び出し側でログ保持)。
     """
     if vision is not None and mode == "predict" and settings.sunset_vision_blend_weight > 0:
-        blended = blend_sunset_score(
+        blended = blend_sunset_score_with_diagnostics(
             scores.sunset_score,
             vision.sunset_score,
             settings.sunset_vision_blend_weight,
         )
-        return blended, score_label(blended)
-    return scores.sunset_score, scores.sunset_label
+        return blended, score_label(blended.final_score)
+    unblended = SunsetBlendResult(
+        final_score=scores.sunset_score,
+        uncapped_score=scores.sunset_score,
+        uplift_cap_applied=False,
+    )
+    return unblended, scores.sunset_label
 
 
 def _fetch_west_summary(

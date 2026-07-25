@@ -55,6 +55,9 @@ class Settings:
     live_camera_video_id: str = ""
     live_camera_public_dir: str = "public"
     live_camera_capture_timeout_seconds: int = 20
+    live_camera_capture_source: str = ""
+    live_camera_captured_at: str = ""
+    live_camera_image_sha256: str = ""
     webhook_host: str = "127.0.0.1"
     webhook_port: int = 8080
     vision_enabled: bool = False
@@ -162,6 +165,9 @@ class Settings:
             live_camera_video_id=_env("LIVE_CAMERA_VIDEO_ID", ""),
             live_camera_public_dir=_env("LIVE_CAMERA_PUBLIC_DIR", "public"),
             live_camera_capture_timeout_seconds=live_camera_capture_timeout_seconds,
+            live_camera_capture_source=_env("LIVE_CAMERA_CAPTURE_SOURCE", ""),
+            live_camera_captured_at=_env("LIVE_CAMERA_CAPTURED_AT", ""),
+            live_camera_image_sha256=_env("LIVE_CAMERA_IMAGE_SHA256", ""),
             webhook_host=_env("WEBHOOK_HOST", "127.0.0.1"),
             webhook_port=webhook_port,
             vision_enabled=_bool_from_env(_env("VISION_ENABLED", "")),

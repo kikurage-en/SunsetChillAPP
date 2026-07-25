@@ -77,6 +77,18 @@ CSV_COLUMNS = [
     "sunset_cloud_cover_low_at_sunset",
     "sunset_cloud_cover_mid_at_sunset",
     "sunset_cloud_cover_high_at_sunset",
+    "sunset_low_cloud_penalty",
+    "sunset_precipitation_penalty",
+    "sunset_visibility_penalty",
+    "sunset_wind_penalty",
+    "sunset_mid_cloud_bonus",
+    "sunset_high_cloud_bonus",
+    "sunset_score_before_caps",
+    "uncapped_final_sunset_score",
+    "vision_uplift_cap_applied",
+    "live_camera_capture_source",
+    "live_camera_captured_at",
+    "live_camera_image_sha256",
 ]
 
 

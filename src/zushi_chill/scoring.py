@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from zushi_chill.constants import RAIN_WEATHER_CODES
-from zushi_chill.models import ScoreResult, SunsetCloud, WeatherSummary
+from zushi_chill.models import (
+    ScoreResult,
+    SunsetBlendResult,
+    SunsetCloud,
+    SunsetScoreBreakdown,
+    WeatherSummary,
+)
 
 
 def score_label(score: int) -> str:
@@ -39,18 +45,32 @@ def calculate_scores(
 def calculate_sunset_score(
     summary: WeatherSummary, sunset_cloud: SunsetCloud | None = None
 ) -> int:
+    return calculate_sunset_score_breakdown(summary, sunset_cloud).final_score
+
+
+def calculate_sunset_score_breakdown(
+    summary: WeatherSummary, sunset_cloud: SunsetCloud | None = None
+) -> SunsetScoreBreakdown:
+    """純式Sunset期待度を算出し、原因分析用の加減点内訳も返す。"""
+
     # Sunset期待度は陽が沈む方角(西の水平線)の雲量で算出する。sunset_cloud が
     # 無い場合(オフライン再現・西地点取得失敗のフォールバック)は逗子の雲量を使う。
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
+    low_cloud_penalty = _low_cloud_penalty(cloud.cloud_cover_low)
+    precipitation_penalty = _sunset_precipitation_penalty(summary, cloud)
+    visibility_penalty = _visibility_penalty(summary.visibility)
+    wind_penalty = _wind_penalty(summary.wind_speed_10m)
+    mid_cloud_bonus = 5 if 20 <= cloud.cloud_cover_mid <= 60 else 0
+    high_cloud_bonus = 10 if 20 <= cloud.cloud_cover_high <= 70 else 0
     penalties = (
-        _low_cloud_penalty(cloud.cloud_cover_low)
-        + _sunset_precipitation_penalty(summary, cloud)
-        + _visibility_penalty(summary.visibility)
-        + _wind_penalty(summary.wind_speed_10m)
+        low_cloud_penalty
+        + precipitation_penalty
+        + visibility_penalty
+        + wind_penalty
     )
     score = 100 + penalties
-    score += 5 if 20 <= cloud.cloud_cover_mid <= 60 else 0
-    score += 10 if 20 <= cloud.cloud_cover_high <= 70 else 0
+    score += mid_cloud_bonus + high_cloud_bonus
+    score_before_caps = int(round(score))
 
     # 飽和是正: ボーナスがペナルティを相殺して満点帯へ戻ることを防ぐ
     if penalties < 0:
@@ -79,7 +99,16 @@ def calculate_sunset_score(
         score = min(score, 90)
     else:
         score = min(score, 80)
-    return _clamp_score(score)
+    return SunsetScoreBreakdown(
+        low_cloud_penalty=low_cloud_penalty,
+        precipitation_penalty=precipitation_penalty,
+        visibility_penalty=visibility_penalty,
+        wind_penalty=wind_penalty,
+        mid_cloud_bonus=mid_cloud_bonus,
+        high_cloud_bonus=high_cloud_bonus,
+        score_before_caps=score_before_caps,
+        final_score=_clamp_score(score),
+    )
 
 
 # Vision による上方修正の上限幅。17:00 のカメラは「これから西から来る雲の壁」を
@@ -88,6 +117,7 @@ def calculate_sunset_score(
 # 式からの持ち上げは +30 までに制限する。下方修正は制限しない(目の前の悪い空を
 # 写しているカメラは信頼できる)。
 VISION_UPLIFT_CAP = 30
+SUNSET_DISAGREEMENT_THRESHOLD = 30
 
 # 2026-06-12 / 2026-07-21型: アンサンブルの降水確率だけが80%以上でも、
 # 決定論的な雨量・天気コード・西空の雲が晴天側なら、一律-60は過小評価になった。
@@ -103,9 +133,32 @@ def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weigh
     にする一方、純式 ``sunset_score`` は検証継続のためログにそのまま残す(呼び出し側)。
     Vision が式を上回る方向へは ``VISION_UPLIFT_CAP`` までしか持ち上げない。
     """
+    return blend_sunset_score_with_diagnostics(
+        sunset_score, vision_sunset_score, vision_weight
+    ).final_score
+
+
+def blend_sunset_score_with_diagnostics(
+    sunset_score: int, vision_sunset_score: int, vision_weight: float
+) -> SunsetBlendResult:
+    """ブレンド値に加え、キャップ前の値とキャップ発動有無を返す。"""
+
     blended = (1.0 - vision_weight) * sunset_score + vision_weight * vision_sunset_score
-    blended = min(blended, sunset_score + VISION_UPLIFT_CAP)
-    return _clamp_score(blended)
+    uncapped_score = _clamp_score(blended)
+    final_score = _clamp_score(min(blended, sunset_score + VISION_UPLIFT_CAP))
+    return SunsetBlendResult(
+        final_score=final_score,
+        uncapped_score=uncapped_score,
+        uplift_cap_applied=final_score < uncapped_score,
+    )
+
+
+def has_large_sunset_disagreement(
+    sunset_score: int, vision_sunset_score: int
+) -> bool:
+    """気象式とカメラAIの差が利用者へ不確実性を示す水準かを返す。"""
+
+    return abs(sunset_score - vision_sunset_score) >= SUNSET_DISAGREEMENT_THRESHOLD
 
 
 def calculate_chill_score(
