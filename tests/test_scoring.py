@@ -10,6 +10,7 @@ from zushi_chill.scoring import (
     calculate_scores,
     calculate_sunset_score,
     has_dry_high_precipitation_conflict,
+    has_rain_signal,
     humidity_score,
     precipitation_risk_score,
     score_label,
@@ -371,6 +372,79 @@ def test_sunset_saturation_fix_against_recorded_sheet_inputs(sample_summary):
     )
     # 総雲量70%以上の上限65に加え、厚い中層雲(58.7%≥55)の上限60が効いて 60。
     assert calculate_sunset_score(record_20260609_1700) == 60
+
+
+def test_rain_signal_caps_sunset_score(sample_summary):
+    """雨シグナル(代表天気コードが雨系 or 窓内雨量≥1.0mm)はSunsetを上限40で頭打ち。
+
+    雨量・雨コードはChill式だけが減点しSunset式は素通りだった非対称の是正
+    (2026-07-25 17:00: 窓内4.7mm・コード61の予報下で式45・表示61(B)を配信し、
+    日没時発色は0)。深さを雨量に比例させないのは、予想雨量と画像代理値の順位相関が
+    +0.072(N=17)で、最多雨量日(6/27窓24mm予報・日没前に雨が抜け発色65)が最良だった
+    ため。バックテスト(発動21行)で上限40は悪化ゼロ、30は7/13(霧雨・発色75)を悪化させる。
+    """
+    good_sky = replace(
+        sample_summary,
+        precipitation_probability=10,
+        precipitation=0,
+        weather_code=1,
+        cloud_cover=20,
+        cloud_cover_low=5,
+        cloud_cover_mid=30,
+        cloud_cover_high=40,
+        visibility=25000,
+        wind_speed_10m=3,
+    )
+    assert calculate_sunset_score(good_sky) == 80
+
+    # 好条件でも雨コードなら上限40
+    assert calculate_sunset_score(replace(good_sky, weather_code=61, precipitation=0.2)) == 40
+    # 雨コードなしでも窓内雨量1.0mm以上なら上限40
+    assert calculate_sunset_score(replace(good_sky, weather_code=3, precipitation=1.0)) == 40
+    # 雨コードなし・1.0mm未満は発動しない
+    assert calculate_sunset_score(replace(good_sky, weather_code=3, precipitation=0.9)) == 80
+
+
+def test_rain_signal_regression_20260725_1700(sample_summary):
+    """2026-07-25 17:00 の実レコード回帰(SunsetChillログ)。
+
+    取得済みOpen-Meteoは窓内4.7mm・18時コード53/19時コード61と雨を明示していたのに
+    旧式は45を出した(降水減点はPoPのみのため)。雨キャップ後は40。
+    """
+    record_20260725_1700 = replace(
+        sample_summary,
+        precipitation_probability=76,
+        precipitation=4.7,
+        weather_code=61,
+        visibility=3880,
+        wind_speed_10m=1.8,
+    )
+    west = SunsetCloud(
+        cloud_cover=72,
+        cloud_cover_low=28.7,
+        cloud_cover_mid=40,
+        cloud_cover_high=54.7,
+    )
+    assert calculate_sunset_score(record_20260725_1700, west) == 40
+
+
+def test_rain_signal_is_exclusive_with_dry_conflict_relief(sample_summary):
+    """雨シグナルと7/21型緩和(雨量0・晴天コードが条件)は定義上同時に成立しない。"""
+    rainy = replace(sample_summary, weather_code=61, precipitation=2.0)
+    dry_conflict = replace(
+        sample_summary,
+        precipitation_probability=87,
+        precipitation=0,
+        weather_code=0,
+    )
+    west_clear = SunsetCloud(
+        cloud_cover=17, cloud_cover_low=10, cloud_cover_mid=13.3, cloud_cover_high=0
+    )
+
+    assert has_rain_signal(rainy) is True
+    assert has_dry_high_precipitation_conflict(rainy, west_clear) is False
+    assert has_rain_signal(dry_conflict) is False
+    assert has_dry_high_precipitation_conflict(dry_conflict, west_clear) is True
 
 
 def test_high_precipitation_reduces_both_scores(sample_summary):

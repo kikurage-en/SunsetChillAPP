@@ -72,6 +72,8 @@ def calculate_sunset_score(
         score = min(score, 60)
     if summary.visibility < 5000:
         score = min(score, 50)
+    if has_rain_signal(summary):
+        score = min(score, SUNSET_RAIN_CAP)
     # 天井の再校正: 旧+20分Vision画像代理値で85点以上は35日中1日しかなく、
     # 式が85+を出した8日の画像代理値中央値は68だった。好条件でも通常の上限は80とし、
     # 90に届き得るのは色を最大限に通す超快晴(総雲量<15%かつ低層雲<5%)のみ。
@@ -93,6 +95,14 @@ VISION_UPLIFT_CAP = 30
 # 決定論的な雨量・天気コード・西空の雲が晴天側なら、一律-60は過小評価になった。
 # 同型はN=2しかないため、強減点を解除せず暫定的に-25まで緩和する。
 DRY_HIGH_PRECIPITATION_PENALTY = -25
+
+# 雨シグナル時のSunset上限。雨量・雨コードはChill式だけが減点しSunset式は素通り
+# だった非対称の是正(2026-07-25: 窓内4.7mm・コード61を受け取りながら式45を配信し、
+# 日没時発色は0)。深さを予想雨量に比例させないのは、雨量と画像代理値の順位相関が
+# +0.072(N=17)で、最多雨量日(6/27窓24mm予報)が発色65と最良だったため。40は発動
+# 21行のバックテストで悪化ゼロ、30は7/13(霧雨・発色75)を悪化させる。
+# 根拠と覆り条件は STATUS.md「局地雷雨の見逃し — 2026-07-25 乖離検証」参照。
+SUNSET_RAIN_CAP = 40
 
 
 def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weight: float) -> int:
@@ -156,6 +166,15 @@ def calculate_chill_score(
         score = min(score, min(caps))
 
     return _clamp_score(score)
+
+
+def has_rain_signal(summary: WeatherSummary) -> bool:
+    """評価時間帯の代表天気コードが雨系、または窓内予想雨量が1mm以上かを返す。
+
+    Chill式の雨キャップ(コード・雨量≥1.0)と同じ判定軸。7/21型の緩和条件
+    (雨量0・晴天コード)とは定義上排他で、同時に成立しない。
+    """
+    return summary.weather_code in RAIN_WEATHER_CODES or summary.precipitation >= 1.0
 
 
 def has_dry_high_precipitation_conflict(

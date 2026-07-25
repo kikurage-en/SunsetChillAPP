@@ -681,6 +681,62 @@ def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
     )
 
 
+def _fixture_payload_with_window_rain(*, precipitation: float, weather_code: int) -> dict:
+    path = Path(__file__).parent / "fixtures" / "open_meteo_sample.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    hourly = payload["hourly"]
+    n = len(hourly["time"])
+    hourly["precipitation"] = [precipitation] * n
+    hourly["weather_code"] = [weather_code] * n
+    return payload
+
+
+class StaticPayloadWeatherClient:
+    def __init__(self, payload: dict):
+        self.payload = payload
+
+    def fetch_forecast(self, *, latitude, longitude, timezone, target_date=None) -> dict:
+        return self.payload
+
+
+def test_rain_signal_disables_vision_uplift(tmp_path, monkeypatch):
+    """雨シグナル時はVisionによる表示の上方修正を無効化する(下方修正は維持)。
+
+    2026-07-25 17:00: 窓内4.7mm・コード61の予報を受け取りながら、サムネイル画像の
+    見かけ(partly_cloudy 65)がブレンド0.8で表示を式45→61(B)へ持ち上げ、実際の日没時
+    発色は0だった。カメラは「これから来る雨」を見えないため、雨予報時は式を上回る
+    方向のブレンドを許可しない。
+    """
+    csv_path = tmp_path / "rain_uplift.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    fake_storage = MemoryStorage()
+    rainy = _fixture_payload_with_window_rain(precipitation=1.5, weather_code=61)
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: StaticPayloadWeatherClient(rainy))
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+
+    optimistic_vision = VisionResult(
+        sunset_score=65, sky_condition="partly_cloudy", comment="晴れ間", model="gemini-2.5-flash"
+    )
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: optimistic_vision)
+    assert main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "17:00"]) == 0
+    record = fake_storage.records[-1]
+    # 純式は雨キャップで40以下、Vision(65)による上方修正はされない
+    assert record.scores.sunset_score <= 40
+    assert record.final_sunset_score == record.scores.sunset_score
+
+    pessimistic_vision = VisionResult(
+        sunset_score=10, sky_condition="overcast", comment="厚い雲", model="gemini-2.5-flash"
+    )
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: pessimistic_vision)
+    assert main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "17:00"]) == 0
+    record = fake_storage.records[-1]
+    # 下方修正(悪い空を写すカメラ)は雨シグナル下でも有効
+    assert record.final_sunset_score < record.scores.sunset_score
+
+
 def test_post_sunset_vision_is_not_blended(monkeypatch):
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()

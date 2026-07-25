@@ -23,7 +23,12 @@ from zushi_chill.models import (
     VisionResult,
     WeatherSummary,
 )
-from zushi_chill.scoring import blend_sunset_score, calculate_scores, score_label
+from zushi_chill.scoring import (
+    blend_sunset_score,
+    calculate_scores,
+    has_rain_signal,
+    score_label,
+)
 from zushi_chill.storage import storage_from_settings
 from zushi_chill.sunset_geometry import sunset_cloud_point
 from zushi_chill.sunsethue_client import fetch_sunset_quality
@@ -89,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         mode = vision_mode(run_time, summary.sunset_time)
         final_sunset_score, final_sunset_label = _blend_final_sunset(
-            scores_without_comment, vision_result, mode, settings
+            scores_without_comment, vision_result, mode, settings, summary
         )
         comment_scores = replace(
             scores_without_comment,
@@ -260,12 +265,16 @@ def _blend_final_sunset(
     vision: VisionResult | None,
     mode: str,
     settings: Settings,
+    summary: WeatherSummary,
 ) -> tuple[int, str]:
     """表示用 Sunset期待度(式とVisionカメラAI予測のブレンド)とラベルを返す。
 
     ブレンドするのは日没前(予測モード)でVision解析が成功した実行のみ。日没時・
     残照の画像評価、Vision欠測、重み0ではブレンドせず純式スコアを返す。
     純式スコア ``scores.sunset_score`` はここでは変えない(呼び出し側でログ保持)。
+    雨シグナル時はVisionによる上方修正を無効化する(下方修正は維持)。カメラは
+    「これから来る雨」を見えない(2026-07-25: 窓内4.7mm・コード61の予報下でVision65が
+    表示を45→61へ持ち上げ、実際の日没時発色は0だった)。
     """
     if vision is not None and mode == "predict" and settings.sunset_vision_blend_weight > 0:
         blended = blend_sunset_score(
@@ -273,6 +282,8 @@ def _blend_final_sunset(
             vision.sunset_score,
             settings.sunset_vision_blend_weight,
         )
+        if has_rain_signal(summary):
+            blended = min(blended, scores.sunset_score)
         return blended, score_label(blended)
     return scores.sunset_score, scores.sunset_label
 
