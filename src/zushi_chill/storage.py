@@ -68,6 +68,15 @@ CSV_COLUMNS = [
     "jma_precipitation_period_end",
     "jma_precipitation_area",
     "jma_report_time",
+    "sunset_snapshot_time",
+    "temperature_2m_at_sunset",
+    "relative_humidity_2m_at_sunset",
+    "visibility_at_sunset_snapshot",
+    "wind_speed_10m_at_sunset",
+    "wind_direction_10m_at_sunset",
+    "sunset_cloud_cover_low_at_sunset",
+    "sunset_cloud_cover_mid_at_sunset",
+    "sunset_cloud_cover_high_at_sunset",
 ]
 
 

@@ -19,6 +19,15 @@ def test_parse_forecast_extracts_sunset_and_target_window(sample_summary):
     assert sample_summary.precipitation == 0
     assert sample_summary.visibility == 18000
     assert sample_summary.temperature_2m_at_run_time == 26.0
+    assert sample_summary.sunset_snapshot_time.strftime("%H:%M") == "19:00"
+    assert sample_summary.temperature_2m_at_sunset == 22.0
+    assert sample_summary.relative_humidity_2m_at_sunset == 72.0
+    assert sample_summary.cloud_cover_low_at_sunset == 25.0
+    assert sample_summary.cloud_cover_mid_at_sunset == 40.0
+    assert sample_summary.cloud_cover_high_at_sunset == 55.0
+    assert sample_summary.visibility_at_sunset_snapshot == 18000.0
+    assert sample_summary.wind_speed_10m_at_sunset == 4.0
+    assert sample_summary.wind_direction_10m_at_sunset == 190.0
 
 
 def test_parse_forecast_selects_temperature_nearest_to_run_time(sample_payload):
@@ -34,6 +43,23 @@ def test_parse_forecast_selects_temperature_nearest_to_run_time(sample_payload):
     )
 
     assert summary.temperature_2m_at_run_time == 18.2
+
+
+def test_parse_forecast_selects_hourly_row_nearest_to_sunset(sample_payload):
+    sample_payload["daily"]["sunset"][0] = "2026-06-01T18:10"
+    sample_payload["hourly"]["temperature_2m"][18] = 18.0
+    sample_payload["hourly"]["temperature_2m"][19] = 19.0
+
+    summary = parse_forecast(
+        sample_payload,
+        location_name="逗子海岸",
+        latitude=35.2956,
+        longitude=139.5736,
+        timezone="Asia/Tokyo",
+    )
+
+    assert summary.sunset_snapshot_time.strftime("%H:%M") == "18:00"
+    assert summary.temperature_2m_at_sunset == 18.0
 
 
 def test_parse_forecast_includes_hourly_rows_that_overlap_target_window(sample_payload):
@@ -112,6 +138,16 @@ def test_parse_forecast_aggregates_target_window_fields_by_requirement(sample_pa
     assert summary.precipitation_at_sunset == 0.4
     assert summary.weather_code_at_sunset == 3
     assert summary.visibility_at_sunset == 15000.0
+    # 日没18:51に最も近い19:00行を、予測メッセージ用スナップショットとして保持する。
+    assert summary.sunset_snapshot_time.strftime("%H:%M") == "19:00"
+    assert summary.temperature_2m_at_sunset == 24.0
+    assert summary.relative_humidity_2m_at_sunset == 80.0
+    assert summary.cloud_cover_low_at_sunset == 50.0
+    assert summary.cloud_cover_mid_at_sunset == 70.0
+    assert summary.cloud_cover_high_at_sunset == 80.0
+    assert summary.visibility_at_sunset_snapshot == 15000.0
+    assert summary.wind_speed_10m_at_sunset == 6.0
+    assert summary.wind_direction_10m_at_sunset == 90.0
 
 
 def test_parse_forecast_aligns_preceding_hour_fields_to_their_intervals(sample_payload):

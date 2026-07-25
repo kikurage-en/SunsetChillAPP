@@ -835,6 +835,9 @@ def test_sunset_cloud_layers_split_between_near_and_far_points(tmp_path, monkeyp
     assert float(row["sunset_cloud_cover_low"]) == 90
     assert float(row["sunset_cloud_cover_mid"]) == 60
     assert float(row["sunset_cloud_cover_high"]) == 70
+    assert float(row["sunset_cloud_cover_low_at_sunset"]) == 90
+    assert float(row["sunset_cloud_cover_mid_at_sunset"]) == 60
+    assert float(row["sunset_cloud_cover_high_at_sunset"]) == 70
     # Chill用の雲は逗子のまま
     assert float(row["cloud_cover"]) == 10
 

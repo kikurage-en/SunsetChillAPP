@@ -139,6 +139,50 @@ def test_line_message_uses_temperature_nearest_to_run_time(sample_summary):
     assert "気温：30.0℃" not in message
 
 
+def test_prediction_message_uses_weather_nearest_to_sunset(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=72, chill_label="A")
+    summary = replace(
+        sample_summary,
+        temperature_2m=30.0,
+        relative_humidity_2m=60.0,
+        visibility=5000.0,
+        wind_speed_10m=2.0,
+        wind_direction_10m=0.0,
+        temperature_2m_at_run_time=31.0,
+        temperature_2m_at_sunset=24.5,
+        relative_humidity_2m_at_sunset=82.0,
+        visibility_at_sunset_snapshot=15000.0,
+        wind_speed_10m_at_sunset=4.5,
+        wind_direction_10m_at_sunset=202.0,
+    )
+    sunset_cloud = SunsetCloud(
+        cloud_cover=90,
+        cloud_cover_low=80,
+        cloud_cover_mid=70,
+        cloud_cover_high=60,
+        cloud_cover_low_at_sunset=20,
+        cloud_cover_mid_at_sunset=30,
+        cloud_cover_high_at_sunset=40,
+    )
+
+    message = build_line_message(
+        summary,
+        scores,
+        vision_mode="predict",
+        sunset_cloud=sunset_cloud,
+    )
+
+    assert "日没：18:51" in message
+    assert "最寄り予報" not in message
+    assert "気温：24.5℃" in message
+    assert "湿度：82%" in message
+    assert "風：南南西 4.5m/s" in message
+    assert "低層 20% / 中層 30% / 高層 40%" in message
+    assert "視程：15.0km" in message
+    assert "気温：31.0℃" not in message
+    assert "低層 80%" not in message
+
+
 def test_line_message_includes_vision_section_when_present(sample_summary):
     scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
     vision = VisionResult(
@@ -277,6 +321,19 @@ def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary)
         "体感温度が高く、海辺では蒸し暑さが強い見込みです。",
     ]
     assert "確認してください" not in comment
+
+
+def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
+    summary = replace(sample_summary, apparent_temperature=34.4)
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=45, chill_label="C")
+
+    comment = build_comment(summary, scores, prediction=False)
+
+    assert comment.splitlines() == [
+        "夕焼け条件・海辺の快適さともに低調です。",
+        "体感温度が高く、海辺では蒸し暑さが強い状態です。",
+    ]
+    assert "見込み" not in comment
 
 
 def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summary):

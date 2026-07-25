@@ -41,6 +41,34 @@ def test_blend_uplift_is_capped_but_downgrade_is_not():
     assert blend_sunset_score(80, 15, 0.8) == 28
 
 
+def test_display_snapshots_do_not_change_sunset_or_chill_scores(sample_summary):
+    aggregate_cloud = SunsetCloud(
+        cloud_cover=40,
+        cloud_cover_low=25,
+        cloud_cover_mid=40,
+        cloud_cover_high=55,
+    )
+    snapshot_only_changes = replace(
+        sample_summary,
+        temperature_2m_at_sunset=40,
+        relative_humidity_2m_at_sunset=100,
+        visibility_at_sunset_snapshot=100,
+        wind_speed_10m_at_sunset=20,
+        wind_direction_10m_at_sunset=0,
+    )
+    cloud_with_snapshot = replace(
+        aggregate_cloud,
+        cloud_cover_low_at_sunset=100,
+        cloud_cover_mid_at_sunset=100,
+        cloud_cover_high_at_sunset=100,
+    )
+
+    assert calculate_scores(sample_summary, aggregate_cloud) == calculate_scores(
+        snapshot_only_changes,
+        cloud_with_snapshot,
+    )
+
+
 def test_scores_are_clamped(sample_summary):
     scores = calculate_scores(sample_summary)
 

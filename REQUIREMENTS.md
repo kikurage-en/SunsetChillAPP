@@ -170,11 +170,15 @@ LINEの重複送信を行わない。
 - 日没時評価では太陽ディスクと発色、残照評価では残照の個別値を本文へ含める。
 - 画像URLが利用できる場合はテキストと画像を送信し、なければテキストだけ送信する。
 - 日没時の `dry_run` は本文生成と保存まで行い、通常通知・失敗通知ともLINEへ送信しない。
-- 天気参考欄は日没、実行時刻に最も近いhourly気温、湿度、風、降水確率だけを表示する。
+- 日没前の天気参考欄は、日没時刻に最も近いhourly行の気温・湿度・風・夕焼け方向の
+  層別雲量・視程を表示する。最寄りhourly時刻はログに保存し、本文へは表示しない。
+  日没時・残照フェーズは従来どおり実行時刻付近の気温と対象時間帯集計値を表示する。
 - 対象時間帯、体感温度、突風、降水確率の期間・区域・出典は本文に表示しない。
 - 降水確率は気象庁値を優先し、欠測時はOpen-Meteoの対象時間帯最大値を表示する。
 - コメントは現地確認を依頼せず、表示用Sunset期待度とChill指数の予測水準を文章化する。
   気象要因の補足は優先度が最も高い1件に制限する。
+- 日没前のコメントは予測表現とし、日没時・残照フェーズでは「見込み」などの予測表現を
+  使わず、その時点の条件として表現する。
 - 高い降水確率と雨量・晴天コード・西空の薄い雲が食い違う場合は、予測の不確実性が
   高い旨をコメントへ含める。
 
@@ -191,7 +195,7 @@ Google Sheetsは旧ヘッダーが新ヘッダーのprefixと一致する場合�
 
 ### 7.2 保存カラム
 
-保存スキーマは次の59列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
+保存スキーマは次の68列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
 
 ```txt
 date
@@ -253,6 +257,15 @@ jma_precipitation_period_start
 jma_precipitation_period_end
 jma_precipitation_area
 jma_report_time
+sunset_snapshot_time
+temperature_2m_at_sunset
+relative_humidity_2m_at_sunset
+visibility_at_sunset_snapshot
+wind_speed_10m_at_sunset
+wind_direction_10m_at_sunset
+sunset_cloud_cover_low_at_sunset
+sunset_cloud_cover_mid_at_sunset
+sunset_cloud_cover_high_at_sunset
 ```
 
 ## 8. Sunsethueベンチマーク
@@ -285,10 +298,11 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 - `pytest` が成功する。
 - スコア境界、強制上限、層別雲量、Visionブレンド上限を回帰テストする。
 - Visionの3フェーズ、個別画像評価値、旧形式応答の互換性をテストする。
-- CSVの59列出力とGoogle Sheetsの旧46列ヘッダー・列幅移行をテストする。
+- CSVの68列出力とGoogle Sheetsの旧ヘッダー・列幅移行をテストする。
 - 気象庁6時間降水確率の期間選択、LINE表示、Chill優先利用、Sunset非利用をテストする。
-- LINEの気温が実行時刻に最も近いhourly値で、Chill用体感温度は時間帯平均のまま
-  分離されることをテストする。
+- 日没前のLINE予測が日没時刻に最も近いhourly気温・湿度・風・層別雲量・視程を表示し、
+  Sunset期待度・Chill指数は対象時間帯集計のまま変わらないことをテストする。
+- 日没時・残照フェーズのコメントに予測表現が残らないことをテストする。
 - コメントが両指数の組み合わせと主要気象要因を反映し、現地確認依頼を含まないことを
   テストする。
 - 2026-07-21型の条件付き降水減点と、2026-07-16型へ緩和が誤適用されないことを

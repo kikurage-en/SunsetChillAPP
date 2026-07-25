@@ -190,6 +190,26 @@ def parse_forecast(
             "visibility",
         )
     }
+    sunset_snapshot_index = _nearest_time_index(times, sunset_time)
+    sunset_snapshot = {
+        field: _value_for_index(
+            hourly,
+            field,
+            sunset_snapshot_index,
+            len(times),
+            allow_missing=field in allow_missing_fields,
+        )
+        for field in (
+            "temperature_2m",
+            "relative_humidity_2m",
+            "cloud_cover_low",
+            "cloud_cover_mid",
+            "cloud_cover_high",
+            "visibility",
+            "wind_speed_10m",
+            "wind_direction_10m",
+        )
+    }
     run_time = datetime.now(tz) if run_time is None else run_time.astimezone(tz)
     run_time_temperature = _value_for_index(
         hourly,
@@ -237,6 +257,15 @@ def parse_forecast(
             if run_time_temperature is not None
             else _mean(values["temperature_2m"])
         ),
+        sunset_snapshot_time=times[sunset_snapshot_index],
+        temperature_2m_at_sunset=sunset_snapshot["temperature_2m"],
+        relative_humidity_2m_at_sunset=sunset_snapshot["relative_humidity_2m"],
+        cloud_cover_low_at_sunset=sunset_snapshot["cloud_cover_low"],
+        cloud_cover_mid_at_sunset=sunset_snapshot["cloud_cover_mid"],
+        cloud_cover_high_at_sunset=sunset_snapshot["cloud_cover_high"],
+        visibility_at_sunset_snapshot=sunset_snapshot["visibility"],
+        wind_speed_10m_at_sunset=sunset_snapshot["wind_speed_10m"],
+        wind_direction_10m_at_sunset=sunset_snapshot["wind_direction_10m"],
     )
 
 

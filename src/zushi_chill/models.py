@@ -41,6 +41,17 @@ class WeatherSummary:
     # LINEの天気参考値として表示する、実行時刻に最も近いhourly気温。
     # Chill指数は従来どおり apparent_temperature の対象時間帯平均を使う。
     temperature_2m_at_run_time: float | None = None
+    # 日没前の予測メッセージへ表示する、日没時刻に最も近いhourly行の値。
+    # Sunset期待度・Chill指数は従来どおり対象時間帯の集計値を使う。
+    sunset_snapshot_time: datetime | None = None
+    temperature_2m_at_sunset: float | None = None
+    relative_humidity_2m_at_sunset: float | None = None
+    cloud_cover_low_at_sunset: float | None = None
+    cloud_cover_mid_at_sunset: float | None = None
+    cloud_cover_high_at_sunset: float | None = None
+    visibility_at_sunset_snapshot: float | None = None
+    wind_speed_10m_at_sunset: float | None = None
+    wind_direction_10m_at_sunset: float | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +67,9 @@ class SunsetCloud:
     cloud_cover_low: float
     cloud_cover_mid: float
     cloud_cover_high: float
+    cloud_cover_low_at_sunset: float | None = None
+    cloud_cover_mid_at_sunset: float | None = None
+    cloud_cover_high_at_sunset: float | None = None
 
     @classmethod
     def from_summary(cls, summary: WeatherSummary) -> SunsetCloud:
@@ -64,6 +78,9 @@ class SunsetCloud:
             cloud_cover_low=summary.cloud_cover_low,
             cloud_cover_mid=summary.cloud_cover_mid,
             cloud_cover_high=summary.cloud_cover_high,
+            cloud_cover_low_at_sunset=summary.cloud_cover_low_at_sunset,
+            cloud_cover_mid_at_sunset=summary.cloud_cover_mid_at_sunset,
+            cloud_cover_high_at_sunset=summary.cloud_cover_high_at_sunset,
         )
 
 
@@ -127,8 +144,15 @@ class PredictionRecord:
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
-        # 表示専用値。保存スキーマの temperature_2m は校正用の対象時間帯平均を維持する。
+        # 実行時気温と逗子上空の雲スナップショットは表示組み立て用。日没時表示値は
+        # 下で時刻・気象値と、日没方向の層別雲量に分けて保存する。
         data.pop("temperature_2m_at_run_time", None)
+        for field in (
+            "cloud_cover_low_at_sunset",
+            "cloud_cover_mid_at_sunset",
+            "cloud_cover_high_at_sunset",
+        ):
+            data.pop(field, None)
         for field in (
             "precipitation_probability_before_sunset",
             "precipitation_before_sunset",
@@ -138,9 +162,19 @@ class PredictionRecord:
             "precipitation_at_sunset",
             "weather_code_at_sunset",
             "visibility_at_sunset",
+            "temperature_2m_at_sunset",
+            "relative_humidity_2m_at_sunset",
+            "visibility_at_sunset_snapshot",
+            "wind_speed_10m_at_sunset",
+            "wind_direction_10m_at_sunset",
         ):
             if data[field] is None:
                 data[field] = ""
+        data["sunset_snapshot_time"] = (
+            self.summary.sunset_snapshot_time.isoformat(timespec="minutes")
+            if self.summary.sunset_snapshot_time
+            else ""
+        )
         sunset_cloud = self.sunset_cloud
         # 表示用ブレンド値。未設定の実行(欠測・ブレンド無効)は純式スコアを既定にする。
         final_sunset_score = (
@@ -213,6 +247,21 @@ class PredictionRecord:
                 "jma_report_time": (
                     self.jma_precipitation.report_time.isoformat(timespec="minutes")
                     if self.jma_precipitation
+                    else ""
+                ),
+                "sunset_cloud_cover_low_at_sunset": (
+                    sunset_cloud.cloud_cover_low_at_sunset
+                    if sunset_cloud and sunset_cloud.cloud_cover_low_at_sunset is not None
+                    else ""
+                ),
+                "sunset_cloud_cover_mid_at_sunset": (
+                    sunset_cloud.cloud_cover_mid_at_sunset
+                    if sunset_cloud and sunset_cloud.cloud_cover_mid_at_sunset is not None
+                    else ""
+                ),
+                "sunset_cloud_cover_high_at_sunset": (
+                    sunset_cloud.cloud_cover_high_at_sunset
+                    if sunset_cloud and sunset_cloud.cloud_cover_high_at_sunset is not None
                     else ""
                 ),
             }

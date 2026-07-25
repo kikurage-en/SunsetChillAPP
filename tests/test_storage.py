@@ -11,6 +11,7 @@ from zushi_chill.models import (
     JmaPrecipitationForecast,
     PredictionRecord,
     ScoreResult,
+    SunsetCloud,
     VisionResult,
 )
 from zushi_chill.storage import CSV_COLUMNS, CsvStorage, GoogleSheetsStorage, storage_from_settings
@@ -20,7 +21,14 @@ def test_csv_storage_writes_prediction_record(tmp_path, sample_summary):
     path = tmp_path / "predictions.csv"
     scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
 
-    CsvStorage(path).save(PredictionRecord(summary=sample_summary, scores=scores, line_sent=False))
+    CsvStorage(path).save(
+        PredictionRecord(
+            summary=sample_summary,
+            scores=scores,
+            line_sent=False,
+            sunset_cloud=SunsetCloud.from_summary(sample_summary),
+        )
+    )
 
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
     assert len(rows) == 1
@@ -35,6 +43,15 @@ def test_csv_storage_writes_prediction_record(tmp_path, sample_summary):
     assert rows[0]["precipitation_at_sunset"] == "0.0"
     assert rows[0]["weather_code_at_sunset"] == "1"
     assert rows[0]["visibility_at_sunset"] == "18000.0"
+    assert rows[0]["sunset_snapshot_time"].endswith("19:00+09:00")
+    assert rows[0]["temperature_2m_at_sunset"] == "22.0"
+    assert rows[0]["relative_humidity_2m_at_sunset"] == "72.0"
+    assert rows[0]["visibility_at_sunset_snapshot"] == "18000.0"
+    assert rows[0]["wind_speed_10m_at_sunset"] == "4.0"
+    assert rows[0]["wind_direction_10m_at_sunset"] == "190.0"
+    assert rows[0]["sunset_cloud_cover_low_at_sunset"] == "25.0"
+    assert rows[0]["sunset_cloud_cover_mid_at_sunset"] == "40.0"
+    assert rows[0]["sunset_cloud_cover_high_at_sunset"] == "55.0"
 
 
 def test_csv_columns_include_vision_fields_after_error_message():
@@ -52,8 +69,8 @@ def test_csv_columns_include_vision_fields_after_error_message():
         assert CSV_COLUMNS.index(column) > CSV_COLUMNS.index("error_message")
 
 
-def test_csv_columns_append_sunset_hour_diagnostics_and_jma_forecast():
-    assert CSV_COLUMNS[-13:] == [
+def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
+    assert CSV_COLUMNS[-22:] == [
         "precipitation_probability_before_sunset",
         "precipitation_before_sunset",
         "weather_code_before_sunset",
@@ -67,6 +84,15 @@ def test_csv_columns_append_sunset_hour_diagnostics_and_jma_forecast():
         "jma_precipitation_period_end",
         "jma_precipitation_area",
         "jma_report_time",
+        "sunset_snapshot_time",
+        "temperature_2m_at_sunset",
+        "relative_humidity_2m_at_sunset",
+        "visibility_at_sunset_snapshot",
+        "wind_speed_10m_at_sunset",
+        "wind_direction_10m_at_sunset",
+        "sunset_cloud_cover_low_at_sunset",
+        "sunset_cloud_cover_mid_at_sunset",
+        "sunset_cloud_cover_high_at_sunset",
     ]
 
 
@@ -302,12 +328,13 @@ def test_google_sheets_storage_appends_with_header(sample_summary):
     assert fake_service.batch_updates == []
 
 
-def test_google_sheets_storage_migrates_legacy_header(sample_summary):
-    legacy_header = CSV_COLUMNS[:46]  # 2026-07-21以前の46列ヘッダ
+@pytest.mark.parametrize("legacy_size", [46, 59])
+def test_google_sheets_storage_migrates_legacy_header(sample_summary, legacy_size):
+    legacy_header = CSV_COLUMNS[:legacy_size]
     fake_service = FakeSheetsService(
         get_values=[legacy_header, ["2026-06-01", "13:00", "逗子海岸"]],
         sheet_titles=["predictions"],
-        column_count=46,
+        column_count=legacy_size,
     )
     storage = GoogleSheetsStorage(
         spreadsheet_id="sheet-id",
@@ -330,7 +357,7 @@ def test_google_sheets_storage_migrates_legacy_header(sample_summary):
                     "appendDimension": {
                         "sheetId": 0,
                         "dimension": "COLUMNS",
-                        "length": 13,
+                        "length": len(CSV_COLUMNS) - len(legacy_header),
                     }
                 }
             ]
@@ -427,7 +454,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BG2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BP2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -451,7 +478,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BG3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BP3"
     assert fake_service.appends == []
 
 
@@ -507,7 +534,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:BG"
+    assert fake_service.last_get["range"] == "'predictions'!A:BP"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -554,7 +581,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BG2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BP2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

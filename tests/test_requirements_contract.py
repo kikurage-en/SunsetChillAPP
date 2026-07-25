@@ -67,10 +67,19 @@ def test_prediction_log_columns_match_requirements():
         "jma_precipitation_period_end",
         "jma_precipitation_area",
         "jma_report_time",
+        "sunset_snapshot_time",
+        "temperature_2m_at_sunset",
+        "relative_humidity_2m_at_sunset",
+        "visibility_at_sunset_snapshot",
+        "wind_speed_10m_at_sunset",
+        "wind_direction_10m_at_sunset",
+        "sunset_cloud_cover_low_at_sunset",
+        "sunset_cloud_cover_mid_at_sunset",
+        "sunset_cloud_cover_high_at_sunset",
     ]
     assert expected_columns == CSV_COLUMNS
     requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
-    assert "保存スキーマは次の59列" in requirements
+    assert "保存スキーマは次の68列" in requirements
     for column in expected_columns:
         assert column in requirements
 

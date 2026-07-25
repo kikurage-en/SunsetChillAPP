@@ -98,7 +98,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         scores = replace(
             scores_without_comment,
-            comment=build_comment(summary, comment_scores, sunset_cloud),
+            comment=build_comment(
+                summary,
+                comment_scores,
+                sunset_cloud,
+                prediction=mode == "predict",
+            ),
         )
         sunsethue_result = _collect_sunsethue(settings, run_time)
         message = build_line_message(
@@ -344,6 +349,9 @@ def _resolve_sunset_cloud(
         cloud_cover_low=far.cloud_cover_low,
         cloud_cover_mid=near.cloud_cover_mid,
         cloud_cover_high=near.cloud_cover_high,
+        cloud_cover_low_at_sunset=far.cloud_cover_low_at_sunset,
+        cloud_cover_mid_at_sunset=near.cloud_cover_mid_at_sunset,
+        cloud_cover_high_at_sunset=near.cloud_cover_high_at_sunset,
     )
 
 
