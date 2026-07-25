@@ -1,44 +1,58 @@
 """雨シグナルSunsetキャップ(SUNSET_RAIN_CAP)のバックテスト再現スクリプト。
 
 使い方:
-    python scripts/backtest_rain_cap.py <predictions.csv>
+    python scripts/backtest_rain_cap.py <predictions.csv> [--through 2026-07-25]
 
 入力は SunsetChillログ(Google Sheets)の `predictions` シートを CSV エクスポート
-したもの。STATUS.md「雨シグナルのSunsetキャップとVision上方修正無効 —
-2026-07-25 実装」の採用根拠(母集団・MAE・順位相関・悪化日)を再現する。
+したもの。既定の対象期間は 2026-06-01〜2026-07-25 に固定してあり、STATUS.md
+「雨シグナルのSunsetキャップとVision上方修正無効 — 2026-07-25 実装」の採用根拠
+(母集団107/発動21/プロキシ17行=12日・順位相関+0.072・MAE・悪化行)を再現する。
+以後のデータを含めた継続評価は `--through` で明示的に期間を延ばす(証跡の再現とは
+別モード)。母集団のフィンガープリントを出力するので、過去行の遡及編集も検知できる。
 
-ルール(本番 `zushi_chill.scoring` と同じ判定軸):
-    雨シグナル = 代表天気コードが雨・雷雨系 or 窓内予想雨量合計 >= 1.0mm
-    新表示 = min(旧表示, min(純式, CAP))  # Vision上方修正無効+キャップ
+反実仮想は本番ロジックと同一に計算する:
+    1. 純式を min(純式, CAP) に制限(`zushi_chill.scoring.calculate_sunset_score` と同順)
+    2. その行で実際にVisionブレンドが行われた場合(final列とVision列が両方ある場合)は
+       CAP後純式とVisionを `blend_sunset_score` で再ブレンドし、雨シグナル時は
+       min(ブレンド, CAP後純式) で上方修正を禁止(`main._blend_final_sunset` と同じ)
+    3. ブレンドされていない行は min(旧表示, CAP後純式)
 
-真値プロキシは同一 date の日没時 `vision_sunset_color_score`(発色、7/20以降)を
-優先し、無ければ 18時以降の行の `vision_sunset_score`(指標分離前の旧+20分値)。
-同一AIの画像採点であり独立真値ではない。同一日の 13:00/17:00 は同じプロキシと
-比較される非独立サンプルである点に注意(実効Nはユニーク日数)。
+注意: 2026-07-25以降の保存 `sunset_score` は既にCAP適用後の値。CAP水準や時刻ゲートの
+変種比較では、保存された気象入力・雲値からCAP前純式を再計算すること。
+真値プロキシは同一AIの画像採点であり独立真値ではない。同一日の 13:00/17:00 は同じ
+プロキシと比較される非独立サンプル(実効N=ユニーク日数)。
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
+import hashlib
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from zushi_chill.constants import RAIN_WEATHER_CODES  # noqa: E402
+from zushi_chill.scoring import blend_sunset_score  # noqa: E402
 
 START_DATE = "2026-06-01"
+# STATUS.md 採用根拠の証跡を固定する既定終端。継続評価は --through で延長する。
+EVIDENCE_END_DATE = "2026-07-25"
 PREDICT_RUN_TIMES = ("13:00", "17:00")
 CAPS = (30, 40)
+# 本番 SUNSET_VISION_BLEND_WEIGHT の既定値。実行時の実値はSheetsに保存されないため、
+# 全期間で既定値のままだったという運用事実(STATUS.md 層3)を仮定する。
+BLEND_WEIGHT = 0.8
 
 
-def load_rows(csv_path: str) -> list[dict[str, str]]:
+def load_rows(csv_path: str, through: str) -> list[dict[str, str]]:
     with open(csv_path, encoding="utf-8") as file:
         rows = list(csv.DictReader(file))
     # 同一 (date, run_time) の重複記録(送信リトライ等)は最後の行を採用する
     dedup: dict[tuple[str, str], dict[str, str]] = {}
     for row in rows:
-        if row["date"] >= START_DATE:
+        if START_DATE <= row["date"] <= through:
             dedup[(row["date"], row["run_time"])] = row
     return list(dedup.values())
 
@@ -72,6 +86,38 @@ def has_rain_signal(row: dict[str, str]) -> bool:
     return (code is not None and int(code) in RAIN_WEATHER_CODES) or precipitation >= 1.0
 
 
+def counterfactual_display(
+    pure: float,
+    display_old: float,
+    vision: float | None,
+    was_blended: bool,
+    cap: int,
+) -> float:
+    """雨シグナル行へ本番の新ロジックを適用した場合の表示値を返す。"""
+    capped_pure = min(pure, cap)
+    if was_blended and vision is not None:
+        blended = blend_sunset_score(int(round(capped_pure)), int(round(vision)), BLEND_WEIGHT)
+        return min(blended, capped_pure)
+    return min(display_old, capped_pure)
+
+
+def fingerprint(rows: list[dict[str, str]]) -> str:
+    """母集団の遡及編集検知用ハッシュ(証跡数値に効く列のみ)。"""
+    keys = (
+        "date",
+        "run_time",
+        "sunset_score",
+        "final_sunset_score",
+        "vision_sunset_score",
+        "weather_code",
+        "precipitation",
+    )
+    digest = hashlib.md5()
+    for row in sorted(rows, key=lambda r: (r["date"], r["run_time"])):
+        digest.update("|".join(row.get(k, "") for k in keys).encode("utf-8"))
+    return digest.hexdigest()[:12]
+
+
 def spearman(pairs: list[tuple[float, float]]) -> float:
     def rank(values: list[float]) -> list[float]:
         order = sorted(range(len(values)), key=lambda i: values[i])
@@ -97,8 +143,61 @@ def spearman(pairs: list[tuple[float, float]]) -> float:
     return numerator / denominator
 
 
-def main(csv_path: str) -> None:
-    rows = load_rows(csv_path)
+def evaluate(
+    rows: list[dict[str, str]], proxies: dict[str, tuple[str, float]], cap: int
+) -> dict[str, object]:
+    total_old = total_new = covered = 0.0
+    fired_old = fired_new = 0.0
+    fired_covered = 0
+    worsened: list[str] = []
+    for row in rows:
+        proxy = proxies.get(row["date"])
+        pure = _float(row, "sunset_score")
+        if proxy is None or pure is None:
+            continue
+        final = _float(row, "final_sunset_score")
+        vision = _float(row, "vision_sunset_score")
+        display_old = final if final is not None else pure
+        if has_rain_signal(row):
+            display_new = counterfactual_display(
+                pure, display_old, vision, was_blended=final is not None, cap=cap
+            )
+        else:
+            display_new = display_old
+        covered += 1
+        total_old += abs(display_old - proxy[1])
+        total_new += abs(display_new - proxy[1])
+        if has_rain_signal(row):
+            fired_covered += 1
+            fired_old += abs(display_old - proxy[1])
+            fired_new += abs(display_new - proxy[1])
+            if abs(display_new - proxy[1]) > abs(display_old - proxy[1]):
+                worsened.append(
+                    f"{row['date']} {row['run_time']}"
+                    f" 表示{display_old:.0f}→{display_new:.0f} vs {proxy[0]}{proxy[1]:.0f}"
+                )
+    return {
+        "covered": int(covered),
+        "mae_old": total_old / covered,
+        "mae_new": total_new / covered,
+        "fired_covered": fired_covered,
+        "fired_mae_old": fired_old / fired_covered,
+        "fired_mae_new": fired_new / fired_covered,
+        "worsened": worsened,
+    }
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("csv_path", help="SunsetChillログ predictions シートのCSVエクスポート")
+    parser.add_argument(
+        "--through",
+        default=EVIDENCE_END_DATE,
+        help=f"対象期間の終端日(既定 {EVIDENCE_END_DATE} = STATUS.md 証跡の固定期間)",
+    )
+    args = parser.parse_args(argv)
+
+    rows = load_rows(args.csv_path, args.through)
     proxies = build_proxies(rows)
     predict_rows = [r for r in rows if r["run_time"] in PREDICT_RUN_TIMES]
     fired_rows = [r for r in predict_rows if has_rain_signal(r)]
@@ -109,7 +208,8 @@ def main(csv_path: str) -> None:
     ]
     fired_with_proxy = [r for r in fired_rows if r["date"] in proxies]
 
-    print(f"母集団: {START_DATE}以降の13:00/17:00 全{len(predict_rows)}行(重複記録排除後)")
+    print(f"期間: {START_DATE}〜{args.through} / フィンガープリント: {fingerprint(predict_rows)}")
+    print(f"母集団: 13:00/17:00 全{len(predict_rows)}行(重複記録排除後)")
     print(
         f"雨シグナル発動: {len(fired_rows)}行"
         f" / 雨量条件のみで発動(雨コードなし): {len(amount_only)}行"
@@ -125,44 +225,18 @@ def main(csv_path: str) -> None:
     print(f"予想雨量 vs プロキシの順位相関(発動行): {spearman(amount_vs_proxy):+.3f}")
 
     for cap in CAPS:
-        total_old = total_new = covered = 0.0
-        fired_old = fired_new = 0.0
-        worsened: list[str] = []
-        for row in predict_rows:
-            proxy = proxies.get(row["date"])
-            if proxy is None:
-                continue
-            pure = _float(row, "sunset_score")
-            if pure is None:
-                continue
-            display_old = _float(row, "final_sunset_score")
-            display_old = display_old if display_old is not None else pure
-            display_new = (
-                min(display_old, min(pure, cap)) if has_rain_signal(row) else display_old
-            )
-            covered += 1
-            total_old += abs(display_old - proxy[1])
-            total_new += abs(display_new - proxy[1])
-            if has_rain_signal(row):
-                fired_old += abs(display_old - proxy[1])
-                fired_new += abs(display_new - proxy[1])
-                if abs(display_new - proxy[1]) > abs(display_old - proxy[1]):
-                    worsened.append(
-                        f"{row['date']} {row['run_time']}"
-                        f" 表示{display_old:.0f}→{display_new:.0f} vs {proxy[0]}{proxy[1]:.0f}"
-                    )
-        n_fired = len(fired_with_proxy)
+        result = evaluate(predict_rows, proxies, cap)
         print(f"--- CAP={cap}")
         print(
-            f"  プロキシ有 全{covered:.0f}行 MAE:"
-            f" {total_old / covered:.1f} -> {total_new / covered:.1f}"
+            f"  プロキシ有 全{result['covered']}行 MAE:"
+            f" {result['mae_old']:.1f} -> {result['mae_new']:.1f}"
         )
-        print(f"  発動{n_fired}行 MAE: {fired_old / n_fired:.1f} -> {fired_new / n_fired:.1f}")
-        print(f"  悪化した行: {worsened if worsened else 'なし'}")
+        print(
+            f"  発動{result['fired_covered']}行 MAE:"
+            f" {result['fired_mae_old']:.1f} -> {result['fired_mae_new']:.1f}"
+        )
+        print(f"  悪化した行: {result['worsened'] if result['worsened'] else 'なし'}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(__doc__)
-        sys.exit(1)
-    main(sys.argv[1])
+    main()
