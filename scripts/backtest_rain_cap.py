@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -44,6 +45,10 @@ CAPS = (30, 40)
 # 本番 SUNSET_VISION_BLEND_WEIGHT の既定値。実行時の実値はSheetsに保存されないため、
 # 全期間で既定値のままだったという運用事実(STATUS.md 層3)を仮定する。
 BLEND_WEIGHT = 0.8
+# 証跡モード(--through 既定値)で期待する母集団フィンガープリント。予測行と
+# 選択済みプロキシ(真値側)の両方を正規化ハッシュする(2026-07-26 codex指摘:
+# 予測行のみのハッシュではプロキシの遡及編集を検知できない)。
+EVIDENCE_FINGERPRINT = "5d7c04449f8c"
 
 
 def load_rows(csv_path: str, through: str) -> list[dict[str, str]]:
@@ -101,8 +106,15 @@ def counterfactual_display(
     return min(display_old, capped_pure)
 
 
-def fingerprint(rows: list[dict[str, str]]) -> str:
-    """母集団の遡及編集検知用ハッシュ(証跡数値に効く列のみ)。"""
+def fingerprint(
+    predict_rows: list[dict[str, str]], proxies: dict[str, tuple[str, float]]
+) -> str:
+    """母集団の遡及編集検知用ハッシュ。
+
+    証跡数値に効く両側 — 予測行(表示・純式・Vision・雨シグナル判定列)と、
+    選択済みプロキシ(真値側: 日付・ソース種別・値。`vision_evaluation_phase` の
+    変更は選択結果の変化として現れる)— を行境界付きで正規化してハッシュする。
+    """
     keys = (
         "date",
         "run_time",
@@ -112,10 +124,18 @@ def fingerprint(rows: list[dict[str, str]]) -> str:
         "weather_code",
         "precipitation",
     )
-    digest = hashlib.md5()
-    for row in sorted(rows, key=lambda r: (r["date"], r["run_time"])):
-        digest.update("|".join(row.get(k, "") for k in keys).encode("utf-8"))
-    return digest.hexdigest()[:12]
+    payload = {
+        "rows": [
+            {key: row.get(key, "") for key in keys}
+            for row in sorted(predict_rows, key=lambda r: (r["date"], r["run_time"]))
+        ],
+        "proxies": [
+            {"date": date, "source": source, "value": value}
+            for date, (source, value) in sorted(proxies.items())
+        ],
+    }
+    normalized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.md5(normalized.encode("utf-8")).hexdigest()[:12]
 
 
 def spearman(pairs: list[tuple[float, float]]) -> float:
@@ -187,7 +207,7 @@ def evaluate(
     }
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv_path", help="SunsetChillログ predictions シートのCSVエクスポート")
     parser.add_argument(
@@ -208,7 +228,8 @@ def main(argv: list[str] | None = None) -> None:
     ]
     fired_with_proxy = [r for r in fired_rows if r["date"] in proxies]
 
-    print(f"期間: {START_DATE}〜{args.through} / フィンガープリント: {fingerprint(predict_rows)}")
+    current_fingerprint = fingerprint(predict_rows, proxies)
+    print(f"期間: {START_DATE}〜{args.through} / フィンガープリント: {current_fingerprint}")
     print(f"母集団: 13:00/17:00 全{len(predict_rows)}行(重複記録排除後)")
     print(
         f"雨シグナル発動: {len(fired_rows)}行"
@@ -237,6 +258,14 @@ def main(argv: list[str] | None = None) -> None:
         )
         print(f"  悪化した行: {result['worsened'] if result['worsened'] else 'なし'}")
 
+    if args.through == EVIDENCE_END_DATE and current_fingerprint != EVIDENCE_FINGERPRINT:
+        print(
+            f"警告: フィンガープリント不一致(期待 {EVIDENCE_FINGERPRINT})。"
+            " 証跡期間内の予測行またはプロキシが遡及編集されている可能性があります。"
+        )
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

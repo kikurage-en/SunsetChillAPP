@@ -99,6 +99,53 @@ def test_counterfactual_display_matches_production_blend():
     assert backtest.counterfactual_display(10, 10, None, was_blended=False, cap=40) == 10
 
 
+def _fingerprint_rows() -> list[dict[str, str]]:
+    return [
+        {
+            "date": "2026-07-01",
+            "run_time": "17:00",
+            "sunset_score": "80",
+            "weather_code": "61",
+            "precipitation": "2.0",
+        },
+        {
+            "date": "2026-07-01",
+            "run_time": "18:50",
+            "vision_evaluation_phase": "sunset",
+            "vision_sunset_color_score": "70",
+            "vision_sunset_score": "60",
+        },
+        {"date": "2026-07-01", "run_time": "19:10", "vision_sunset_score": "20"},
+    ]
+
+
+def test_fingerprint_is_pinned_for_fixed_fixture():
+    """正規化仕様(JSON・キー順・プロキシ込み)の意図しない変更を固定値で検知する。"""
+    rows = _fingerprint_rows()
+    assert backtest.fingerprint([rows[0]], backtest.build_proxies(rows)) == "2d3b3443f1c3"
+
+
+def test_fingerprint_detects_proxy_value_edit():
+    """真値側(発色スコア)の遡及編集でフィンガープリントが変わる。
+
+    codex再々レビュー(2026-07-26)の反実験: 予測行のみのハッシュでは 7/25 の発色
+    0→99 の書き換え(MAEが変わる編集)を検知できなかった。選択済みプロキシを
+    ハッシュへ含めることで検知する。
+    """
+    rows = _fingerprint_rows()
+    base = backtest.fingerprint([rows[0]], backtest.build_proxies(rows))
+    rows[1]["vision_sunset_color_score"] = "99"
+    assert backtest.fingerprint([rows[0]], backtest.build_proxies(rows)) != base
+
+
+def test_fingerprint_detects_phase_edit():
+    """`vision_evaluation_phase` の変更はプロキシ選択(発色→旧+20分)を変えるため検知される。"""
+    rows = _fingerprint_rows()
+    base = backtest.fingerprint([rows[0]], backtest.build_proxies(rows))
+    rows[1]["vision_evaluation_phase"] = ""
+    assert backtest.fingerprint([rows[0]], backtest.build_proxies(rows)) != base
+
+
 def test_evaluate_reports_mae_and_worsened_rows(tmp_path):
     """発動行だけが変化し、プロキシより下へ抜けた行が悪化として列挙される。"""
     path = _write_csv(
