@@ -59,6 +59,8 @@ def _resolve_stream_url(live_camera_url: str, *, timeout_seconds: int) -> str:
         return ""
     command = [
         "yt-dlp",
+        "--js-runtimes",
+        "node",
         "--no-playlist",
         "--format",
         "best[protocol^=m3u8]/best",

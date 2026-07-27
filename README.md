@@ -120,9 +120,9 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 低調」の3段階で組み合わせた見通しを表示します。補足は低層雲、高い体感温度、強風、
 高層雲、降水信号の矛盾から優先度が最も高い1件だけを表示します。
 
-13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも最初に撮影できた同一画像を処理します。全ジョブともGitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイし、同じ画像をGitHub Actions Artifactにも保存期間90日指定で保管します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも最初に撮影できた同一画像を処理します。全ジョブとも画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
-画像Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
+画像の長期保存元は `pages-images` branchです。加えて、各実行のArtifactを90日保持します。Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。Pagesを履歴branchから再構築する場合は `Publish image history` workflowを手動実行します。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
 手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` では通常通知・失敗通知のどちらもLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 

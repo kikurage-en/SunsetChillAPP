@@ -1,0 +1,35 @@
+name: Publish image history
+run-name: Publish accumulated live-camera images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: daily-zushi-chill-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out image history
+        uses: actions/checkout@v7
+        with:
+          ref: pages-images
+          path: public
+          fetch-depth: 1
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+
+      - name: Deploy Pages
+        uses: actions/deploy-pages@v5
