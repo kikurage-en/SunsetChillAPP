@@ -1,4 +1,5 @@
 name: Daily Zushi Chill Index
+run-name: SunsetChill ${{ inputs.observation_id || github.run_id }}
 
 on:
   workflow_dispatch:
@@ -17,6 +18,38 @@ on:
         default: ""
       run_time:
         description: "実行時刻 HH:MM"
+        required: false
+        default: ""
+      observation_id:
+        description: "永続観測ID YYYY-MM-DD:phase"
+        required: false
+        default: ""
+      observation_phase:
+        description: "観測フェーズ"
+        required: false
+        type: choice
+        default: "sunset"
+        options:
+          - sunset
+          - afterglow
+      scheduled_at:
+        description: "予定撮影時刻 ISO-8601"
+        required: false
+        default: ""
+      captured_at:
+        description: "実撮影時刻 ISO-8601"
+        required: false
+        default: ""
+      capture_ref:
+        description: "保存画像のGit ref"
+        required: false
+        default: ""
+      capture_path:
+        description: "保存画像のリポジトリ内パス"
+        required: false
+        default: ""
+      capture_sha256:
+        description: "保存画像のSHA-256"
         required: false
         default: ""
 
@@ -62,6 +95,13 @@ jobs:
         env:
           INPUT_RUN_DATE: ${{ github.event.inputs.date || '' }}
           INPUT_RUN_TIME: ${{ github.event.inputs.run_time || '' }}
+          INPUT_OBSERVATION_ID: ${{ github.event.inputs.observation_id || '' }}
+          INPUT_OBSERVATION_PHASE: ${{ github.event.inputs.observation_phase || '' }}
+          INPUT_SCHEDULED_AT: ${{ github.event.inputs.scheduled_at || '' }}
+          INPUT_CAPTURED_AT: ${{ github.event.inputs.captured_at || '' }}
+          INPUT_CAPTURE_REF: ${{ github.event.inputs.capture_ref || '' }}
+          INPUT_CAPTURE_PATH: ${{ github.event.inputs.capture_path || '' }}
+          INPUT_CAPTURE_SHA256: ${{ github.event.inputs.capture_sha256 || '' }}
           SCHEDULE: ${{ github.event.schedule || '' }}
         run: |
           RUN_DATE="$INPUT_RUN_DATE"
@@ -77,11 +117,41 @@ jobs:
           RUN_TIME_COMPACT="${RUN_TIME/:/}"
           echo "RUN_TIME_COMPACT=$RUN_TIME_COMPACT" >> "$GITHUB_ENV"
           echo "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/$RUN_TIME_COMPACT.jpg" >> "$GITHUB_ENV"
+          echo "OBSERVATION_ID=$INPUT_OBSERVATION_ID" >> "$GITHUB_ENV"
+          echo "OBSERVATION_PHASE=$INPUT_OBSERVATION_PHASE" >> "$GITHUB_ENV"
+          echo "SCHEDULED_AT=$INPUT_SCHEDULED_AT" >> "$GITHUB_ENV"
+          echo "CAPTURED_AT=$INPUT_CAPTURED_AT" >> "$GITHUB_ENV"
+          echo "CAPTURE_REF=$INPUT_CAPTURE_REF" >> "$GITHUB_ENV"
+          echo "CAPTURE_PATH=$INPUT_CAPTURE_PATH" >> "$GITHUB_ENV"
+          echo "CAPTURE_SHA256=$INPUT_CAPTURE_SHA256" >> "$GITHUB_ENV"
 
       - name: Capture live camera image
         run: |
           mkdir -p "public/$(dirname "$LIVE_CAMERA_IMAGE_RELATIVE_PATH")"
           IMAGE_PATH="public/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
+          if [ -n "$CAPTURE_PATH" ]; then
+            if [ -z "$CAPTURE_REF" ]; then
+              echo "::error::capture_ref is required when capture_path is set"
+              exit 1
+            fi
+            git fetch --no-tags --depth=1 origin "$CAPTURE_REF"
+            if ! git show "FETCH_HEAD:$CAPTURE_PATH" > "$IMAGE_PATH"; then
+              echo "::error::Archived observation image could not be read"
+              exit 1
+            fi
+            if [ ! -s "$IMAGE_PATH" ]; then
+              echo "::error::Archived observation image is empty"
+              exit 1
+            fi
+            ACTUAL_CAPTURE_SHA256="$(sha256sum "$IMAGE_PATH" | cut -d' ' -f1)"
+            if [ -z "$CAPTURE_SHA256" ] || [ "$ACTUAL_CAPTURE_SHA256" != "$CAPTURE_SHA256" ]; then
+              echo "::error::Archived observation image checksum does not match"
+              exit 1
+            fi
+            echo "Using archived observation image: $CAPTURE_REF:$CAPTURE_PATH"
+            echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+            exit 0
+          fi
           set +e
           STREAM_URL="$(yt-dlp --no-playlist --format "best[protocol^=m3u8]/best" --get-url "$LIVE_CAMERA_URL" 2>yt-dlp-error.log | head -n 1)"
           YT_DLP_STATUS=$?
@@ -173,6 +243,14 @@ jobs:
           fi
           if [ -n "$RUN_TIME" ]; then
             args+=(--run-time "$RUN_TIME")
+          fi
+          if [ -n "$OBSERVATION_ID" ]; then
+            args+=(
+              --observation-id "$OBSERVATION_ID"
+              --observation-phase "$OBSERVATION_PHASE"
+              --scheduled-at "$SCHEDULED_AT"
+              --captured-at "$CAPTURED_AT"
+            )
           fi
           python -m zushi_chill.main "${args[@]}"
 

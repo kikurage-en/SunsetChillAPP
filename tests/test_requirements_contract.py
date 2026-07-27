@@ -76,10 +76,16 @@ def test_prediction_log_columns_match_requirements():
         "sunset_cloud_cover_low_at_sunset",
         "sunset_cloud_cover_mid_at_sunset",
         "sunset_cloud_cover_high_at_sunset",
+        "observation_id",
+        "observation_phase",
+        "scheduled_at",
+        "captured_at",
+        "capture_delay_seconds",
+        "observation_data_quality",
     ]
     assert expected_columns == CSV_COLUMNS
     requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
-    assert "保存スキーマは次の68列" in requirements
+    assert "保存スキーマは次の74列" in requirements
     for column in expected_columns:
         assert column in requirements
 
@@ -110,6 +116,13 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "group: daily-zushi-chill-${{ github.ref }}" in workflow
     assert "cancel-in-progress: false" in workflow
     assert "workflow_dispatch:" in workflow
+    assert "run-name: SunsetChill ${{ inputs.observation_id || github.run_id }}" in workflow
+    assert "observation_id:" in workflow
+    assert "scheduled_at:" in workflow
+    assert "captured_at:" in workflow
+    assert "capture_ref:" in workflow
+    assert "capture_path:" in workflow
+    assert "capture_sha256:" in workflow
     assert "manual_mode:" in workflow
     assert "type: choice" in workflow
     assert "default: \"dry_run\"" in workflow
@@ -131,6 +144,11 @@ def test_github_actions_manual_dispatch_is_configured():
     assert 'LIVE_CAMERA_IMAGE_BASE_URL: ""' in workflow
     assert "echo \"Live camera image URL: ${LIVE_CAMERA_IMAGE_URL:-none}\"" in workflow
     assert "Capture live camera image" in workflow
+    assert 'git fetch --no-tags --depth=1 origin "$CAPTURE_REF"' in workflow
+    assert 'git show "FETCH_HEAD:$CAPTURE_PATH" > "$IMAGE_PATH"' in workflow
+    assert "Archived observation image could not be read" in workflow
+    assert 'ACTUAL_CAPTURE_SHA256="$(sha256sum "$IMAGE_PATH"' in workflow
+    assert "Archived observation image checksum does not match" in workflow
     assert "yt-dlp --no-playlist" in workflow
     assert "ffmpeg -hide_banner" in workflow
     assert "Falling back to YouTube live thumbnail" in workflow
@@ -175,10 +193,31 @@ def test_github_actions_manual_dispatch_is_configured():
 def test_sunset_capture_scheduler_collects_sunset_and_afterglow_images():
     script = Path("scripts/schedule_sunset_capture.sh").read_text(encoding="utf-8")
 
-    assert '--minutes 0)' in script
-    assert "--manual-mode dry_run" in script
-    assert "--manual-mode send_line" in script
+    assert "zushi-chill-observation-scheduler" in script
     assert "AFTERGLOW_OFFSET_MINUTES" in script
+    assert " | at " not in script
+
+
+def test_systemd_observation_scheduler_runs_and_audits_persistent_jobs():
+    scheduler_timer = Path(
+        "deploy/systemd/zushi-chill-observation-scheduler.timer"
+    ).read_text(encoding="utf-8")
+    scheduler_service = Path(
+        "deploy/systemd/zushi-chill-observation-scheduler.service"
+    ).read_text(encoding="utf-8")
+    audit_timer = Path("deploy/systemd/zushi-chill-observation-audit.timer").read_text(
+        encoding="utf-8"
+    )
+    audit_service = Path(
+        "deploy/systemd/zushi-chill-observation-audit.service"
+    ).read_text(encoding="utf-8")
+
+    assert "OnCalendar=*-*-* *:*:00" in scheduler_timer
+    assert "Persistent=true" in scheduler_timer
+    assert "zushi-chill-observation-scheduler" in scheduler_service
+    assert "ReadWritePaths=/var/lib/zushi-chill" in scheduler_service
+    assert "OnCalendar=*-*-* 21:30:00 Asia/Tokyo" in audit_timer
+    assert "zushi-chill-observation-scheduler --audit" in audit_service
 
 
 def test_pyproject_declares_runtime_and_cli_contracts():
@@ -193,6 +232,10 @@ def test_pyproject_declares_runtime_and_cli_contracts():
     assert (
         pyproject["project"]["scripts"]["zushi-chill-trigger-actions"]
         == "zushi_chill.github_actions_trigger:main"
+    )
+    assert (
+        pyproject["project"]["scripts"]["zushi-chill-observation-scheduler"]
+        == "zushi_chill.observation_scheduler:main"
     )
     assert (
         pyproject["project"]["scripts"]["zushi-chill-webhook"]

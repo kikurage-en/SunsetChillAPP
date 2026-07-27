@@ -70,7 +70,7 @@ def test_csv_columns_include_vision_fields_after_error_message():
 
 
 def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
-    assert CSV_COLUMNS[-22:] == [
+    assert CSV_COLUMNS[-28:-6] == [
         "precipitation_probability_before_sunset",
         "precipitation_before_sunset",
         "weather_code_before_sunset",
@@ -93,6 +93,14 @@ def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
         "sunset_cloud_cover_low_at_sunset",
         "sunset_cloud_cover_mid_at_sunset",
         "sunset_cloud_cover_high_at_sunset",
+    ]
+    assert CSV_COLUMNS[-6:] == [
+        "observation_id",
+        "observation_phase",
+        "scheduled_at",
+        "captured_at",
+        "capture_delay_seconds",
+        "observation_data_quality",
     ]
 
 
@@ -454,7 +462,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BP2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BV2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -478,7 +486,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BP3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BV3"
     assert fake_service.appends == []
 
 
@@ -534,7 +542,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:BP"
+    assert fake_service.last_get["range"] == "'predictions'!A:BV"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -581,7 +589,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BP2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BV2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):

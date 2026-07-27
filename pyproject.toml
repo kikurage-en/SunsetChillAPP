@@ -9,6 +9,7 @@ description = "Internal MVP for Zushi sunset chill index notifications."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "astral==3.2",
   "google-api-python-client>=2.120",
   "google-auth>=2.28",
 ]
@@ -24,6 +25,7 @@ zushi-chill = "zushi_chill.main:main"
 zushi-chill-contabo-daily = "zushi_chill.contabo_daily:main"
 zushi-chill-trigger-actions = "zushi_chill.github_actions_trigger:main"
 zushi-chill-sunset-eta = "zushi_chill.sunset_eta:main"
+zushi-chill-observation-scheduler = "zushi_chill.observation_scheduler:main"
 zushi-chill-webhook = "zushi_chill.webhook_server:main"
 
 [tool.setuptools.packages.find]

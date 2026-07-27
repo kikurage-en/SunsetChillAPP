@@ -1,6 +1,6 @@
 # 検証運用ステータス
 
-最終更新: 2026-07-25
+最終更新: 2026-07-27
 
 このファイルは進行中の検証運用の現状と保留中の判断を記録する Truth Source。別セッション（コールドスタート）から現状を把握するための入口。仕様の詳細は `README.md`、算出ロジックはコードが正。
 
@@ -19,7 +19,23 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 - **予測コメント**: 人手確認を促す旧定型文を廃止し、LINE表示用の最終Sunset期待度とChill指数の組み合わせを予測文へ変換する。気象要因の補足は優先度順で1件だけ表示する。
 - **dry-runのLINE抑止**: `manual_mode=dry_run` は通常通知だけでなく失敗通知も送信しない。検証実行の成否はGitHub Actions上で確認する。
 
-**運用反映**: `main` がTruth Sourceで、GitHub Actions `daily_chill.yml` は `GITHUB_REF=main` を実行する。Contabo上のcheckoutはpushだけでは更新されないため、反映時に `git pull` が必要。更新後のcronは13:00 / 17:00を固定時刻、毎朝8時に `scripts/schedule_sunset_capture.sh` で**日没時と日没+20分を動的予約**する。日没時は `dry_run` で評価・保存のみ、+20分は `send_line`。保存スキーマは68列で、Google Sheetsの旧ヘッダーと列幅は次回実行時に自動移行する。
+**運用反映**: `main` がTruth Sourceで、GitHub Actions `daily_chill.yml` は `GITHUB_REF=main` を実行する。Contabo上のcheckoutはpushだけでは更新されないため、反映時に `git pull` が必要。13:00 / 17:00の固定cronは維持し、日没連動ジョブはsystemdの毎分timerとSQLite永続キューへ移行する。保存スキーマは74列で、Google Sheetsの旧ヘッダーと列幅は次回実行時に自動移行する。
+
+**2026-07-26 日没連動ジョブ欠測と対策**: 朝8時の旧スケジューラが日没時刻取得中に
+Open-MeteoのHTTP 503で停止し、後続の `at` 予約が1件も作られなかった。このため日没時と
+日没+20分はActions実行・画像・Sheets行がすべて存在しない。Open-Meteoの公開障害履歴には
+該当時間帯の記載を確認できず、単発503か経路上の一時障害かは断定していない。
+
+対策実装では、日没時刻をAstralでローカル計算し、日没時・残照をSQLiteへ先に永続化する。
+systemdが毎分、再起動後も未完了ジョブを処理する。撮影画像をContaboで固定して
+`observation-data` branchへ保存し、Open-MeteoやActionsが失敗しても同一画像で再試行する。
+GitHub Actions成功を確認するまでジョブを完了扱いにしない。ログには観測ID、予定時刻、
+実撮影時刻、遅延秒、品質区分を保存し、LINEには観測単位の再送キーを付ける。21:30 JSTに
+当日2件の完全性監査も行う。撮影前の停止が既定60分を超えた場合だけは過去画像を復元できず、
+`capture_missed` として明示する。
+
+この対策はローカル作業ツリーで実装・テスト中であり、本番反映にはmainへのpush、
+Contaboでのpull・依存更新・`scripts/install_observation_scheduler.sh` 実行が必要。
 
 **2026-07-22運用確認**: Contaboのcheckoutを最新`main`へ同期した。最新workflowのdry-run（Actions run `29842953215`、commit `f62c6b5`）は、ruff 0.4.10、全214テスト、画像取得・Artifact保存・Pages公開、気象庁降水確率20%を含む新形式メッセージ生成、Google Sheets保存まで成功し、通常LINEと失敗通知はともにスキップされた。先行run `29842513490` で判明したruff版差によるlint失敗は `b4c9423` で修正し、dry-run失敗時にもLINE通知しない条件を `f62c6b5` と契約テストで固定した。
 
