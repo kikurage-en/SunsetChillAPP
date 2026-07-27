@@ -5,7 +5,13 @@ from urllib.error import HTTPError
 
 import pytest
 
-from zushi_chill.line_client import LINE_PUSH_URL, LINE_REPLY_URL, LineClient, LineSendError
+from zushi_chill.line_client import (
+    LINE_PUSH_URL,
+    LINE_REPLY_URL,
+    LineClient,
+    LineSendError,
+    observation_retry_key,
+)
 
 
 def test_line_client_pushes_text_payload(monkeypatch):
@@ -59,6 +65,40 @@ def test_line_client_pushes_text_and_image_payload(monkeypatch):
             },
         ],
     }
+
+
+def test_line_client_uses_stable_retry_key_and_accepts_duplicate(monkeypatch):
+    captured = {}
+    retry_key = observation_retry_key(
+        observation_id="2026-07-26:afterglow",
+        target_id="group-id",
+    )
+
+    def fake_urlopen(request, timeout):
+        captured["retry_key"] = request.headers["X-line-retry-key"]
+        raise HTTPError(
+            url=request.full_url,
+            code=409,
+            msg="Conflict",
+            hdrs=None,
+            fp=FakeErrorBody(b'{"message":"The retry key has already been accepted"}'),
+        )
+
+    monkeypatch.setattr("zushi_chill.line_client.urlopen", fake_urlopen)
+
+    LineClient(channel_access_token="token", target_id="group-id").push_text(
+        "hello",
+        retry_key=retry_key,
+    )
+
+    assert captured["retry_key"] == retry_key
+    assert (
+        retry_key
+        == observation_retry_key(
+            observation_id="2026-07-26:afterglow",
+            target_id="group-id",
+        )
+    )
 
 
 def test_line_client_replies_with_image_payload(monkeypatch):

@@ -141,6 +141,10 @@ class PredictionRecord:
     final_sunset_label: str | None = None
     sunsethue: SunsethueResult | None = None
     jma_precipitation: JmaPrecipitationForecast | None = None
+    observation_id: str = ""
+    observation_phase: str = ""
+    scheduled_at: datetime | None = None
+    captured_at: datetime | None = None
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
@@ -264,6 +268,47 @@ class PredictionRecord:
                     if sunset_cloud and sunset_cloud.cloud_cover_high_at_sunset is not None
                     else ""
                 ),
+                "observation_id": self.observation_id,
+                "observation_phase": self.observation_phase,
+                "scheduled_at": (
+                    self.scheduled_at.isoformat(timespec="seconds")
+                    if self.scheduled_at
+                    else ""
+                ),
+                "captured_at": (
+                    self.captured_at.isoformat(timespec="seconds") if self.captured_at else ""
+                ),
+                "capture_delay_seconds": _capture_delay_seconds(
+                    self.scheduled_at,
+                    self.captured_at,
+                ),
+                "observation_data_quality": _observation_data_quality(
+                    self.scheduled_at,
+                    self.captured_at,
+                ),
             }
         )
         return data
+
+
+def _capture_delay_seconds(
+    scheduled_at: datetime | None,
+    captured_at: datetime | None,
+) -> int | str:
+    if scheduled_at is None or captured_at is None:
+        return ""
+    return max(0, round((captured_at - scheduled_at).total_seconds()))
+
+
+def _observation_data_quality(
+    scheduled_at: datetime | None,
+    captured_at: datetime | None,
+) -> str:
+    delay = _capture_delay_seconds(scheduled_at, captured_at)
+    if not isinstance(delay, int):
+        return ""
+    if delay <= 180:
+        return "on_time"
+    if delay <= 600:
+        return "delayed"
+    return "late"

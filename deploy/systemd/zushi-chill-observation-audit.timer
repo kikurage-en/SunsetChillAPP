@@ -1,0 +1,11 @@
+[Unit]
+Description=Audit SunsetChill observations nightly
+
+[Timer]
+OnCalendar=*-*-* 21:30:00 Asia/Tokyo
+Persistent=true
+AccuracySec=1m
+Unit=zushi-chill-observation-audit.service
+
+[Install]
+WantedBy=timers.target

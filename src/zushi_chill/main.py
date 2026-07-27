@@ -5,13 +5,13 @@ import json
 import logging
 import sys
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from zushi_chill.config import ConfigError, Settings
 from zushi_chill.jma_client import JmaForecastClient
-from zushi_chill.line_client import LineClient
+from zushi_chill.line_client import LineClient, observation_retry_key
 from zushi_chill.live_camera import build_capture_relative_path, build_capture_url
 from zushi_chill.message_builder import build_comment, build_line_message
 from zushi_chill.models import (
@@ -45,20 +45,35 @@ def main(argv: list[str] | None = None) -> int:
             format="%(levelname)s:%(name)s:%(message)s",
         )
         tz = ZoneInfo(settings.timezone)
-        run_time = _resolve_run_time(args.date, args.run_time, tz)
+        scheduled_at = _parse_observation_datetime(
+            args.scheduled_at,
+            tz,
+            "--scheduled-at",
+        )
+        captured_at = _parse_observation_datetime(
+            args.captured_at,
+            tz,
+            "--captured-at",
+        )
+        run_time = captured_at or _resolve_run_time(args.date, args.run_time, tz)
+        _validate_observation_args(args, scheduled_at, captured_at)
         dry_run = args.dry_run or settings.dry_run
         storage = storage_from_settings(settings)
 
-        if not dry_run and storage.has_sent(
-            date=run_time.date().isoformat(),
-            run_time=run_time.strftime("%H:%M"),
-            location_name=settings.location_name,
-        ):
+        sent_query = {
+            "date": run_time.date().isoformat(),
+            "run_time": run_time.strftime("%H:%M"),
+            "location_name": settings.location_name,
+        }
+        if args.observation_id:
+            sent_query["observation_id"] = args.observation_id
+        if not dry_run and storage.has_sent(**sent_query):
             logging.getLogger(__name__).info(
-                "LINE already sent for %s %s %s; skipping duplicate run",
+                "LINE already sent for %s %s %s (%s); skipping duplicate run",
                 run_time.date().isoformat(),
                 run_time.strftime("%H:%M"),
                 settings.location_name,
+                args.observation_id or "legacy run",
             )
             return 0
 
@@ -133,8 +148,12 @@ def main(argv: list[str] | None = None) -> int:
                 final_sunset_label=final_sunset_label,
                 sunsethue=sunsethue_result,
                 jma_precipitation=jma_precipitation,
+                observation_id=args.observation_id,
+                observation_phase=args.observation_phase,
+                scheduled_at=scheduled_at,
+                captured_at=captured_at,
             )
-            storage.save(record)
+            _save_initial_record(storage, record)
             print(message)
             return 0
 
@@ -148,13 +167,25 @@ def main(argv: list[str] | None = None) -> int:
             final_sunset_label=final_sunset_label,
             sunsethue=sunsethue_result,
             jma_precipitation=jma_precipitation,
+            observation_id=args.observation_id,
+            observation_phase=args.observation_phase,
+            scheduled_at=scheduled_at,
+            captured_at=captured_at,
         )
-        storage.save(pending_record)
+        _save_initial_record(storage, pending_record)
         try:
             settings.require_line()
             line_client = LineClient(
                 channel_access_token=settings.line_channel_access_token,
                 target_id=settings.line_target_id,
+            )
+            line_retry_key = (
+                observation_retry_key(
+                    observation_id=args.observation_id,
+                    target_id=settings.line_target_id,
+                )
+                if args.observation_id
+                else None
             )
             if live_camera_image_url:
                 line_client.push_text_with_image(
@@ -162,9 +193,13 @@ def main(argv: list[str] | None = None) -> int:
                     image_url=live_camera_image_url,
                     preview_image_url=settings.live_camera_preview_image_url
                     or live_camera_image_url,
+                    **({"retry_key": line_retry_key} if line_retry_key else {}),
                 )
             else:
-                line_client.push_text(message)
+                line_client.push_text(
+                    message,
+                    **({"retry_key": line_retry_key} if line_retry_key else {}),
+                )
         except Exception as exc:
             failed_record = PredictionRecord(
                 summary=summary,
@@ -177,6 +212,10 @@ def main(argv: list[str] | None = None) -> int:
                 final_sunset_label=final_sunset_label,
                 sunsethue=sunsethue_result,
                 jma_precipitation=jma_precipitation,
+                observation_id=args.observation_id,
+                observation_phase=args.observation_phase,
+                scheduled_at=scheduled_at,
+                captured_at=captured_at,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -197,6 +236,10 @@ def main(argv: list[str] | None = None) -> int:
             final_sunset_label=final_sunset_label,
             sunsethue=sunsethue_result,
             jma_precipitation=jma_precipitation,
+            observation_id=args.observation_id,
+            observation_phase=args.observation_phase,
+            scheduled_at=scheduled_at,
+            captured_at=captured_at,
         )
         try:
             storage.replace_latest(sent_record)
@@ -405,6 +448,27 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--date", help="Run date in YYYY-MM-DD. Used for log display run_time.")
     parser.add_argument("--run-time", help="Run time in HH:MM, Asia/Tokyo by default.")
     parser.add_argument(
+        "--observation-id",
+        default="",
+        help="Stable idempotency key such as YYYY-MM-DD:sunset.",
+    )
+    parser.add_argument(
+        "--observation-phase",
+        choices=["sunset", "afterglow"],
+        default="",
+        help="Logical observation phase.",
+    )
+    parser.add_argument(
+        "--scheduled-at",
+        default="",
+        help="Planned observation timestamp as a timezone-aware ISO-8601 value.",
+    )
+    parser.add_argument(
+        "--captured-at",
+        default="",
+        help="Actual image capture timestamp as a timezone-aware ISO-8601 value.",
+    )
+    parser.add_argument(
         "--input-json",
         help="Read an Open-Meteo response JSON file instead of calling the API.",
     )
@@ -444,6 +508,53 @@ def _resolve_run_time(date_value: str | None, run_time_value: str | None, tz: Zo
         return datetime.fromisoformat(f"{date_part}T{time_part}").replace(tzinfo=tz)
     except ValueError as exc:
         raise ConfigError("--date must be YYYY-MM-DD and --run-time must be HH:MM") from exc
+
+
+def _parse_observation_datetime(
+    value: str,
+    tz: ZoneInfo,
+    option_name: str,
+) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ConfigError(f"{option_name} must be an ISO-8601 datetime") from exc
+    if parsed.tzinfo is None:
+        raise ConfigError(f"{option_name} must include a timezone offset")
+    return parsed.astimezone(tz)
+
+
+def _validate_observation_args(
+    args: argparse.Namespace,
+    scheduled_at: datetime | None,
+    captured_at: datetime | None,
+) -> None:
+    values = (
+        args.observation_id,
+        args.observation_phase,
+        scheduled_at,
+        captured_at,
+    )
+    if any(values) and not all(values):
+        raise ConfigError(
+            "--observation-id, --observation-phase, --scheduled-at, and --captured-at "
+            "must be provided together"
+        )
+    if scheduled_at and captured_at and captured_at < scheduled_at - timedelta(minutes=5):
+        raise ConfigError("--captured-at cannot be more than 5 minutes before --scheduled-at")
+    if args.observation_id and args.observation_id != (
+        f"{scheduled_at.date().isoformat()}:{args.observation_phase}"
+    ):
+        raise ConfigError("--observation-id must match scheduled date and observation phase")
+
+
+def _save_initial_record(storage, record: PredictionRecord) -> None:
+    if record.observation_id:
+        storage.replace_latest(record)
+    else:
+        storage.save(record)
 
 
 def _is_date_value(value: str) -> bool:

@@ -1,6 +1,6 @@
 # 逗子サンセットチル指数 現行要件
 
-最終更新: 2026-07-21
+最終更新: 2026-07-27
 
 この文書は現在の機能要件と受け入れ条件を定義する。操作・セットアップ手順は
 `README.md`、本番反映状況と前向き検証の判断は `STATUS.md`、スコア閾値と保存カラムの
@@ -28,7 +28,8 @@ LINEグループへ通知する。一般公開向けの気象予報サービス�
 - Sunsethue APIの予測をlog-onlyの独立ベンチマークとして保存する。
 - LINE Messaging APIでテキストと、取得できた場合はライブカメラ画像を送信する。
 - Google SheetsまたはCSVへ予測・画像評価・送信結果を保存する。
-- GitHub Actionsの `workflow_dispatch` を、Contaboのcronから起動する。
+- GitHub Actionsの `workflow_dispatch` を、Contaboのcronまたは永続観測スケジューラから
+  起動する。
 - pytestとruffで主要な契約とロジックを検証する。
 
 ### 2.2 対象外
@@ -138,12 +139,15 @@ VisionブレンドはChill指数へ影響させない。
 
 ### 4.2 画像取得と保存
 
-- GitHub ActionsでYouTubeライブから1フレームを取得する。
+- 日没連動ジョブはContaboでYouTubeライブから1フレームを取得し、取得時刻を確定する。
+- 取得画像をGitHubの専用データbranchへ保存してから、同じ画像をGitHub Actionsへ渡す。
+- 13:00 / 17:00と手動ジョブはGitHub Actionsで1フレームを取得する。
 - ストリーム解決に失敗した場合はYouTubeライブサムネイルへフォールバックする。
 - 取得画像をGitHub Pagesへ公開し、LINE画像メッセージに使用する。
 - 取得に成功した画像をActions Artifactへ90日指定で保存する。
 - Artifact名と画像パスには対象日と `run_time` を含める。
-- 画像取得・Vision解析の失敗は非致命とし、気象式・保存・LINE処理を継続する。
+- 日没連動ジョブでは画像取得・保存失敗をジョブ失敗として再試行し、空の観測行を
+  完了扱いにしない。Vision解析失敗は非致命とする。
 
 保存画像を別モデルで一括再採点する専用CLIは現時点では実装対象外とする。Artifactは
 将来の再採点元データとして保持する。
@@ -151,7 +155,7 @@ VisionブレンドはChill指数へ影響させない。
 ## 5. 実行スケジュール
 
 GitHub Actions自身には `schedule` を持たせず、`workflow_dispatch` だけを公開する。
-Contaboのcronから次の実行を起動する。
+13:00 / 17:00はContaboのcron、日没連動の2件はsystemd timerから起動する。
 
 | 時刻 | `manual_mode` | LINE | 用途 |
 |---|---|---|---|
@@ -160,9 +164,15 @@ Contaboのcronから次の実行を起動する。
 | 当日の日没時 | `dry_run` | 送信しない | 日没時画像の評価・保存 |
 | 日没+20分 | `send_line` | 送信 | 残照評価・通知 |
 
-日没連動の2件は `scripts/schedule_sunset_capture.sh` が `zushi-chill-sunset-eta` と
-`at` を使って毎朝予約する。同じ日付・時刻・地点で `line_sent=true` の記録がある場合、
-LINEの重複送信を行わない。
+日没連動の2件はAstralによるネットワーク非依存の日没計算と、SQLiteの永続ジョブを使う。
+systemd timerは毎分ジョブを確認し、予定時刻を過ぎた未実行ジョブを追いつき実行する。
+撮影画像は最初の成功時に固定し、以後のOpen-Meteo・GitHub・Vision・保存失敗では同じ画像で
+再試行する。ジョブ状態は再起動後も保持し、GitHub Actions成功を確認するまで完了にしない。
+撮影前の停止が既定60分を超えた場合は過去画像を捏造せず `capture_missed` として監査に残す。
+
+同一観測は `observation_id` で保存・送信済み判定を行う。LINE Pushには観測単位の
+`X-Line-Retry-Key` を付け、同夜のワークフロー再実行による重複送信を防ぐ。LINE側の
+再送キー保持期間を超える前に通知再試行を止め、以後は `dry_run` でログだけを回復する。
 
 ## 6. LINE通知
 
@@ -198,7 +208,7 @@ Google Sheetsは旧ヘッダーが新ヘッダーのprefixと一致する場合�
 
 ### 7.2 保存カラム
 
-保存スキーマは次の68列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
+保存スキーマは次の74列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
 
 ```txt
 date
@@ -269,6 +279,12 @@ wind_direction_10m_at_sunset
 sunset_cloud_cover_low_at_sunset
 sunset_cloud_cover_mid_at_sunset
 sunset_cloud_cover_high_at_sunset
+observation_id
+observation_phase
+scheduled_at
+captured_at
+capture_delay_seconds
+observation_data_quality
 ```
 
 ## 8. Sunsethueベンチマーク
@@ -280,11 +296,14 @@ log-only信号とし、Sunset期待度・Chill指数・表示値を変更しな�
 ## 9. エラーハンドリング
 
 - Open-Meteoは最大3回リトライし、最終失敗時はLINEを送らず異常終了する。
+- 日没連動ジョブのOpen-Meteo・GitHub Actions・保存失敗は、固定済み画像を使って再試行する。
 - LINE送信前の保存失敗時はLINEを送信しない。
 - LINE送信失敗時は `line_sent=false` とエラー内容を保存して異常終了する。
 - LINE送信後の保存更新失敗は送信済みであることをログへ出して異常終了する。
 - Vision、画像取得、Sunsethue、気象庁降水確率の失敗は警告を記録して処理を継続する。
 - シークレット値をコード・ログ・リポジトリへ保存しない。
+- 21:30 JSTの監査で当日の未完了ジョブがあれば非ゼロ終了し、systemd journalに状態と
+  最終エラーを残す。
 
 ## 10. 設定
 
@@ -295,13 +314,18 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 `VISION_TARGET_HOURS` の既定 `16,17,18,19` は、逗子の日没時と日没+20分を通年で
 カバーする。
 
+永続観測スケジューラは `OBSERVATION_DB_PATH`、`OBSERVATION_SPOOL_DIR`、
+`OBSERVATION_DATA_REF`、`AFTERGLOW_OFFSET_MINUTES`、
+`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`、`OBSERVATION_RUN_VISIBILITY_GRACE_SECONDS`、
+`OBSERVATION_RETRY_MAX_SECONDS` で設定する。
+
 ## 11. テスト・受け入れ条件
 
 - `ruff check .` が成功する。
 - `pytest` が成功する。
 - スコア境界、強制上限、層別雲量、Visionブレンド上限を回帰テストする。
 - Visionの3フェーズ、個別画像評価値、旧形式応答の互換性をテストする。
-- CSVの68列出力とGoogle Sheetsの旧ヘッダー・列幅移行をテストする。
+- CSVの74列出力とGoogle Sheetsの旧ヘッダー・列幅移行をテストする。
 - 気象庁6時間降水確率の期間選択、LINE表示、Chill優先利用、Sunset非利用をテストする。
 - 日没前のLINE予測が日没時刻に最も近いhourly気温・湿度・風・層別雲量・視程を表示し、
   Sunset期待度・Chill指数は対象時間帯集計のまま変わらないことをテストする。
@@ -310,8 +334,9 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
   テストする。
 - 2026-07-21型の条件付き降水減点と、2026-07-16型へ緩和が誤適用されないことを
   回帰テストする。
-- 日没時と日没+20分のスケジューラ契約をテストする。
-- GitHub Actionsの画像取得、Artifact保存、Pages公開、dry-run/send-line分岐を検証する。
+- 日没時と日没+20分のローカル日没計算、永続ジョブ、追いつき実行、同一画像での
+  再試行、監査をテストする。
+- GitHub Actionsの固定画像取得、Artifact保存、Pages公開、dry-run/send-line分岐を検証する。
 - dry-runでは通常通知・失敗通知ともLINEへ送らず、通常実行では送信結果を保存する。
 - 画像・Vision・Sunsethueの非致命エラーで主要処理が継続する。
 

@@ -77,6 +77,12 @@ CSV_COLUMNS = [
     "sunset_cloud_cover_low_at_sunset",
     "sunset_cloud_cover_mid_at_sunset",
     "sunset_cloud_cover_high_at_sunset",
+    "observation_id",
+    "observation_phase",
+    "scheduled_at",
+    "captured_at",
+    "capture_delay_seconds",
+    "observation_data_quality",
 ]
 
 
@@ -87,7 +93,14 @@ class Storage(Protocol):
     def replace_latest(self, record: PredictionRecord) -> None:
         pass
 
-    def has_sent(self, *, date: str, run_time: str, location_name: str) -> bool:
+    def has_sent(
+        self,
+        *,
+        date: str,
+        run_time: str,
+        location_name: str,
+        observation_id: str = "",
+    ) -> bool:
         pass
 
 
@@ -116,11 +129,7 @@ class CsvStorage:
         replacement = record.to_row()
         for index in range(len(rows) - 1, -1, -1):
             row = rows[index]
-            if (
-                row.get("date") == str(replacement["date"])
-                and row.get("run_time") == str(replacement["run_time"])
-                and row.get("location_name") == str(replacement["location_name"])
-            ):
+            if _same_record(row, replacement):
                 rows[index] = {column: replacement.get(column, "") for column in CSV_COLUMNS}
                 break
         else:
@@ -131,14 +140,25 @@ class CsvStorage:
             writer.writeheader()
             writer.writerows(rows)
 
-    def has_sent(self, *, date: str, run_time: str, location_name: str) -> bool:
+    def has_sent(
+        self,
+        *,
+        date: str,
+        run_time: str,
+        location_name: str,
+        observation_id: str = "",
+    ) -> bool:
         if not self.path.exists():
             return False
         self._has_expected_header()
         with self.path.open(encoding="utf-8", newline="") as file:
             rows = list(csv.DictReader(file))
         for row in reversed(rows):
+            if observation_id and row.get("observation_id") == observation_id:
+                return _is_truthy(row.get("line_sent", ""))
             if (
+                not observation_id
+                and
                 row.get("date") == date
                 and row.get("run_time") == run_time
                 and row.get("location_name") == location_name
@@ -184,7 +204,14 @@ class GoogleSheetsStorage:
             body={"values": [_record_values(record)]},
         ).execute()
 
-    def has_sent(self, *, date: str, run_time: str, location_name: str) -> bool:
+    def has_sent(
+        self,
+        *,
+        date: str,
+        run_time: str,
+        location_name: str,
+        observation_id: str = "",
+    ) -> bool:
         self._ensure_header()
         result = (
             self._service_client()
@@ -198,9 +225,22 @@ class GoogleSheetsStorage:
         )
         values = result.get("values", [])
         line_sent_index = CSV_COLUMNS.index("line_sent")
+        observation_id_index = CSV_COLUMNS.index("observation_id")
         for row in reversed(values[1:]):
-            if len(row) >= 3 and row[:3] == [date, run_time, location_name]:
+            if (
+                observation_id
+                and len(row) > observation_id_index
+                and row[observation_id_index] == observation_id
+            ):
                 return len(row) > line_sent_index and _is_truthy(str(row[line_sent_index]))
+            if (
+                not observation_id
+                and len(row) >= 3
+                and row[:3] == [date, run_time, location_name]
+            ):
+                return len(row) > line_sent_index and _is_truthy(
+                    str(row[line_sent_index])
+                )
         return False
 
     def _service_client(self):
@@ -326,25 +366,38 @@ class GoogleSheetsStorage:
         ).execute()
 
     def _find_existing_row(self, record: PredictionRecord) -> int | None:
+        replacement = record.to_row()
+        observation_id = str(replacement.get("observation_id", ""))
+        columns = (
+            f"A:{_column_letter(len(CSV_COLUMNS))}"
+            if observation_id
+            else "A:C"
+        )
         result = (
             self._service_client()
             .spreadsheets()
             .values()
             .get(
                 spreadsheetId=self.spreadsheet_id,
-                range=_sheet_range(self.worksheet, "A:C"),
+                range=_sheet_range(self.worksheet, columns),
             )
             .execute()
         )
         values = result.get("values", [])
-        replacement = record.to_row()
+        observation_id_index = CSV_COLUMNS.index("observation_id")
         for index in range(len(values) - 1, 0, -1):
             row = values[index]
+            if (
+                observation_id
+                and len(row) > observation_id_index
+                and row[observation_id_index] == observation_id
+            ):
+                return index + 1
             if len(row) >= 3 and row[:3] == [
                 str(replacement["date"]),
                 str(replacement["run_time"]),
                 str(replacement["location_name"]),
-            ]:
+            ] and not observation_id:
                 return index + 1
         return None
 
@@ -362,6 +415,20 @@ def storage_from_settings(settings: Settings) -> Storage:
 def _record_values(record: PredictionRecord) -> list[str | int | float | bool]:
     row = record.to_row()
     return [row.get(column, "") for column in CSV_COLUMNS]
+
+
+def _same_record(
+    row: dict[str, str],
+    replacement: dict[str, str | int | float | bool],
+) -> bool:
+    observation_id = str(replacement.get("observation_id", ""))
+    if observation_id:
+        return row.get("observation_id") == observation_id
+    return (
+        row.get("date") == str(replacement["date"])
+        and row.get("run_time") == str(replacement["run_time"])
+        and row.get("location_name") == str(replacement["location_name"])
+    )
 
 
 def _column_letter(index: int) -> str:

@@ -113,14 +113,14 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。さらに毎朝、当日の日没時刻と**日没+20分**を `zushi-chill-sunset-eta` で算出して `at` で予約します。日没時はLINEを送らず画像評価と保存だけを行い、日没+20分は残照評価を含む従来のLINE通知を行います。日没時刻は季節で変動するため、両方のキャプチャ時刻も日没に連動します。既に同じ日付・時刻・地点で `line_sent=true` の記録がある場合は重複送信をスキップします。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明します。気象庁の降水確率は日没を含む6時間値です。対象時間帯、予報体感温度、突風、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
+定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。予定時刻に一時停止していても既定60分以内なら追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、日没+20分は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明します。気象庁の降水確率は日没を含む6時間値です。対象時間帯、予報体感温度、突風、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
 
 本文冒頭は装飾やサービス名を付けず、`YYYY-MM-DD HH:MM` だけを表示します。
 コメントは人手での現地確認を依頼せず、LINE表示用の最終Sunset期待度とChill指数を「良好・中程度・
 低調」の3段階で組み合わせた見通しを表示します。補足は低層雲、高い体感温度、強風、
 高層雲、降水信号の矛盾から優先度が最も高い1件だけを表示します。
 
-実行ごとに `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じ画像をGitHub Actions Artifactにも保存期間90日指定で保管し、将来の再採点元データとして残します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は専用の `observation-data` branchへ先に固定し、GitHub Actionsはその正確な画像を読み込みます。全ジョブともGitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイし、同じ画像をGitHub Actions Artifactにも保存期間90日指定で保管します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
 画像Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
@@ -132,7 +132,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 独自ドメインがない場合、定期実行はContaboのcronからGitHub Actionsを起動し、キャプチャ画像のHTTPS公開とLINE送信はGitHub Actions/GitHub Pages側で行います。この構成ではContaboに公開HTTPSエンドポイントを持たせないため、ドメインなしで定期投稿を運用できます。
 
-Contabo側にはPython 3.12とこのリポジトリを配置し、GitHub Personal Access Tokenを `GITHUB_TOKEN` に設定します。Tokenには対象リポジトリのActions workflow dispatchを実行できる権限が必要です。
+Contabo側にはPython 3.12とこのリポジトリを配置し、GitHub Personal Access Tokenを `GITHUB_TOKEN` に設定します。Tokenには対象リポジトリのActions workflow dispatchに加え、観測画像用branchへContentsを書き込む権限が必要です。
 
 ```txt
 GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP
@@ -141,39 +141,48 @@ GITHUB_REF=main
 GITHUB_TOKEN=...
 ```
 
-Contaboのcronから以下を実行すると、既存の `.github/workflows/daily_chill.yml` が起動します。13:00 / 17:00と日没+20分は `manual_mode=send_line`、日没時の評価だけは `manual_mode=dry_run` です。workflow側でライブカメラ画像をGitHub Pagesへ公開し、送信実行ではそのPages URLをLINE画像メッセージに添付します。
+13:00 / 17:00は従来どおりContaboのcronから起動します。日没時と日没+20分は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、日没+20分は `manual_mode=send_line` です。
 
 ```bash
 # 13:00 / 17:00 は固定時刻で予測を通知
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 13:00
 zushi-chill-trigger-actions --date "$(TZ=Asia/Tokyo date +%F)" --run-time 17:00
 
-# 日没時の画像評価と日没+20分の残照評価をまとめて予約する
-scripts/schedule_sunset_capture.sh
+# 日没連動ジョブを手動で1回確認する
+zushi-chill-observation-scheduler
 ```
 
-日没時の実行は `manual_mode=dry_run` で、画像取得・Vision評価・ログ保存だけを行います。日没+20分の実行は `manual_mode=send_line` で、残照評価をログへ保存しつつLINEにも送信します。`zushi-chill-sunset-eta` は当日の日没+指定分の `HH:MM` を返し、Open-Meteo取得に失敗した場合は非ゼロ終了するため、その日の予約は行われません。
-
-Contaboのcronから朝に1回 `scripts/schedule_sunset_capture.sh [AFTERGLOW_OFFSET_MINUTES]`（既定20）を呼ぶと、当日の日没時と日没+N分の2件を予約します（`/opt/SunsetChillAPP` と `.venv` を前提とし、ログは `/var/log/zushi-chill-actions-trigger.log`）。引数を `0` にすると日没時だけを予約します。
-
-Debian / Ubuntu系のContaboでは `at` を有効にし、固定通知と日没連動予約をcronへ登録します。
+初回だけ依存関係とsystemd unitをインストールします。これにより毎分のジョブ処理と21:30 JSTの完全性監査が有効になります。`ffmpeg` がない場合もYouTubeサムネイルへフォールバックしますが、正確な時刻の動画フレームを優先するため本番ではインストールします。`scripts/schedule_sunset_capture.sh` は旧8時cronが一時的に残っていても同じ永続スケジューラを1回呼ぶ互換ラッパーで、`at` は使いません。
 
 ```bash
+cd /opt/SunsetChillAPP
+git pull --ff-only
+.venv/bin/pip install -e . yt-dlp
 sudo apt-get update
-sudo apt-get install -y at
-sudo systemctl enable --now atd
+sudo apt-get install -y ffmpeg
+sudo /opt/SunsetChillAPP/scripts/install_observation_scheduler.sh
+systemctl list-timers 'zushi-chill-observation-*'
 ```
 
 ```cron
-0 8 * * * /opt/SunsetChillAPP/scripts/schedule_sunset_capture.sh
 0 13 * * * cd /opt/SunsetChillAPP && /opt/SunsetChillAPP/.venv/bin/zushi-chill-trigger-actions --run-time 13:00 --manual-mode send_line >> /var/log/zushi-chill-actions-trigger.log 2>&1
 0 17 * * * cd /opt/SunsetChillAPP && /opt/SunsetChillAPP/.venv/bin/zushi-chill-trigger-actions --run-time 17:00 --manual-mode send_line >> /var/log/zushi-chill-actions-trigger.log 2>&1
 ```
 
 ```bash
-# 残照を日没+30分で評価する場合
-scripts/schedule_sunset_capture.sh 30
+# 当日の未完了ジョブを確認（空配列・終了コード0が正常）
+zushi-chill-observation-scheduler --audit
+
+# 状態と再試行ログを確認
+journalctl -u zushi-chill-observation-scheduler.service
 ```
+
+永続状態は既定で `/var/lib/zushi-chill/observation_jobs.sqlite3`、撮影画像は
+`/var/lib/zushi-chill/spool` に置きます。`AFTERGLOW_OFFSET_MINUTES`（既定20）、
+`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`（既定60）などは `.env` で変更できます。
+撮影前にサーバーまたはカメラが60分を超えて停止した場合、過去時点の画像は復元できないため
+ジョブを `capture_missed` として監査に残します。撮影後の処理は時間制限なく再試行しますが、
+LINEの重複防止キーは24時間保持のため、23時間以降は古い通知を再送せずログ回復だけを行います。
 
 実行前にpayloadだけ確認する場合は `--dry-run` を付けます。
 
@@ -204,7 +213,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 従来の `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` に加え、`vision_evaluation_phase` / `vision_sun_disk_visibility` / `vision_sunset_color_score` / `vision_afterglow_score` を記録します。`vision_sunset_score` は後方互換の総合値として残します。同じAIによる画像採点は独立した真値ではなく**画像代理指標**ですが、元画像をArtifactに保存するため、将来モデルや評価基準を変えて再採点できます。
 
-保存スキーマは68列です。59列版からは、日没最寄り予報の参照時刻、逗子の気温・湿度・視程・風速・風向、夕焼け方向の低・中・高層雲を表す9列を末尾へ追加しています。既存のCSVを使う場合はこの9列をヘッダーへ追加してください（不一致時は `ConfigError` で停止）。Google Sheetsは列幅を68列まで自動拡張し、prefixが一致する旧ヘッダーを自動移行します。
+保存スキーマは74列です。従来の68列へ、`observation_id`、`observation_phase`、`scheduled_at`、`captured_at`、`capture_delay_seconds`、`observation_data_quality` を末尾追加し、予定時刻と実撮影時刻を混同せず遅延データを識別できるようにしています。既存のCSVを使う場合はこの6列をヘッダーへ追加してください（不一致時は `ConfigError` で停止）。Google Sheetsは列幅を74列まで自動拡張し、prefixが一致する旧ヘッダーを自動移行します。
 
 ## Sunsethue API による独立ベンチマーク（log-only）
 

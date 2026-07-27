@@ -76,6 +76,58 @@ def test_dry_run_can_use_fixture_input_json_without_api(tmp_path, monkeypatch, c
     assert rows[0]["line_sent"] == "False"
 
 
+def test_observation_run_uses_capture_time_metadata_and_line_retry_key(
+    monkeypatch,
+):
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: FakeWeatherClient())
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+
+    exit_code = main_module.main(
+        [
+            "--date",
+            "2026-06-01",
+            "--run-time",
+            "19:11",
+            "--observation-id",
+            "2026-06-01:afterglow",
+            "--observation-phase",
+            "afterglow",
+            "--scheduled-at",
+            "2026-06-01T19:11:00+09:00",
+            "--captured-at",
+            "2026-06-01T19:18:00+09:00",
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake_storage.has_sent_queries[0]["observation_id"] == "2026-06-01:afterglow"
+    record = fake_storage.records[-1]
+    assert record.summary.run_time == "19:18"
+    assert record.scheduled_at == datetime(
+        2026,
+        6,
+        1,
+        19,
+        11,
+        tzinfo=ZoneInfo("Asia/Tokyo"),
+    )
+    assert record.captured_at == datetime(
+        2026,
+        6,
+        1,
+        19,
+        18,
+        tzinfo=ZoneInfo("Asia/Tokyo"),
+    )
+    assert fake_line_client.retry_keys[0]
+
+
 def test_dry_run_environment_value_prevents_line_send(monkeypatch, capsys):
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()
@@ -546,13 +598,22 @@ class FakeLineClient:
     def __init__(self, error=None):
         self.error = error
         self.sent_messages = []
+        self.retry_keys = []
 
-    def push_text(self, message):
+    def push_text(self, message, *, retry_key=None):
         self.sent_messages.append(message)
+        self.retry_keys.append(retry_key)
         if self.error is not None:
             raise self.error
 
-    def push_text_with_image(self, message, *, image_url, preview_image_url=None):
+    def push_text_with_image(
+        self,
+        message,
+        *,
+        image_url,
+        preview_image_url=None,
+        retry_key=None,
+    ):
         self.sent_messages.append(
             {
                 "text": message,
@@ -560,6 +621,7 @@ class FakeLineClient:
                 "preview_image_url": preview_image_url,
             }
         )
+        self.retry_keys.append(retry_key)
         if self.error is not None:
             raise self.error
 

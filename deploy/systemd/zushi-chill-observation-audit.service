@@ -1,0 +1,17 @@
+[Unit]
+Description=Audit SunsetChill daily observation completeness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/SunsetChillAPP
+Environment=PATH=/opt/SunsetChillAPP/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/SunsetChillAPP/.venv/bin/zushi-chill-observation-scheduler --audit
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/zushi-chill
