@@ -145,8 +145,11 @@ VisionブレンドはChill指数へ影響させない。
   Actions側でハッシュを照合してから使用する。
 - 13:00 / 17:00と手動ジョブはGitHub Actionsで1フレームを取得する。
 - ストリーム解決に失敗した場合はYouTubeライブサムネイルへフォールバックする。
-- 取得画像をGitHub Pagesへ公開し、LINE画像メッセージに使用する。
-- 取得に成功した画像をActions Artifactへ90日指定で保存する。
+- 取得画像を `pages-images` branchへ追記し、GitHub Pagesへ公開してLINE画像メッセージに
+  使用する。同じ日付・時刻パスへ異なる画像を上書きしない。
+- `pages-images` branchを長期保存元とし、取得に成功した画像をActions Artifactにも
+  90日指定で保存する。
+- Pagesは履歴branchの全画像を含む累積サイトとしてデプロイし、過去URLを維持する。
 - Artifact名と画像パスには対象日と `run_time` を含める。
 - 日没連動ジョブでは画像取得・保存失敗をジョブ失敗として再試行し、空の観測行を
   完了扱いにしない。Vision解析失敗は非致命とする。

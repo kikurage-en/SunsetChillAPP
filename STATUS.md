@@ -12,7 +12,7 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 - **層2**: 厚い中層雲キャップ（中層雲 55%→上限60、70%→上限40）。2026-07-17 に天井の再校正を追加（好条件でも通常上限80、超快晴＝Sunset用雲の total<15% かつ low<5% のみ90）。2026-07-21型の「高降水確率・雨量0・晴天コード・西空の薄い雲」が揃う場合だけ、降水減点を暫定-25とする。2026-07-25から**雨シグナル**（評価時間帯の代表天気コードが雨・雷雨系 or 窓内予想雨量合計≥1.0mm）では純式を上限40に制限する（`SUNSET_RAIN_CAP`。減点は雨量に比例させない）。
 - **層3**: 日没前（予測モード）で Vision 解析成功時、表示する `Sunset期待度` を式とVisionカメラAI予測のブレンドにする（`final = round((1-w)*sunset_score + w*vision_sunset_score)`、`w=SUNSET_VISION_BLEND_WEIGHT` 既定0.8）。**上方キャップ `final ≤ 式+30`**（2026-07-18導入: カメラは西から来る雲の壁を見えないため。下方修正は無制限）。2026-07-25から雨シグナル時は上方修正自体を無効化し `final ≤ 純式` とする（下方修正は維持）。**純式 `sunset_score` 列は上書きせず温存**し、表示値は別列 `final_sunset_score`。日没時・残照フェーズ、欠測、13:00はブレンドせず式。
 - **層4**: Sunsethue API（ray-model）の夕焼け品質予測を **log-only** 収集（列 `sunsethue_quality` 0-100 / `sunsethue_cloud_cover` % / `sunsethue_quality_text`）。スコアには影響しない独立ベンチマーク。`SUNSETHUE_ENABLED=true` で稼働。
-- **評価層**: ライブカメラ画像を日没時と日没+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、+20分は `vision_afterglow_score` をVisionで別評価する。取得成功画像はActions Artifactへ90日指定で保存し、将来の再採点元データとして保持する（専用の一括再採点CLIは未実装）。
+- **評価層**: ライブカメラ画像を日没時と日没+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、+20分は `vision_afterglow_score` をVisionで別評価する。取得成功画像は `pages-images` branchへ累積保存し、Actions Artifactにも90日指定で保存する。将来の再採点元データとして保持する（専用の一括再採点CLIは未実装）。
 - **降水確率の用途分離**: LINEの現地天気参考値とChill指数は気象庁・神奈川県東部の6時間降水確率を優先し、欠測時はOpen-Meteoへフォールバックする。Sunset期待度は地点・時刻粒度を優先してOpen-Meteoを維持する。両値は別列で前向き比較する。
 - **LINE天気参考欄**: 13:00 / 17:00など日没前の予測では、日没時刻に最も近いhourly行の気温・湿度・風・夕焼け方向の層別雲量・視程を表示する。最寄りhourly時刻はログだけに保存し、本文へは表示しない。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明する。両指数は表示用スナップショットと分離し、対象時間帯集計を維持する。降水確率は日没を含む気象庁6時間値を優先する。
 - **LINE冒頭**: サービス名や括弧を付けず、`YYYY-MM-DD HH:MM` だけを表示する。
@@ -45,8 +45,14 @@ GitHub Actions成功を確認するまでジョブを完了扱いにしない。
 当初の専用データbranch方式は、本番VPSの最小権限TokenがActions起動・実行参照には使える一方、
 Contents書き込みをHTTP 403で拒否したため見直した。VPSへ広い権限を追加せず、画像本体を
 workflow inputで渡す方式へ変更した。Actions側でBase64復号とSHA-256照合を行い、長期保存は
-従来どおり90日間のArtifact、再試行元は権限0700のContabo spoolとする。画像は最大45KBへ
+90日間のArtifact、再試行元は権限0700のContabo spoolとする。画像は最大45KBへ
 圧縮されるため細部は多少失われるが、ログ取得漏れとToken権限拡大を避けることを優先した。
+
+**2026-07-28 Pages履歴化**: 各Pagesデプロイが直前の画像を置き換え、最新URL以外が404に
+なることを本番確認で検出した。Actions自身の最小権限Tokenで `pages-images` branchへ画像を
+追記し、履歴全体をPagesへデプロイする構成へ変更した。同じ日付・時刻パスの異なる画像は
+上書きせず失敗させる。既存Artifactを同branchへ移行し、90日を超える元画像保管も兼ねる。
+Pagesだけを履歴branchから再構築する `Publish image history` workflowも用意する。
 
 本番VPSからYouTubeストリームURLを解決するとbot確認を要求されるため、実フレーム取得は
 失敗した。ただしライブサムネイルの取得は成功し、1280×720のJPEGとして検証済み。

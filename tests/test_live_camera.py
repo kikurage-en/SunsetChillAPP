@@ -47,6 +47,7 @@ def test_capture_live_camera_image_uses_stream_frame(tmp_path, monkeypatch):
 
     assert output_path.read_bytes() == b"jpeg"
     assert calls[0][0] == "yt-dlp"
+    assert calls[0][1:3] == ["--js-runtimes", "node"]
     assert calls[1][0] == "ffmpeg"
 
 

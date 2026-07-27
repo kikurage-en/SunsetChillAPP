@@ -128,7 +128,7 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "type: choice" in workflow
     assert "default: \"dry_run\"" in workflow
     assert "- send_line" in workflow
-    assert "contents: read" in workflow
+    assert "contents: write" in workflow
     assert "pages: write" in workflow
     assert "id-token: write" in workflow
     assert "python-version: \"3.12\"" in workflow
@@ -152,18 +152,26 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "Inline observation image checksum does not match" in workflow
     assert 'ACTUAL_CAPTURE_SHA256="$(sha256sum "$IMAGE_PATH"' in workflow
     assert "Archived observation image checksum does not match" in workflow
-    assert "yt-dlp --no-playlist" in workflow
+    assert "yt-dlp --js-runtimes node --no-playlist" in workflow
     assert "ffmpeg -hide_banner" in workflow
     assert "Falling back to YouTube live thumbnail" in workflow
     assert "maxresdefault_live.jpg" in workflow
     assert "hqdefault_live.jpg" in workflow
     assert "curl --fail --location --silent --show-error" in workflow
     assert "Archive live camera image" in workflow
-    assert "uses: actions/upload-artifact@v4" in workflow
+    assert "uses: actions/checkout@v7" in workflow
+    assert "uses: actions/setup-python@v7" in workflow
+    assert "uses: actions/upload-artifact@v7" in workflow
     assert "retention-days: 90" in workflow
-    assert "uses: actions/configure-pages@v5" in workflow
-    assert "uses: actions/upload-pages-artifact@v3" in workflow
-    assert "uses: actions/deploy-pages@v4" in workflow
+    assert "uses: actions/configure-pages@v6" in workflow
+    assert "uses: actions/upload-pages-artifact@v5" in workflow
+    assert "uses: actions/deploy-pages@v5" in workflow
+    assert "Restore published image history" in workflow
+    assert "ref: pages-images" in workflow
+    assert "Verify immutable image history" in workflow
+    assert "Published image path already contains different bytes" in workflow
+    assert "Persist published image history" in workflow
+    assert "git push origin HEAD:pages-images" in workflow
     assert "LIVE_CAMERA_IMAGE_RELATIVE_PATH=live-camera/$RUN_DATE/$RUN_TIME_COMPACT.jpg" in workflow
     assert (
         "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
@@ -171,7 +179,7 @@ def test_github_actions_manual_dispatch_is_configured():
     )
     assert "path: ${{ env.CSV_PATH }}" in workflow
     assert "if: always() && env.STORAGE_BACKEND == 'csv'" in workflow
-    assert "uses: actions/upload-artifact@v4" in workflow
+    assert "uses: actions/upload-artifact@v7" in workflow
     assert "if-no-files-found: ignore" in workflow
     assert "TIMEZONE: ${{ secrets.TIMEZONE || 'Asia/Tokyo' }}" in workflow
     assert (
@@ -328,6 +336,25 @@ def test_readme_documents_score_formulas_and_caps():
         assert text in readme
 
 
+def test_publish_image_history_workflow_is_configured():
+    workflow = Path(".github/workflows/publish_image_history.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "contents: read" in workflow
+    assert "pages: write" in workflow
+    assert "id-token: write" in workflow
+    assert "group: daily-zushi-chill-${{ github.ref }}" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "uses: actions/checkout@v7" in workflow
+    assert "ref: pages-images" in workflow
+    assert "uses: actions/configure-pages@v6" in workflow
+    assert "uses: actions/upload-pages-artifact@v5" in workflow
+    assert "uses: actions/deploy-pages@v5" in workflow
+    assert "path: public" in workflow
+
+
 def test_readme_documents_error_handling():
     readme = Path("README.md").read_text(encoding="utf-8")
 
@@ -353,6 +380,7 @@ def test_readme_documents_live_camera_pages_flow():
         "YouTubeのライブサムネイルを取得してフォールバック",
         "取得に成功した場合のみ",
         "Sourceを「GitHub Actions」",
+        "`pages-images` branchへ累積保存",
     ]:
         assert text in readme
 
