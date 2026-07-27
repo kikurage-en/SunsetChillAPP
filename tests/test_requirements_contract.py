@@ -211,6 +211,9 @@ def test_systemd_observation_scheduler_runs_and_audits_persistent_jobs():
     audit_service = Path(
         "deploy/systemd/zushi-chill-observation-audit.service"
     ).read_text(encoding="utf-8")
+    installer = Path("scripts/install_observation_scheduler.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "OnCalendar=*-*-* *:*:00" in scheduler_timer
     assert "Persistent=true" in scheduler_timer
@@ -218,6 +221,10 @@ def test_systemd_observation_scheduler_runs_and_audits_persistent_jobs():
     assert "ReadWritePaths=/var/lib/zushi-chill" in scheduler_service
     assert "OnCalendar=*-*-* 21:30:00 Asia/Tokyo" in audit_timer
     assert "zushi-chill-observation-scheduler --audit" in audit_service
+    assert (
+        "install -d -m 0700 /var/lib/zushi-chill /var/lib/zushi-chill/spool"
+        in installer
+    )
 
 
 def test_pyproject_declares_runtime_and_cli_contracts():

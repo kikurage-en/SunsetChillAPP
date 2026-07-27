@@ -34,8 +34,17 @@ GitHub Actions成功を確認するまでジョブを完了扱いにしない。
 当日2件の完全性監査も行う。撮影前の停止が既定60分を超えた場合だけは過去画像を復元できず、
 `capture_missed` として明示する。
 
-この対策はローカル作業ツリーで実装・テスト中であり、本番反映にはmainへのpush、
-Contaboでのpull・依存更新・`scripts/install_observation_scheduler.sh` 実行が必要。
+**2026-07-27 本番反映済み**: PR #4（merge commit `dceaeab`）をmainへ反映し、Contaboを
+同commitへ同期した。Contabo上でもruffと全249テストが成功した。Astral 3.2、ffmpeg
+4.4.2、yt-dlp 2026.07.04を導入し、systemd 249でunit検証が終了コード0となることを確認した。
+毎分スケジューラと21:30監査timerはenabled/active。SQLiteはWAL・integrity_check=okで、
+当日の日没18:49と残照19:09の2件が `planned` として永続化されている。今朝の旧 `at`
+2件と旧8時cronは削除し、13:00 / 17:00の固定cronは維持した。
+
+本番VPSからYouTubeストリームURLを解決するとbot確認を要求されるため、実フレーム取得は
+失敗した。ただしライブサムネイルの取得は成功し、1280×720のJPEGとして検証済み。
+今夜の欠測防止はこのフォールバックで機能するが、画像の元時刻が取得時刻と完全一致する
+保証はない。ストリーム実フレーム化はCookie等の認証情報を安全に管理する別対策が必要。
 
 **2026-07-22運用確認**: Contaboのcheckoutを最新`main`へ同期した。最新workflowのdry-run（Actions run `29842953215`、commit `f62c6b5`）は、ruff 0.4.10、全214テスト、画像取得・Artifact保存・Pages公開、気象庁降水確率20%を含む新形式メッセージ生成、Google Sheets保存まで成功し、通常LINEと失敗通知はともにスキップされた。先行run `29842513490` で判明したruff版差によるlint失敗は `b4c9423` で修正し、dry-run失敗時にもLINE通知しない条件を `f62c6b5` と契約テストで固定した。
 
