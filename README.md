@@ -157,7 +157,7 @@ zushi-chill-observation-scheduler
 ```bash
 cd /opt/SunsetChillAPP
 git pull --ff-only
-.venv/bin/pip install -e . yt-dlp
+.venv/bin/pip install --upgrade -e . yt-dlp
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 sudo /opt/SunsetChillAPP/scripts/install_observation_scheduler.sh

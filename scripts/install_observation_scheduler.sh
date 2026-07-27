@@ -17,7 +17,7 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "Warning: ffmpeg is absent; observation capture will use YouTube thumbnails." >&2
 fi
 
-install -d -m 0700 /var/lib/zushi-chill/spool
+install -d -m 0700 /var/lib/zushi-chill /var/lib/zushi-chill/spool
 install -m 0644 \
   "${UNIT_SOURCE}/zushi-chill-observation-scheduler.service" \
   "${UNIT_SOURCE}/zushi-chill-observation-scheduler.timer" \
