@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
 import hashlib
 import json
 import logging
 import os
 import sqlite3
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -24,13 +26,21 @@ LOGGER = logging.getLogger(__name__)
 ACTIVE_PHASES = frozenset({"sunset", "afterglow"})
 LINE_RETRY_KEY_LIFETIME = timedelta(hours=24)
 LINE_RECOVERY_MARGIN = timedelta(hours=1)
+MAX_CAPTURE_BYTES = 45_000
+JPEG_NORMALIZATION_PROFILES = (
+    (960, 3),
+    (960, 4),
+    (960, 5),
+    (800, 5),
+    (640, 7),
+    (480, 10),
+)
 
 
 @dataclass(frozen=True)
 class SchedulerSettings:
     database_path: Path
     spool_directory: Path
-    data_ref: str
     afterglow_offset_minutes: int
     capture_max_delay_minutes: int
     run_visibility_grace_seconds: int
@@ -48,7 +58,6 @@ class SchedulerSettings:
             spool_directory=Path(
                 os.getenv("OBSERVATION_SPOOL_DIR", "/var/lib/zushi-chill/spool")
             ),
-            data_ref=_env("OBSERVATION_DATA_REF", "observation-data"),
             afterglow_offset_minutes=_positive_int(
                 "AFTERGLOW_OFFSET_MINUTES",
                 default=20,
@@ -330,7 +339,7 @@ class ObservationScheduler:
             job = self.store.get(job.observation_id)
 
         if job.status == "captured":
-            self._archive_job(job, current)
+            self._prepare_job(job, current)
             job = self.store.get(job.observation_id)
 
         if job.status == "uploaded":
@@ -358,13 +367,11 @@ class ObservationScheduler:
             )
             if not temporary_path.exists() or temporary_path.stat().st_size == 0:
                 raise RuntimeError("Capture command returned without a non-empty image")
+            _normalize_capture(temporary_path)
             os.replace(temporary_path, final_path)
         finally:
             temporary_path.unlink(missing_ok=True)
         digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
-        repository_path = (
-            f"observations/{job.target_date}/{job.phase}/{final_path.name}"
-        )
         self.store.update(
             job.observation_id,
             now=current,
@@ -372,26 +379,23 @@ class ObservationScheduler:
             capture_path=str(final_path),
             captured_at=captured_at,
             capture_sha256=digest,
-            repository_path=repository_path,
             next_attempt_at=None,
             last_error="",
         )
         LOGGER.info("Captured %s at %s", job.observation_id, captured_at.isoformat())
 
-    def _archive_job(self, job: ObservationJob, current: datetime) -> None:
+    def _prepare_job(self, job: ObservationJob, current: datetime) -> None:
         capture_path = Path(job.capture_path)
-        actual_digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+        image = capture_path.read_bytes()
+        actual_digest = hashlib.sha256(image).hexdigest()
         if actual_digest != job.capture_sha256:
             raise RuntimeError(
-                f"Captured image checksum changed before archive: {job.observation_id}"
+                f"Captured image checksum changed before dispatch: {job.observation_id}"
             )
-        self.github.archive_capture(
-            local_path=capture_path,
-            repository_path=job.repository_path,
-            data_ref=self.scheduler_settings.data_ref,
-            base_ref=_env("GITHUB_REF", "main"),
-            observation_id=job.observation_id,
-        )
+        if len(image) > MAX_CAPTURE_BYTES:
+            raise RuntimeError(
+                f"Captured image exceeds dispatch limit: {len(image)} bytes"
+            )
         self.store.update(
             job.observation_id,
             now=current,
@@ -399,16 +403,23 @@ class ObservationScheduler:
             next_attempt_at=None,
             last_error="",
         )
-        LOGGER.info(
-            "Archived %s to %s:%s",
-            job.observation_id,
-            self.scheduler_settings.data_ref,
-            job.repository_path,
-        )
+        LOGGER.info("Prepared %s for workflow dispatch", job.observation_id)
 
     def _dispatch_job(self, job: ObservationJob, current: datetime) -> None:
         if job.captured_at is None:
             raise RuntimeError(f"{job.observation_id} has no captured_at")
+        capture_path = Path(job.capture_path)
+        image = capture_path.read_bytes()
+        actual_digest = hashlib.sha256(image).hexdigest()
+        if actual_digest != job.capture_sha256:
+            raise RuntimeError(
+                f"Captured image checksum changed before dispatch: {job.observation_id}"
+            )
+        encoded_capture = base64.b64encode(image).decode("ascii")
+        if len(encoded_capture) > 60_000:
+            raise RuntimeError(
+                f"Encoded capture exceeds workflow input budget: {len(encoded_capture)} chars"
+            )
         manual_mode = job.manual_mode
         if (
             manual_mode == "send_line"
@@ -431,8 +442,7 @@ class ObservationScheduler:
                 "observation_phase": job.phase,
                 "scheduled_at": job.scheduled_at.isoformat(timespec="seconds"),
                 "captured_at": job.captured_at.isoformat(timespec="seconds"),
-                "capture_ref": self.scheduler_settings.data_ref,
-                "capture_path": job.repository_path,
+                "capture_base64": encoded_capture,
                 "capture_sha256": job.capture_sha256,
             },
         )
@@ -633,6 +643,49 @@ def _is_current_run(run: WorkflowRun, job: ObservationJob) -> bool:
 
 def _retry_seconds(attempts: int, maximum: int) -> int:
     return min(60 * (2 ** max(attempts - 1, 0)), maximum)
+
+
+def _normalize_capture(path: Path) -> None:
+    if path.stat().st_size <= MAX_CAPTURE_BYTES:
+        return
+    candidate = path.with_name(f".{path.name}.normalized.jpg")
+    try:
+        for width, quality in JPEG_NORMALIZATION_PROFILES:
+            completed = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    str(path),
+                    "-vf",
+                    f"scale={width}:-2:force_original_aspect_ratio=decrease",
+                    "-q:v",
+                    str(quality),
+                    str(candidate),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if (
+                completed.returncode == 0
+                and candidate.exists()
+                and 0 < candidate.stat().st_size <= MAX_CAPTURE_BYTES
+            ):
+                os.replace(candidate, path)
+                return
+            candidate.unlink(missing_ok=True)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"Capture normalization failed: {exc}") from exc
+    finally:
+        candidate.unlink(missing_ok=True)
+    raise RuntimeError(
+        f"Capture could not be normalized below {MAX_CAPTURE_BYTES} bytes"
+    )
 
 
 def _iso(value: datetime) -> str:

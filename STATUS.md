@@ -28,7 +28,8 @@ Open-MeteoのHTTP 503で停止し、後続の `at` 予約が1件も作られな�
 
 対策実装では、日没時刻をAstralでローカル計算し、日没時・残照をSQLiteへ先に永続化する。
 systemdが毎分、再起動後も未完了ジョブを処理する。撮影画像をContaboで固定して
-`observation-data` branchへ保存し、Open-MeteoやActionsが失敗しても同一画像で再試行する。
+45KB以下のJPEGへ正規化し、Base64形式のworkflow inputとしてSHA-256と一緒にActionsへ渡す。
+Open-MeteoやActionsが失敗しても、Contaboの永続spoolにある同一画像で再試行する。
 GitHub Actions成功を確認するまでジョブを完了扱いにしない。ログには観測ID、予定時刻、
 実撮影時刻、遅延秒、品質区分を保存し、LINEには観測単位の再送キーを付ける。21:30 JSTに
 当日2件の完全性監査も行う。撮影前の停止が既定60分を超えた場合だけは過去画像を復元できず、
@@ -40,6 +41,12 @@ GitHub Actions成功を確認するまでジョブを完了扱いにしない。
 毎分スケジューラと21:30監査timerはenabled/active。SQLiteはWAL・integrity_check=okで、
 当日の日没18:49と残照19:09の2件が `planned` として永続化されている。今朝の旧 `at`
 2件と旧8時cronは削除し、13:00 / 17:00の固定cronは維持した。
+
+当初の専用データbranch方式は、本番VPSの最小権限TokenがActions起動・実行参照には使える一方、
+Contents書き込みをHTTP 403で拒否したため見直した。VPSへ広い権限を追加せず、画像本体を
+workflow inputで渡す方式へ変更した。Actions側でBase64復号とSHA-256照合を行い、長期保存は
+従来どおり90日間のArtifact、再試行元は権限0700のContabo spoolとする。画像は最大45KBへ
+圧縮されるため細部は多少失われるが、ログ取得漏れとToken権限拡大を避けることを優先した。
 
 本番VPSからYouTubeストリームURLを解決するとbot確認を要求されるため、実フレーム取得は
 失敗した。ただしライブサムネイルの取得は成功し、1280×720のJPEGとして検証済み。

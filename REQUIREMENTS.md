@@ -140,7 +140,9 @@ VisionブレンドはChill指数へ影響させない。
 ### 4.2 画像取得と保存
 
 - 日没連動ジョブはContaboでYouTubeライブから1フレームを取得し、取得時刻を確定する。
-- 取得画像をGitHubの専用データbranchへ保存してから、同じ画像をGitHub Actionsへ渡す。
+- 取得画像はContaboの永続spoolへ固定し、45KB以下のJPEGへ正規化する。
+- 固定画像をBase64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡し、
+  Actions側でハッシュを照合してから使用する。
 - 13:00 / 17:00と手動ジョブはGitHub Actionsで1フレームを取得する。
 - ストリーム解決に失敗した場合はYouTubeライブサムネイルへフォールバックする。
 - 取得画像をGitHub Pagesへ公開し、LINE画像メッセージに使用する。
@@ -315,9 +317,8 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 カバーする。
 
 永続観測スケジューラは `OBSERVATION_DB_PATH`、`OBSERVATION_SPOOL_DIR`、
-`OBSERVATION_DATA_REF`、`AFTERGLOW_OFFSET_MINUTES`、
-`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`、`OBSERVATION_RUN_VISIBILITY_GRACE_SECONDS`、
-`OBSERVATION_RETRY_MAX_SECONDS` で設定する。
+`AFTERGLOW_OFFSET_MINUTES`、`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`、
+`OBSERVATION_RUN_VISIBILITY_GRACE_SECONDS`、`OBSERVATION_RETRY_MAX_SECONDS` で設定する。
 
 ## 11. テスト・受け入れ条件
 

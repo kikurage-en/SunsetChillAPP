@@ -120,7 +120,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 低調」の3段階で組み合わせた見通しを表示します。補足は低層雲、高い体感温度、強風、
 高層雲、降水信号の矛盾から優先度が最も高い1件だけを表示します。
 
-13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は専用の `observation-data` branchへ先に固定し、GitHub Actionsはその正確な画像を読み込みます。全ジョブともGitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイし、同じ画像をGitHub Actions Artifactにも保存期間90日指定で保管します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも最初に撮影できた同一画像を処理します。全ジョブともGitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイし、同じ画像をGitHub Actions Artifactにも保存期間90日指定で保管します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
 画像Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
@@ -132,7 +132,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 独自ドメインがない場合、定期実行はContaboのcronからGitHub Actionsを起動し、キャプチャ画像のHTTPS公開とLINE送信はGitHub Actions/GitHub Pages側で行います。この構成ではContaboに公開HTTPSエンドポイントを持たせないため、ドメインなしで定期投稿を運用できます。
 
-Contabo側にはPython 3.12とこのリポジトリを配置し、GitHub Personal Access Tokenを `GITHUB_TOKEN` に設定します。Tokenには対象リポジトリのActions workflow dispatchに加え、観測画像用branchへContentsを書き込む権限が必要です。
+Contabo側にはPython 3.12とこのリポジトリを配置し、GitHub Personal Access Tokenを `GITHUB_TOKEN` に設定します。Tokenには対象リポジトリのActions workflow dispatchと実行結果を読む権限が必要です。観測画像をworkflow inputで渡すため、Contentsの書き込み権限は不要です。
 
 ```txt
 GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP
@@ -180,6 +180,8 @@ journalctl -u zushi-chill-observation-scheduler.service
 永続状態は既定で `/var/lib/zushi-chill/observation_jobs.sqlite3`、撮影画像は
 `/var/lib/zushi-chill/spool` に置きます。`AFTERGLOW_OFFSET_MINUTES`（既定20）、
 `OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`（既定60）などは `.env` で変更できます。
+workflow dispatch全体の入力上限に収めるため、日没連動画像は最大45KBです。これを超える画像は
+ffmpegで段階的に縮小・再圧縮し、正規化できない場合は送信せず同じジョブとして再試行します。
 撮影前にサーバーまたはカメラが60分を超えて停止した場合、過去時点の画像は復元できないため
 ジョブを `capture_missed` として監査に残します。撮影後の処理は時間制限なく再試行しますが、
 LINEの重複防止キーは24時間保持のため、23時間以降は古い通知を再送せずログ回復だけを行います。

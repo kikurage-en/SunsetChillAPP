@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from zushi_chill.config import Settings
@@ -11,6 +13,7 @@ from zushi_chill.observation_scheduler import (
     ObservationJobStore,
     ObservationScheduler,
     SchedulerSettings,
+    _normalize_capture,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -18,13 +21,8 @@ JST = ZoneInfo("Asia/Tokyo")
 
 class FakeGitHub:
     def __init__(self):
-        self.archived = []
         self.dispatched = []
         self.run = None
-
-    def archive_capture(self, **kwargs):
-        self.archived.append(kwargs)
-        return "blob-sha"
 
     def dispatch_observation(self, **kwargs):
         self.dispatched.append(kwargs)
@@ -33,7 +31,7 @@ class FakeGitHub:
         return self.run
 
 
-def test_scheduler_captures_archives_dispatches_and_reconciles(tmp_path):
+def test_scheduler_captures_dispatches_exact_image_and_reconciles(tmp_path):
     clock = [datetime(2026, 7, 26, 18, 50, tzinfo=JST)]
     github = FakeGitHub()
     store = ObservationJobStore(tmp_path / "jobs.sqlite3")
@@ -56,13 +54,12 @@ def test_scheduler_captures_archives_dispatches_and_reconciles(tmp_path):
     assert job.status == "dispatched"
     assert Path(job.capture_path).read_bytes() == b"sunset-image"
     assert job.captured_at == clock[0]
-    assert github.archived[0]["repository_path"] == job.repository_path
     inputs = github.dispatched[0]["inputs"]
     assert inputs["observation_id"] == "2026-07-26:sunset"
     assert inputs["scheduled_at"] == "2026-07-26T18:50:00+09:00"
     assert inputs["captured_at"] == "2026-07-26T18:50:00+09:00"
-    assert inputs["capture_path"] == job.repository_path
     assert inputs["capture_sha256"] == job.capture_sha256
+    assert base64.b64decode(inputs["capture_base64"]) == b"sunset-image"
 
     clock[0] += timedelta(minutes=3)
     github.run = WorkflowRun(
@@ -131,7 +128,7 @@ def test_scheduler_captures_freshest_phase_first_when_both_are_due(tmp_path):
     assert captured_phases == ["afterglow", "sunset"]
 
 
-def test_scheduler_refuses_to_archive_a_capture_whose_checksum_changed(tmp_path):
+def test_scheduler_refuses_to_dispatch_a_capture_whose_checksum_changed(tmp_path):
     now = datetime(2026, 7, 26, 18, 50, tzinfo=JST)
     github = FakeGitHub()
     store = ObservationJobStore(tmp_path / "jobs.sqlite3")
@@ -152,7 +149,6 @@ def test_scheduler_refuses_to_archive_a_capture_whose_checksum_changed(tmp_path)
         capture_path=str(capture_path),
         captured_at=now,
         capture_sha256=hashlib.sha256(b"original-image").hexdigest(),
-        repository_path="observations/2026-07-26/sunset/changed.jpg",
     )
 
     scheduler.tick(now=now)
@@ -160,7 +156,24 @@ def test_scheduler_refuses_to_archive_a_capture_whose_checksum_changed(tmp_path)
     failed = store.get("2026-07-26:sunset")
     assert failed.status == "captured"
     assert "checksum changed" in failed.last_error
-    assert github.archived == []
+
+
+def test_capture_normalization_replaces_large_image_with_dispatch_sized_jpeg(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "large.jpg"
+    path.write_bytes(b"x" * 50_000)
+
+    def fake_run(command, **kwargs):
+        Path(command[-1]).write_bytes(b"j" * 40_000)
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr("zushi_chill.observation_scheduler.subprocess.run", fake_run)
+
+    _normalize_capture(path)
+
+    assert path.read_bytes() == b"j" * 40_000
 
 
 def test_scheduler_retries_failed_workflow_without_recapturing(tmp_path):
@@ -292,7 +305,6 @@ def _scheduler_settings(tmp_path, *, capture_max_delay_minutes=60):
     return SchedulerSettings(
         database_path=tmp_path / "jobs.sqlite3",
         spool_directory=tmp_path / "spool",
-        data_ref="observation-data",
         afterglow_offset_minutes=20,
         capture_max_delay_minutes=capture_max_delay_minutes,
         run_visibility_grace_seconds=120,

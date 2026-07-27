@@ -122,6 +122,7 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "captured_at:" in workflow
     assert "capture_ref:" in workflow
     assert "capture_path:" in workflow
+    assert "capture_base64:" in workflow
     assert "capture_sha256:" in workflow
     assert "manual_mode:" in workflow
     assert "type: choice" in workflow
@@ -147,6 +148,8 @@ def test_github_actions_manual_dispatch_is_configured():
     assert 'git fetch --no-tags --depth=1 origin "$CAPTURE_REF"' in workflow
     assert 'git show "FETCH_HEAD:$CAPTURE_PATH" > "$IMAGE_PATH"' in workflow
     assert "Archived observation image could not be read" in workflow
+    assert 'printf \'%s\' "$INPUT_CAPTURE_BASE64" | base64 --decode' in workflow
+    assert "Inline observation image checksum does not match" in workflow
     assert 'ACTUAL_CAPTURE_SHA256="$(sha256sum "$IMAGE_PATH"' in workflow
     assert "Archived observation image checksum does not match" in workflow
     assert "yt-dlp --no-playlist" in workflow

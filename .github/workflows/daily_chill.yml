@@ -48,6 +48,10 @@ on:
         description: "保存画像のリポジトリ内パス"
         required: false
         default: ""
+      capture_base64:
+        description: "Base64符号化した固定観測画像"
+        required: false
+        default: ""
       capture_sha256:
         description: "保存画像のSHA-256"
         required: false
@@ -126,10 +130,29 @@ jobs:
           echo "CAPTURE_SHA256=$INPUT_CAPTURE_SHA256" >> "$GITHUB_ENV"
 
       - name: Capture live camera image
+        env:
+          INPUT_CAPTURE_BASE64: ${{ github.event.inputs.capture_base64 || '' }}
         run: |
           mkdir -p "public/$(dirname "$LIVE_CAMERA_IMAGE_RELATIVE_PATH")"
           IMAGE_PATH="public/$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
-          if [ -n "$CAPTURE_PATH" ]; then
+          if [ -n "$INPUT_CAPTURE_BASE64" ]; then
+            if ! printf '%s' "$INPUT_CAPTURE_BASE64" | base64 --decode > "$IMAGE_PATH"; then
+              echo "::error::Inline observation image could not be decoded"
+              exit 1
+            fi
+            if [ ! -s "$IMAGE_PATH" ]; then
+              echo "::error::Inline observation image is empty"
+              exit 1
+            fi
+            ACTUAL_CAPTURE_SHA256="$(sha256sum "$IMAGE_PATH" | cut -d' ' -f1)"
+            if [ -z "$CAPTURE_SHA256" ] || [ "$ACTUAL_CAPTURE_SHA256" != "$CAPTURE_SHA256" ]; then
+              echo "::error::Inline observation image checksum does not match"
+              exit 1
+            fi
+            echo "Using inline observation image"
+            echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+            exit 0
+          elif [ -n "$CAPTURE_PATH" ]; then
             if [ -z "$CAPTURE_REF" ]; then
               echo "::error::capture_ref is required when capture_path is set"
               exit 1
