@@ -462,6 +462,36 @@ def test_vision_analysis_runs_at_target_hour_and_is_recorded(monkeypatch):
     assert "カメラAI予測" in fake_line_client.sent_messages[0]["text"]
 
 
+def test_17_message_becomes_hesitant_when_camera_and_formula_diverge(monkeypatch):
+    fake_weather_client = FakeWeatherClient()
+    fake_storage = MemoryStorage()
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("LIVE_CAMERA_IMAGE_BASE_URL", "https://pages.example/SunsetChillAPP")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    pessimistic_vision = VisionResult(
+        sunset_score=20,
+        sky_condition="overcast",
+        comment="厚い雲",
+        model="gemini-2.5-flash",
+    )
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: fake_weather_client)
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: pessimistic_vision)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
+
+    assert exit_code == 0
+    message = fake_line_client.sent_messages[0]["text"]
+    assert "もうすぐ日没なのに、まだ読み切れないっピ" in message
+    assert "予報よりカメラの空がしょんぼりっピ" in message
+    assert "大当たり" not in message
+
+
 def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()

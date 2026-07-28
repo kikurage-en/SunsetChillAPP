@@ -354,7 +354,63 @@ def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summa
 
     comment = build_comment(summary, scores, cloud)
 
-    assert "きょうの夕焼け予想はむずかしいっピ" in comment
+    assert "どっちになるか迷うっピ" in comment
+
+
+def test_13_comment_becomes_hesitant_when_rain_timing_changes(sample_summary):
+    summary = replace(
+        sample_summary,
+        precipitation_probability_before_sunset=10,
+        precipitation_probability_at_sunset=70,
+    )
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=80, chill_label="A")
+
+    comment = build_comment(summary, scores)
+
+    assert comment.splitlines() == [
+        "うーん……まだ先の空は気が変わりそうっピ。ぼく、ちょっと自信ないっピ……。",
+        "日没前後で雨の予報ががらっと変わるっピ。まだ言い切れないっピ……。",
+    ]
+    assert "大当たり" not in comment
+
+
+def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
+    summary = replace(sample_summary, run_time="17:00")
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=85,
+        sky_condition="clear",
+        comment="よく晴れている",
+        model="test",
+    )
+
+    comment = build_comment(
+        summary,
+        scores,
+        vision=vision,
+        formula_sunset_score=40,
+    )
+
+    assert comment.splitlines() == [
+        "もうすぐ日没なのに、まだ読み切れないっピ……。ぼく、ちょっと自信ないっピ。",
+        "カメラの空はよさそうなのに、予報の数字は弱気っピ……。判断がむずかしいっピ。",
+    ]
+    assert "大当たり" not in comment
+
+
+def test_non_scheduled_prediction_keeps_normal_confident_comment(sample_summary):
+    summary = replace(
+        sample_summary,
+        run_time="16:00",
+        precipitation_probability_before_sunset=10,
+        precipitation_probability_at_sunset=70,
+    )
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=80, chill_label="A")
+
+    comment = build_comment(summary, scores)
+
+    assert "大当たりになりそうっピ！" in comment
+    assert "自信ない" not in comment
 
 
 def test_wind_direction_label_boundaries():

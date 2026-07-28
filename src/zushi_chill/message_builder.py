@@ -8,6 +8,10 @@ from zushi_chill.models import (
     VisionResult,
     WeatherSummary,
 )
+from zushi_chill.prediction_uncertainty import (
+    PredictionUncertainty,
+    detect_prediction_uncertainty,
+)
 from zushi_chill.scoring import has_dry_high_precipitation_conflict, score_label
 
 
@@ -17,12 +21,28 @@ def build_comment(
     sunset_cloud: SunsetCloud | None = None,
     *,
     prediction: bool = True,
+    vision: VisionResult | None = None,
+    formula_sunset_score: int | None = None,
+    jma_precipitation: JmaPrecipitationForecast | None = None,
 ) -> str:
     # 雲に関する所見は Sunset期待度を駆動する「夕焼け方向(西の空)」の雲で判断する。
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
     sunset_band = _comment_band(scores.sunset_score)
     chill_band = _comment_band(scores.chill_score)
     headline = _comment_headline(sunset_band, chill_band, prediction=prediction)
+    uncertainty = (
+        detect_prediction_uncertainty(
+            summary,
+            cloud,
+            vision=vision,
+            formula_sunset_score=formula_sunset_score,
+            jma_precipitation=jma_precipitation,
+        )
+        if prediction
+        else None
+    )
+    if uncertainty is not None:
+        return _uncertain_prediction_comment(uncertainty, summary.run_time)
 
     details: list[str] = []
     if cloud.cloud_cover_low >= 70:
@@ -69,6 +89,54 @@ def build_comment(
 
     # コメント欄も情報過多にしない。総評1文に、優先度が最も高い1件だけ補足する。
     return "\n".join([headline, *details[:1]])
+
+
+def _uncertain_prediction_comment(
+    uncertainty: PredictionUncertainty,
+    run_time: str,
+) -> str:
+    headline = (
+        "うーん……まだ先の空は気が変わりそうっピ。"
+        "ぼく、ちょっと自信ないっピ……。"
+        if run_time == "13:00"
+        else "もうすぐ日没なのに、まだ読み切れないっピ……。"
+        "ぼく、ちょっと自信ないっピ。"
+    )
+    details = {
+        "missing_values": (
+            "予報の数字がところどころぼんやりっピ。"
+            "今回はかなり弱気に見てるっピ……。"
+        ),
+        "convective_weather": (
+            "急な雨や雷がまざる予報っピ。"
+            "空がころっと変わるかもしれないっピ……。"
+        ),
+        "rain_timing_shift": (
+            "日没前後で雨の予報ががらっと変わるっピ。"
+            "まだ言い切れないっピ……。"
+        ),
+        "dry_high_precipitation_conflict": (
+            "雨のしるしと予想雨量・西の空が、うまくつながらないっピ。"
+            "どっちになるか迷うっピ……。"
+        ),
+        "precipitation_forecast_disagreement": (
+            "雨の予報どうしで数字がかなりちがうっピ……。"
+            "どっちになるか迷うっピ。"
+        ),
+        "vision_more_optimistic": (
+            "カメラの空はよさそうなのに、予報の数字は弱気っピ……。"
+            "判断がむずかしいっピ。"
+        ),
+        "vision_more_pessimistic": (
+            "予報よりカメラの空がしょんぼりっピ……。"
+            "期待しすぎないほうがよさそうっピ。"
+        ),
+        "borderline_precipitation": (
+            "雨が降るか降らないか、予報も迷ってるみたいっピ……。"
+            "ぼくも強く言えないっピ。"
+        ),
+    }
+    return "\n".join((headline, details[uncertainty]))
 
 
 def _comment_headline(sunset_band: str, chill_band: str, *, prediction: bool) -> str:
@@ -168,6 +236,9 @@ def build_line_message(
         comment_scores,
         sunset_cloud,
         prediction=vision_mode == "predict",
+        vision=vision,
+        formula_sunset_score=scores.sunset_score,
+        jma_precipitation=jma_precipitation,
     )
     # 表示する Sunset期待度は Vision ブレンド後の値(未指定なら純式スコア)。
     display_sunset_score = (
