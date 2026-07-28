@@ -9,6 +9,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from zushi_chill.comment_voice import apply_comment_voice
 from zushi_chill.models import VisionResult
 
 LOGGER = logging.getLogger(__name__)
@@ -44,11 +45,19 @@ _SCORE_RUBRIC = """- 80-100: 鮮やかな橙・赤・紫の夕焼け
 - 40-59: 雲が多いが部分的に色が出ている
 - 0-39: 曇天・雨・夕焼けなし"""
 
+_COMMENT_VOICE = """comment の書き方:
+- 画像から確認できる事実を優先し、50文字以内の自然な日本語にする
+- 無邪気で親しみのある口調にし、すべての文末を「っピ」にする
+- 高得点では明るく喜び、低得点では「うーん……」など静かな調子にする
+- 「っピ！」、「っピ。」、「っピ……。」のように書き、句点を重ねない"""
+
 _PROMPT = f"""以下は逗子海岸のライブカメラ画像です。夕焼け・空模様を評価してください。
 {_JSON_SPEC}
 
 sunset_score の基準:
-{_SCORE_RUBRIC}"""
+{_SCORE_RUBRIC}
+
+{_COMMENT_VOICE}"""
 
 
 def vision_mode(capture_time: datetime, sunset_time: datetime) -> str:
@@ -86,7 +95,9 @@ def build_prompt(
             "雲の構造（低層雲の厚み、水平線付近の抜け、中・高層雲の広がり）から、"
             "今夜の日没時にどの程度の夕焼けになりそうかを予測して採点してください。\n"
             f"{_JSON_SPEC}\n\n"
-            f"sunset_score の基準（日没時に予測される夕焼けとして採点）:\n{_SCORE_RUBRIC}"
+            f"sunset_score の基準（日没時に予測される夕焼けとして採点）:\n"
+            f"{_SCORE_RUBRIC}\n\n"
+            f"{_COMMENT_VOICE}"
         )
     if phase == "sunset":
         return (
@@ -97,14 +108,16 @@ def build_prompt(
             f"{_SUNSET_JSON_SPEC}\n\n"
             f"sunset_score と sunset_color_score の基準:\n{_SCORE_RUBRIC}\n"
             "sun_disk_visibility は色の鮮やかさではなく、太陽ディスクまたは直射光の"
-            "見えやすさだけを採点してください。"
+            "見えやすさだけを採点してください。\n\n"
+            f"{_COMMENT_VOICE}"
         )
     return (
         f"{header}\n"
         "日没から10分以上経過した画像です。太陽ディスクではなく、中・高層雲や空に"
         "残っている橙・赤・紫の残照だけを評価してください。\n"
         f"{_AFTERGLOW_JSON_SPEC}\n\n"
-        f"sunset_score と afterglow_score の基準:\n{_SCORE_RUBRIC}"
+        f"sunset_score と afterglow_score の基準:\n{_SCORE_RUBRIC}\n\n"
+        f"{_COMMENT_VOICE}"
     )
 
 
@@ -216,7 +229,7 @@ def _parse_response(
     try:
         sunset_score = int(parsed["sunset_score"])
         sky_condition = str(parsed["sky_condition"])
-        comment = str(parsed["comment"])
+        comment = apply_comment_voice(str(parsed["comment"]))
     except (KeyError, TypeError, ValueError) as exc:
         raise VisionError(f"Gemini JSON missing expected fields: {parsed}") from exc
 

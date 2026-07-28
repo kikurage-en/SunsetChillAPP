@@ -123,6 +123,9 @@ def main(argv: list[str] | None = None) -> int:
                 comment_scores,
                 sunset_cloud,
                 prediction=mode == "predict",
+                vision=vision_result,
+                formula_sunset_score=scores_without_comment.sunset_score,
+                jma_precipitation=jma_precipitation,
             ),
         )
         sunsethue_result = _collect_sunsethue(settings, run_time)
