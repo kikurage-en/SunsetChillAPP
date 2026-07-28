@@ -39,8 +39,9 @@ def test_comment_uses_displayed_final_sunset_score(sample_summary):
         final_sunset_label="C",
     )
 
-    assert "海辺の快適さは良好ですが、夕焼け条件は控えめ" in message
-    assert "夕焼け条件・海辺の快適さともに良好" not in message
+    assert "夕焼けはむずかしい空っピ" in message
+    assert "海辺は気持ちよく過ごせる状態っピ！" in message
+    assert "夕焼けも海辺の気持ちよさも大当たり" not in message
 
 
 def test_message_and_comment_use_western_sunset_cloud(sample_summary):
@@ -71,7 +72,7 @@ def test_message_and_comment_use_western_sunset_cloud(sample_summary):
     assert "低層 5%" not in message
     # コメントの雲判定も西空の低層雲(80%)で行う
     comment = build_comment(zushi_clear, scores, west_cloudy)
-    assert "低層雲が多く" in comment
+    assert "低い雲がいっぱいっピ" in comment
 
 
 def test_line_message_contains_required_fields(sample_summary):
@@ -201,7 +202,7 @@ def test_line_message_includes_vision_section_when_present(sample_summary):
     assert "ライブカメラ実況評価" in message
     # Vision スコアも本文スコアと同じランク基準(score_label)で読めるようラベルを併記する
     assert "【 A 】75 / 100（partly_cloudy）" in message
-    assert "薄い夕焼け" in message
+    assert "薄い夕焼けっピ。" in message
 
 
 def test_line_message_labels_vision_as_prediction_in_predict_mode(sample_summary):
@@ -300,14 +301,14 @@ def test_comment_changes_by_scores_and_weather(sample_summary):
     high_cloud = replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50)
     windy = replace(sample_summary, wind_speed_10m=8)
 
-    assert "ともに良好な見込み" in build_comment(sample_summary, good)
-    assert "海辺の快適さは良好" in build_comment(
+    assert "大当たりになりそうっピ！" in build_comment(sample_summary, good)
+    assert "海辺は気持ちよく過ごせそうっピ！" in build_comment(
         sample_summary, comfortable_but_low_sunset
     )
-    assert "ともに低調な見込み" in build_comment(sample_summary, bad)
-    assert "低層雲が多く" in build_comment(low_cloud, good)
-    assert "高層雲がほどよく" in build_comment(high_cloud, good)
-    assert "風が強く" in build_comment(windy, good)
+    assert "おやすみ気分っピ" in build_comment(sample_summary, bad)
+    assert "低い雲がいっぱいっピ" in build_comment(low_cloud, good)
+    assert "高い雲がちょうどいいっピ" in build_comment(high_cloud, good)
+    assert "風がびゅうびゅうになりそうっピ" in build_comment(windy, good)
 
 
 def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary):
@@ -317,8 +318,8 @@ def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary)
     comment = build_comment(summary, scores)
 
     assert comment.splitlines() == [
-        "夕焼け条件は良好ですが、海辺の快適さは控えめな見込みです。",
-        "体感温度が高く、海辺では蒸し暑さが強い見込みです。",
+        "夕焼けはすっごく期待できそうっピ！海辺の過ごしやすさは、まあまあっピ。",
+        "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。",
     ]
     assert "確認してください" not in comment
 
@@ -330,8 +331,8 @@ def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
     comment = build_comment(summary, scores, prediction=False)
 
     assert comment.splitlines() == [
-        "夕焼け条件・海辺の快適さともに低調です。",
-        "体感温度が高く、海辺では蒸し暑さが強い状態です。",
+        "夕焼けも海辺もおやすみ気分っピ……。こんな日もあるっピ。",
+        "うわっ、むしむしっピ！海辺でもかなり暑い状態っピ。",
     ]
     assert "見込み" not in comment
 
@@ -353,7 +354,7 @@ def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summa
 
     comment = build_comment(summary, scores, cloud)
 
-    assert "予測の不確実性が高い" in comment
+    assert "きょうの夕焼け予想はむずかしいっピ" in comment
 
 
 def test_wind_direction_label_boundaries():

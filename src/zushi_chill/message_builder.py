@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from zushi_chill.comment_voice import apply_comment_voice
 from zushi_chill.models import (
     JmaPrecipitationForecast,
     ScoreResult,
@@ -26,43 +27,43 @@ def build_comment(
     details: list[str] = []
     if cloud.cloud_cover_low >= 70:
         details.append(
-            "低層雲が多く、夕陽が隠れる可能性があります。"
+            "あっ……低い雲がいっぱいっピ。夕陽がかくれちゃうかもしれないっピ。"
             if prediction
-            else "低層雲が多く、夕陽が隠れやすい条件です。"
+            else "あっ……低い雲がいっぱいっピ。夕陽がかくれやすい空っピ。"
         )
     if summary.apparent_temperature >= 32:
         details.append(
-            "体感温度が高く、海辺では蒸し暑さが強い見込みです。"
+            "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。"
             if prediction
-            else "体感温度が高く、海辺では蒸し暑さが強い状態です。"
+            else "うわっ、むしむしっピ！海辺でもかなり暑い状態っピ。"
         )
     elif summary.apparent_temperature >= 28:
         details.append(
-            "海辺ではやや蒸し暑く感じる見込みです。"
+            "海辺ではちょっとむしむししそうっピ。"
             if prediction
-            else "海辺ではやや蒸し暑い状態です。"
+            else "海辺ではちょっとむしむしする状態っピ。"
         )
     if summary.wind_speed_10m >= 8:
         details.append(
-            "風が強く、海辺の快適さを下げる見込みです。"
+            "風がびゅうびゅうになりそうっピ！海辺ののんびり度が下がりそうっピ。"
             if prediction
-            else "風が強く、海辺の快適さを下げる条件です。"
+            else "風がびゅうびゅうっピ！海辺ののんびり度が下がる状態っピ。"
         )
     if 20 <= cloud.cloud_cover_high <= 70 and cloud.cloud_cover_low < 50:
         details.append(
-            "高層雲がほどよく、夕焼け色が出る可能性があります。"
+            "わあっ、高い雲がちょうどいいっピ！きれいな色になってくれそうっピ！"
             if prediction
-            else "高層雲がほどよく、夕焼け色が出やすい条件です。"
+            else "わあっ、高い雲がちょうどいいっピ！夕焼け色が出やすい空っピ！"
         )
     if has_dry_high_precipitation_conflict(summary, cloud):
         details.insert(
             0,
             (
-                "Sunset算出用の降水信号と予想雨量・西空の雲が食い違うため、"
-                "夕焼け予測の不確実性が高いです。"
+                "あれれ……雨のしるしと予想雨量・西の空が、"
+                "うまくつながらないっピ。きょうの夕焼け予想はむずかしいっピ。"
                 if prediction
-                else "Sunset算出用の降水信号と予想雨量・西空の雲が食い違い、"
-                "算出条件の不確実性が高い状態です。"
+                else "あれれ……雨のしるしと予想雨量・西の空が、"
+                "うまくつながらないっピ。算出条件が不確かっピ。"
             ),
         )
 
@@ -72,33 +73,66 @@ def build_comment(
 
 def _comment_headline(sunset_band: str, chill_band: str, *, prediction: bool) -> str:
     if prediction:
-        if sunset_band == "good" and chill_band == "good":
-            return "夕焼け条件・海辺の快適さともに良好な見込みです。"
-        if sunset_band == "good":
-            return "夕焼け条件は良好ですが、海辺の快適さは控えめな見込みです。"
-        if chill_band == "good":
-            return "海辺の快適さは良好ですが、夕焼け条件は控えめな見込みです。"
-        if sunset_band == "low" and chill_band == "low":
-            return "夕焼け条件・海辺の快適さともに低調な見込みです。"
-        if sunset_band == "low":
-            return "海辺の快適さは中程度ですが、夕焼け条件は低調な見込みです。"
-        if chill_band == "low":
-            return "夕焼け条件は中程度ですが、海辺の快適さは低調な見込みです。"
-        return "夕焼け条件・海辺の快適さともに中程度の見込みです。"
+        headlines = {
+            ("good", "good"): (
+                "わあっ、夕焼けも海辺の気持ちよさも大当たりになりそうっピ！"
+            ),
+            ("good", "medium"): (
+                "夕焼けはすっごく期待できそうっピ！海辺の過ごしやすさは、まあまあっピ。"
+            ),
+            ("good", "low"): (
+                "夕焼けはきれいになりそうっピ！でも海辺はちょっと大変かもっピ……。"
+            ),
+            ("medium", "good"): (
+                "海辺は気持ちよさそうっピ！夕焼けも、あとひとがんばりっピ！"
+            ),
+            ("medium", "medium"): (
+                "うーん、どっちも半分くらいっピ。のんびり見守るっピ！"
+            ),
+            ("medium", "low"): (
+                "夕焼けは少し期待できそうっピ。"
+                "でも海辺の居心地はしょんぼりかもっピ……。"
+            ),
+            ("low", "good"): (
+                "夕焼けはむずかしそうっピ……。でも海辺は気持ちよく過ごせそうっピ！"
+            ),
+            ("low", "medium"): (
+                "あっ……夕焼けはちょっと苦手な空っピ。海辺は、まあまあっピ。"
+            ),
+            ("low", "low"): (
+                "きょうは夕焼けも海辺もおやすみ気分っピ……。こんな日もあるっピ。"
+            ),
+        }
+        return headlines[(sunset_band, chill_band)]
 
-    if sunset_band == "good" and chill_band == "good":
-        return "夕焼け条件・海辺の快適さともに良好です。"
-    if sunset_band == "good":
-        return "夕焼け条件は良好ですが、海辺の快適さは控えめです。"
-    if chill_band == "good":
-        return "海辺の快適さは良好ですが、夕焼け条件は控えめです。"
-    if sunset_band == "low" and chill_band == "low":
-        return "夕焼け条件・海辺の快適さともに低調です。"
-    if sunset_band == "low":
-        return "海辺の快適さは中程度ですが、夕焼け条件は低調です。"
-    if chill_band == "low":
-        return "夕焼け条件は中程度ですが、海辺の快適さは低調です。"
-    return "夕焼け条件・海辺の快適さともに中程度です。"
+    headlines = {
+        ("good", "good"): "わあっ、夕焼けも海辺の気持ちよさも大当たりっピ！",
+        ("good", "medium"): (
+            "夕焼けはすっごくいい感じっピ！海辺の過ごしやすさは、まあまあっピ。"
+        ),
+        ("good", "low"): (
+            "夕焼けはきれいっピ！でも海辺はちょっと大変な状態っピ……。"
+        ),
+        ("medium", "good"): (
+            "海辺は気持ちいいっピ！夕焼け条件は、もうひと声っピ。"
+        ),
+        ("medium", "medium"): (
+            "うーん、どっちも半分くらいっピ。のんびりした空っピ。"
+        ),
+        ("medium", "low"): (
+            "夕焼け条件はまあまあっピ。でも海辺の居心地はしょんぼりっピ……。"
+        ),
+        ("low", "good"): (
+            "夕焼けはむずかしい空っピ……。でも海辺は気持ちよく過ごせる状態っピ！"
+        ),
+        ("low", "medium"): (
+            "あっ……夕焼けはちょっと苦手な空っピ。海辺は、まあまあっピ。"
+        ),
+        ("low", "low"): (
+            "夕焼けも海辺もおやすみ気分っピ……。こんな日もあるっピ。"
+        ),
+    }
+    return headlines[(sunset_band, chill_band)]
 
 
 def _comment_band(score: int) -> str:
@@ -182,7 +216,7 @@ def build_line_message(
             f"\n\n📷 {vision_label}\n"
             f"【 {score_label(vision.sunset_score)} 】{vision.sunset_score} / 100"
             f"（{vision.sky_condition}）\n"
-            f"{vision.comment}{detail_section}"
+            f"{apply_comment_voice(vision.comment)}{detail_section}"
         )
     precipitation_line = _precipitation_probability_line(summary, jma_precipitation)
     if use_sunset_snapshot:

@@ -103,7 +103,7 @@ def test_analyze_image_parses_response_and_records_model(monkeypatch, tmp_path):
 
     assert result.sunset_score == 72
     assert result.sky_condition == "partly_cloudy"
-    assert result.comment == "薄い夕焼け"
+    assert result.comment == "薄い夕焼けっピ。"
     assert result.model == "gemini-2.5-flash"
 
 
@@ -246,6 +246,7 @@ def test_build_prompt_predicts_sunset_from_pre_sunset_sky():
     assert "雲の構造" in prompt
     # 撮影時点の色の有無で採点させない(6/10のカメラ実況30過小の再発防止)
     assert "現在の夕焼け色の有無ではなく" in prompt
+    assert "すべての文末を「っピ」にする" in prompt
 
 
 def test_build_prompt_evaluates_actual_sky_after_sunset():
@@ -256,6 +257,7 @@ def test_build_prompt_evaluates_actual_sky_after_sunset():
     assert "残照だけを評価" in prompt
     assert "afterglow_score" in prompt
     assert "予測して採点" not in prompt
+    assert "すべての文末を「っピ」にする" in prompt
 
 
 def test_build_prompt_separates_disk_and_color_at_sunset():

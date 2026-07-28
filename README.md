@@ -118,7 +118,9 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 本文冒頭は装飾やサービス名を付けず、`YYYY-MM-DD HH:MM` だけを表示します。
 コメントは人手での現地確認を依頼せず、LINE表示用の最終Sunset期待度とChill指数を「良好・中程度・
 低調」の3段階で組み合わせた見通しを表示します。補足は低層雲、高い体感温度、強風、
-高層雲、降水信号の矛盾から優先度が最も高い1件だけを表示します。
+高層雲、降水信号の矛盾から優先度が最も高い1件だけを表示します。通常コメントと
+ライブカメラコメントは各文末に「っピ」を付け、高評価では明るく、低評価では静かな
+調子に変化させます。
 
 13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも最初に撮影できた同一画像を処理します。全ジョブとも画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 

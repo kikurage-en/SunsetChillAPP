@@ -85,5 +85,5 @@ def test_python_module_cli_after_sunset_uses_actual_comment_tense(tmp_path):
     )
 
     assert result.returncode == 0
-    assert "夕焼け条件・海辺の快適さともに良好です。" in result.stdout
+    assert "夕焼けも海辺の気持ちよさも大当たりっピ！" in result.stdout
     assert "良好な見込みです" not in result.stdout
