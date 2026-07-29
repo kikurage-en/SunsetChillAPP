@@ -9,6 +9,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from zushi_chill.comment_variants import select_comment_variant
 from zushi_chill.comment_voice import apply_comment_voice
 from zushi_chill.models import VisionResult
 
@@ -51,6 +52,12 @@ _COMMENT_VOICE = """comment の書き方:
 - 高得点では明るく喜び、低得点では「うーん……」など静かな調子にする
 - 「っピ！」、「っピ。」、「っピ……。」のように書き、句点を重ねない"""
 
+_COMMENT_TONE_VARIANTS = (
+    "驚きや感嘆を少し多めにし、空を見て思わず声が出たように話す",
+    "画像を一生懸命に観察して、見つけたことを報告するように話す",
+    "おっとりした間やためらいを少し入れ、空をじっと眺めるように話す",
+)
+
 _PROMPT = f"""以下は逗子海岸のライブカメラ画像です。夕焼け・空模様を評価してください。
 {_JSON_SPEC}
 
@@ -72,6 +79,19 @@ def vision_evaluation_phase(capture_time: datetime, sunset_time: datetime) -> st
     if capture_time <= sunset_time + timedelta(minutes=10):
         return "sunset"
     return "afterglow"
+
+
+def _comment_voice(capture_time: datetime) -> str:
+    tone = select_comment_variant(
+        capture_time.date().isoformat(),
+        capture_time.strftime("%H:%M"),
+        "vision-comment-tone",
+        _COMMENT_TONE_VARIANTS,
+    )
+    return (
+        f"{_COMMENT_VOICE}\n"
+        f"- 今回の話し方は「{tone}」。ただし、画像の事実や採点は変えない"
+    )
 
 
 def build_prompt(
@@ -97,7 +117,7 @@ def build_prompt(
             f"{_JSON_SPEC}\n\n"
             f"sunset_score の基準（日没時に予測される夕焼けとして採点）:\n"
             f"{_SCORE_RUBRIC}\n\n"
-            f"{_COMMENT_VOICE}"
+            f"{_comment_voice(capture_time)}"
         )
     if phase == "sunset":
         return (
@@ -109,7 +129,7 @@ def build_prompt(
             f"sunset_score と sunset_color_score の基準:\n{_SCORE_RUBRIC}\n"
             "sun_disk_visibility は色の鮮やかさではなく、太陽ディスクまたは直射光の"
             "見えやすさだけを採点してください。\n\n"
-            f"{_COMMENT_VOICE}"
+            f"{_comment_voice(capture_time)}"
         )
     return (
         f"{header}\n"
@@ -117,7 +137,7 @@ def build_prompt(
         "残っている橙・赤・紫の残照だけを評価してください。\n"
         f"{_AFTERGLOW_JSON_SPEC}\n\n"
         f"sunset_score と afterglow_score の基準:\n{_SCORE_RUBRIC}\n\n"
-        f"{_COMMENT_VOICE}"
+        f"{_comment_voice(capture_time)}"
     )
 
 

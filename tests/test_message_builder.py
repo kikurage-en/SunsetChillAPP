@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 
-from zushi_chill.message_builder import build_comment, build_line_message, wind_direction_label
+from zushi_chill.message_builder import (
+    _uncertain_prediction_comment,
+    build_comment,
+    build_line_message,
+    wind_direction_label,
+)
 from zushi_chill.models import (
     JmaPrecipitationForecast,
     ScoreResult,
@@ -39,8 +44,8 @@ def test_comment_uses_displayed_final_sunset_score(sample_summary):
         final_sunset_label="C",
     )
 
-    assert "夕焼けはむずかしい空っピ" in message
-    assert "海辺は気持ちよく過ごせる状態っピ！" in message
+    assert "夕焼け条件は元気がないっピ" in message
+    assert "海辺はのんびりできるっピ！" in message
     assert "夕焼けも海辺の気持ちよさも大当たり" not in message
 
 
@@ -72,7 +77,7 @@ def test_message_and_comment_use_western_sunset_cloud(sample_summary):
     assert "低層 5%" not in message
     # コメントの雲判定も西空の低層雲(80%)で行う
     comment = build_comment(zushi_clear, scores, west_cloudy)
-    assert "低い雲がいっぱいっピ" in comment
+    assert "水平線のあたりが雲でぎゅうぎゅうっピ" in comment
 
 
 def test_line_message_contains_required_fields(sample_summary):
@@ -301,14 +306,16 @@ def test_comment_changes_by_scores_and_weather(sample_summary):
     high_cloud = replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50)
     windy = replace(sample_summary, wind_speed_10m=8)
 
-    assert "大当たりになりそうっピ！" in build_comment(sample_summary, good)
+    assert "どっちも期待大っピ！" in build_comment(sample_summary, good)
     assert "海辺は気持ちよく過ごせそうっピ！" in build_comment(
         sample_summary, comfortable_but_low_sunset
     )
-    assert "おやすみ気分っピ" in build_comment(sample_summary, bad)
-    assert "低い雲がいっぱいっピ" in build_comment(low_cloud, good)
-    assert "高い雲がちょうどいいっピ" in build_comment(high_cloud, good)
-    assert "風がびゅうびゅうになりそうっピ" in build_comment(windy, good)
+    assert "元気がなさそうっピ" in build_comment(sample_summary, bad)
+    assert "水平線のあたりが雲でぎゅうぎゅうっピ" in build_comment(
+        low_cloud, good
+    )
+    assert "キャンバスになりそうっピ" in build_comment(high_cloud, good)
+    assert "海風が元気すぎるかもっピ" in build_comment(windy, good)
 
 
 def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary):
@@ -318,7 +325,7 @@ def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary)
     comment = build_comment(summary, scores)
 
     assert comment.splitlines() == [
-        "夕焼けはすっごく期待できそうっピ！海辺の過ごしやすさは、まあまあっピ。",
+        "夕焼けはかなり楽しみっピ！海辺の居心地は、ほどほどっピ。",
         "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。",
     ]
     assert "確認してください" not in comment
@@ -332,9 +339,40 @@ def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
 
     assert comment.splitlines() == [
         "夕焼けも海辺もおやすみ気分っピ……。こんな日もあるっピ。",
-        "うわっ、むしむしっピ！海辺でもかなり暑い状態っピ。",
+        "あれれ、夕方なのに暑いっピ！海辺の空気もまだむわっとしてるっピ。",
     ]
     assert "見込み" not in comment
+
+
+def test_after_sunset_high_heat_comment_changes_on_consecutive_dates(sample_summary):
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=45, chill_label="C")
+    dates = (
+        "2026-07-28",
+        "2026-07-29",
+        "2026-07-30",
+        "2026-07-31",
+        "2026-08-01",
+        "2026-08-02",
+    )
+    summaries = [
+        replace(
+            sample_summary,
+            date=day,
+            run_time="19:20",
+            apparent_temperature=34.4,
+        )
+        for day in dates
+    ]
+    details = [
+        build_comment(summary, scores, prediction=False).splitlines()[1]
+        for summary in summaries
+    ]
+    repeated = build_comment(summaries[0], scores, prediction=False).splitlines()[1]
+
+    assert details[0] == repeated
+    assert len(set(details)) == 6
+    assert all(detail.endswith(("っピ。", "っピ……。")) for detail in details)
+    assert all("見込み" not in detail for detail in details)
 
 
 def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summary):
@@ -393,7 +431,7 @@ def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
 
     assert comment.splitlines() == [
         "もうすぐ日没なのに、まだ読み切れないっピ……。ぼく、ちょっと自信ないっピ。",
-        "カメラの空はよさそうなのに、予報の数字は弱気っピ……。判断がむずかしいっピ。",
+        "目の前の空と予報の数字が反対方向っピ……。明るく言い切れないっピ。",
     ]
     assert "大当たり" not in comment
 
@@ -409,8 +447,113 @@ def test_non_scheduled_prediction_keeps_normal_confident_comment(sample_summary)
 
     comment = build_comment(summary, scores)
 
-    assert "大当たりになりそうっピ！" in comment
+    assert "どっちも期待大っピ！" in comment
     assert "自信ない" not in comment
+
+
+def test_all_score_headlines_rotate_across_three_dates(sample_summary):
+    band_scores = {"good": 75, "medium": 60, "low": 40}
+    dates = ("2026-07-29", "2026-07-30", "2026-07-31")
+
+    for prediction in (True, False):
+        run_time = "16:00" if prediction else "19:20"
+        for sunset_band, sunset_score in band_scores.items():
+            for chill_band, chill_score in band_scores.items():
+                headlines = {
+                    build_comment(
+                        replace(sample_summary, date=day, run_time=run_time),
+                        ScoreResult(
+                            sunset_score=sunset_score,
+                            sunset_label="test",
+                            chill_score=chill_score,
+                            chill_label="test",
+                        ),
+                        prediction=prediction,
+                    ).splitlines()[0]
+                    for day in dates
+                }
+
+                assert len(headlines) == 3, (
+                    prediction,
+                    sunset_band,
+                    chill_band,
+                    headlines,
+                )
+                assert all("っピ" in headline for headline in headlines)
+
+
+def test_weather_details_rotate_across_three_dates(sample_summary):
+    scores = ScoreResult(sunset_score=60, sunset_label="B", chill_score=60, chill_label="B")
+    dates = ("2026-07-29", "2026-07-30", "2026-07-31")
+    conditions = (
+        replace(sample_summary, cloud_cover_low=80),
+        replace(sample_summary, apparent_temperature=29),
+        replace(sample_summary, apparent_temperature=34),
+        replace(sample_summary, wind_speed_10m=8),
+        replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50),
+    )
+
+    for prediction in (True, False):
+        run_time = "16:00" if prediction else "19:20"
+        for condition in conditions:
+            details = {
+                build_comment(
+                    replace(condition, date=day, run_time=run_time),
+                    scores,
+                    prediction=prediction,
+                ).splitlines()[1]
+                for day in dates
+            }
+
+            assert len(details) == 3
+            assert all("っピ" in detail for detail in details)
+
+
+def test_uncertainty_headline_and_detail_rotate_across_three_dates(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=85,
+        sky_condition="clear",
+        comment="よく晴れている",
+        model="test",
+    )
+    comments = [
+        build_comment(
+            replace(sample_summary, date=day, run_time="17:00"),
+            scores,
+            vision=vision,
+            formula_sunset_score=40,
+        ).splitlines()
+        for day in ("2026-07-29", "2026-07-30", "2026-07-31")
+    ]
+
+    assert len({lines[0] for lines in comments}) == 3
+    assert len({lines[1] for lines in comments}) == 3
+
+
+def test_every_uncertainty_reason_has_three_variants(sample_summary):
+    uncertainty_reasons = (
+        "missing_values",
+        "convective_weather",
+        "rain_timing_shift",
+        "dry_high_precipitation_conflict",
+        "precipitation_forecast_disagreement",
+        "vision_more_optimistic",
+        "vision_more_pessimistic",
+        "borderline_precipitation",
+    )
+
+    for reason in uncertainty_reasons:
+        details = {
+            _uncertain_prediction_comment(
+                reason,
+                replace(sample_summary, date=day, run_time="17:00"),
+            ).splitlines()[1]
+            for day in ("2026-07-29", "2026-07-30", "2026-07-31")
+        }
+
+        assert len(details) == 3, (reason, details)
+        assert all("っピ" in detail for detail in details)
 
 
 def test_wind_direction_label_boundaries():
