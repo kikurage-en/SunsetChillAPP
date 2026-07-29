@@ -247,6 +247,7 @@ def test_build_prompt_predicts_sunset_from_pre_sunset_sky():
     # 撮影時点の色の有無で採点させない(6/10のカメラ実況30過小の再発防止)
     assert "現在の夕焼け色の有無ではなく" in prompt
     assert "すべての文末を「っピ」にする" in prompt
+    assert "今回の話し方は" in prompt
 
 
 def test_build_prompt_evaluates_actual_sky_after_sunset():
@@ -272,6 +273,15 @@ def test_build_prompt_separates_disk_and_color_at_sunset():
 
 def test_build_prompt_falls_back_to_generic_prompt_without_times():
     assert vision_client.build_prompt() == vision_client._PROMPT
+
+
+def test_comment_voice_tone_changes_on_consecutive_dates():
+    first = vision_client._comment_voice(_RUN_1700_0610)
+    next_day = vision_client._comment_voice(_RUN_1700_0610.replace(day=11))
+
+    assert first != next_day
+    assert "画像の事実や採点は変えない" in first
+    assert "画像の事実や採点は変えない" in next_day
 
 
 def test_analyze_image_sends_mode_specific_prompt(monkeypatch, tmp_path):
