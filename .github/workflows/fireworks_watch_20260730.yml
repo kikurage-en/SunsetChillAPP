@@ -72,11 +72,14 @@ jobs:
         run: |
           ruff check \
             src/zushi_chill/fireworks_monitor.py \
+            src/zushi_chill/fireworks_collector.py \
             src/zushi_chill/fireworks_batch.py \
             tests/test_fireworks_monitor.py \
+            tests/test_fireworks_collector.py \
             tests/test_fireworks_batch.py
           pytest -q \
             tests/test_fireworks_monitor.py \
+            tests/test_fireworks_collector.py \
             tests/test_fireworks_batch.py \
             tests/test_comment_voice.py
 
