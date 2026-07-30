@@ -39,6 +39,7 @@ MIN_CHANGED_PIXELS = 5
 GLOBAL_CHANGE_DELTA = 38
 MAX_GLOBAL_CHANGE_RATIO = 0.42
 BURST_QUIET_SECONDS = 3.0
+BURST_MAX_SECONDS = 8.0
 MIN_ANALYSIS_INTERVAL_SECONDS = 8.0
 MIN_SEND_INTERVAL_SECONDS = 20.0
 MAX_ANALYSES = 120
@@ -124,13 +125,23 @@ class MonitorResult:
 class BurstTracker:
     """Group consecutive bright-change frames and retain the strongest frame."""
 
-    def __init__(self, *, sample_fps: float, quiet_seconds: float) -> None:
+    def __init__(
+        self,
+        *,
+        sample_fps: float,
+        quiet_seconds: float,
+        max_burst_seconds: float = BURST_MAX_SECONDS,
+    ) -> None:
         if sample_fps <= 0:
             raise ValueError("sample_fps must be positive")
         if quiet_seconds <= 0:
             raise ValueError("quiet_seconds must be positive")
+        if max_burst_seconds <= 0:
+            raise ValueError("max_burst_seconds must be positive")
         self.quiet_frames = max(1, round(sample_fps * quiet_seconds))
+        self.max_burst_frames = max(1, round(sample_fps * max_burst_seconds))
         self._best: BurstCandidate | None = None
+        self._burst_start_frame: int | None = None
         self._last_trigger_frame: int | None = None
 
     @property
@@ -139,9 +150,13 @@ class BurstTracker:
 
     def observe(self, frame_index: int, frame_score: int) -> BurstCandidate | None:
         if frame_score > 0:
+            if self._burst_start_frame is None:
+                self._burst_start_frame = frame_index
             if self._best is None or frame_score > self._best.score:
                 self._best = BurstCandidate(frame_index=frame_index, score=frame_score)
             self._last_trigger_frame = frame_index
+            if frame_index - self._burst_start_frame + 1 >= self.max_burst_frames:
+                return self.flush()
             return None
         if (
             self._best is not None
@@ -154,6 +169,7 @@ class BurstTracker:
     def flush(self) -> BurstCandidate | None:
         candidate = self._best
         self._best = None
+        self._burst_start_frame = None
         self._last_trigger_frame = None
         return candidate
 

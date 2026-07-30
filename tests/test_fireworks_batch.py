@@ -116,3 +116,95 @@ def test_process_batch_filters_false_images_and_keeps_voiced_comments(
 
     assert len(selected) == 1
     assert selected[0].analysis.comment.endswith("っピ！")
+
+
+def test_process_batch_reports_monitor_error_when_every_analysis_fails(
+    monkeypatch,
+    tmp_path,
+):
+    paths = [
+        "fireworks-candidates/2026-07-30/194200-00001000.jpg",
+        "fireworks-candidates/2026-07-30/194240-00002000.jpg",
+    ]
+    for path in paths:
+        image = tmp_path / path
+        image.parent.mkdir(parents=True, exist_ok=True)
+        image.write_bytes(b"jpeg")
+
+    def fail_analysis(**kwargs):
+        raise FireworksMonitorError("Vision quota exhausted")
+
+    class FakeLineClient:
+        target_id = "target"
+
+        def __init__(self):
+            self.messages = []
+
+        def push_text(self, text, *, retry_key=None):
+            self.messages.append((text, retry_key))
+
+    monkeypatch.setattr(
+        fireworks_batch,
+        "analyze_fireworks_image",
+        fail_analysis,
+    )
+    line_client = FakeLineClient()
+
+    selected = process_candidate_batch(
+        candidate_paths=paths,
+        pages_dir=tmp_path,
+        image_base_url="https://example.test",
+        api_key="key",
+        vision_model="model",
+        line_client=line_client,
+        timezone=JST,
+        dry_run=False,
+    )
+
+    assert selected == []
+    assert len(line_client.messages) == 1
+    assert "エラー" in line_client.messages[0][0]
+    assert "確認できなかった" not in line_client.messages[0][0]
+
+
+def test_process_batch_reports_monitor_error_when_partial_collection_has_no_match(
+    monkeypatch,
+    tmp_path,
+):
+    path = "fireworks-candidates/2026-07-30/194200-00001000.jpg"
+    image = tmp_path / path
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(b"jpeg")
+
+    class FakeLineClient:
+        target_id = "target"
+
+        def __init__(self):
+            self.messages = []
+
+        def push_text(self, text, *, retry_key=None):
+            self.messages.append(text)
+
+    monkeypatch.setattr(
+        fireworks_batch,
+        "analyze_fireworks_image",
+        lambda **kwargs: FireworksAnalysis(False, 95, 0, ""),
+    )
+    line_client = FakeLineClient()
+
+    selected = process_candidate_batch(
+        candidate_paths=[path],
+        pages_dir=tmp_path,
+        image_base_url="https://example.test",
+        api_key="key",
+        vision_model="model",
+        line_client=line_client,
+        timezone=JST,
+        dry_run=False,
+        collection_incomplete=True,
+    )
+
+    assert selected == []
+    assert len(line_client.messages) == 1
+    assert "エラー" in line_client.messages[0]
+    assert "確認できなかった" not in line_client.messages[0]
