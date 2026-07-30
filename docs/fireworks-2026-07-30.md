@@ -4,23 +4,27 @@ SunsetChillの定期予測とは独立した、一日限りの監視ジョブで
 
 ## 本番動作
 
-- GitHub Actionsは2026-07-30 18:45 JSTに起動し、19:30まで待機します。
-- 19:30〜20:30の逗子海岸ライブ映像を2fpsで監視します。
-- 夜空の局所的な発光を候補として抽出し、Gemini Visionが実際の花火かを確認します。
-- 確信度70以上、写真品質35以上の画像を、20秒以上の間隔で最大6枚送信します。
-- 画像は`pages-images`ブランチの`fireworks/2026-07-30/`に保存します。
-- 自動判定で送らなかった発光候補も、7日間のActions artifactに残します。
-- LINEコメントは定期通知と同じ`apply_comment_voice()`を通し、全ての文末を「っピ」にします。
-- 花火を確認できなかった場合、または監視に失敗した場合もLINEへ状態を通知します。
+YouTubeはデータセンターIPからのHLS取得をBot判定で拒否するため、映像取得と秘密情報を
+次のように分離します。
+
+1. AC接続したローカルMacが19:30〜20:30の逗子海岸ライブ映像を2fpsで監視する。
+2. 夜空の局所的な発光から、スコア上位30枚の候補をローカルに保存する。
+3. 候補を`pages-images`ブランチの`fireworks-candidates/2026-07-30/`へ一括保存する。
+4. ローカル収集プロセスが`Fireworks Watch 2026-07-30`を起動する。
+5. GitHub Actions内のGemini Visionが実際の花火かを確認し、品質上位6枚を選ぶ。
+6. LINEコメントは定期通知と同じ`apply_comment_voice()`を通し、全ての文末を「っピ」にする。
+
+GitHub Actions側はYouTubeへ接続せず、Vision・LINEのSecretもローカルMacへ移しません。
+花火を確認できなかった場合、またはローカル監視に失敗した場合もLINEへ状態を通知します。
 
 ## 手動テスト
 
-Actionsの`Fireworks Watch 2026-07-30`から実行します。既定は`dry_run`で、
-画像の公開とLINE送信は行いません。`send_line`は本番送信なので、疎通確認だけを目的に
-選択しないでください。
+Actionsの`Fireworks Watch 2026-07-30`は既定が`dry_run`で、LINE送信を行いません。
+`candidate_paths`には`pages-images`上の候補パスをJSON配列で渡します。`send_line`は
+本番送信なので、疎通確認だけを目的に選択しないでください。
 
 ## イベント後
 
-`.github/workflows/fireworks_watch_20260730.yml`を削除します。日付ガードがあるため
-翌年に誤送信はしませんが、不要な定期設定を残さないため削除します。保存画像は記録として
+ローカルの`caffeinate`プロセスと一時的な`pages-images` checkoutを終了・削除し、
+`.github/workflows/fireworks_watch_20260730.yml`を削除します。保存画像は記録として
 `pages-images`ブランチに残します。

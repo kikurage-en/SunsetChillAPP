@@ -291,11 +291,11 @@ def test_workflow_is_separate_one_day_job_with_safe_manual_default():
     )
 
     assert "Fireworks Watch 2026-07-30" in workflow
-    assert 'cron: "45 9 30 7 *"' in workflow
     assert 'EVENT_DATE: "2026-07-30"' in workflow
     assert 'default: "dry_run"' in workflow
     assert "- send_line" in workflow
-    assert 'if [[ "$EVENT_NAME" == "schedule" ]]' in workflow
+    assert "schedule:" not in workflow
+    assert "candidate_paths:" in workflow
+    assert "fireworks_batch" in workflow
     assert "LINE_CHANNEL_ACCESS_TOKEN" in workflow
     assert "VISION_API_KEY" in workflow
-    assert "python -m zushi_chill.fireworks_monitor" in workflow
