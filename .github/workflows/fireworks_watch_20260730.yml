@@ -19,6 +19,7 @@ on:
         default: "ok"
         options:
           - ok
+          - partial
           - monitor_error
       candidate_paths:
         description: "pages-images上の候補パスJSON"
@@ -35,7 +36,7 @@ permissions:
 jobs:
   analyze-and-send:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     concurrency:
       group: zushi-fireworks-send-20260730
       cancel-in-progress: false
@@ -71,11 +72,14 @@ jobs:
         run: |
           ruff check \
             src/zushi_chill/fireworks_monitor.py \
+            src/zushi_chill/fireworks_collector.py \
             src/zushi_chill/fireworks_batch.py \
             tests/test_fireworks_monitor.py \
+            tests/test_fireworks_collector.py \
             tests/test_fireworks_batch.py
           pytest -q \
             tests/test_fireworks_monitor.py \
+            tests/test_fireworks_collector.py \
             tests/test_fireworks_batch.py \
             tests/test_comment_voice.py
 

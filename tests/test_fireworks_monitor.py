@@ -111,6 +111,25 @@ def test_burst_tracker_groups_frames_and_keeps_highest_score():
     assert candidate.score == 250
 
 
+def test_burst_tracker_flushes_continuous_changes_at_maximum_duration():
+    tracker = BurstTracker(
+        sample_fps=2,
+        quiet_seconds=3,
+        max_burst_seconds=4,
+    )
+
+    candidates = [
+        candidate
+        for frame_index in range(1, 17)
+        if (candidate := tracker.observe(frame_index, frame_index * 100)) is not None
+    ]
+
+    assert [(item.frame_index, item.score) for item in candidates] == [
+        (8, 800),
+        (16, 1600),
+    ]
+
+
 def test_fireworks_prompt_requires_existing_voice_and_strict_detection():
     prompt = build_fireworks_prompt(CAPTURED_AT)
 
@@ -297,5 +316,6 @@ def test_workflow_is_separate_one_day_job_with_safe_manual_default():
     assert "schedule:" not in workflow
     assert "candidate_paths:" in workflow
     assert "fireworks_batch" in workflow
+    assert "timeout-minutes: 30" in workflow
     assert "LINE_CHANNEL_ACCESS_TOKEN" in workflow
     assert "VISION_API_KEY" in workflow

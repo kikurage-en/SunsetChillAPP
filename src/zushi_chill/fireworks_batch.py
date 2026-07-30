@@ -107,8 +107,10 @@ def process_candidate_batch(
     timezone: ZoneInfo,
     dry_run: bool,
     max_images: int = MAX_IMAGES,
+    collection_incomplete: bool = False,
 ) -> list[AnalyzedCandidate]:
     analyzed: list[AnalyzedCandidate] = []
+    analysis_failures = 0
     for relative_path in candidate_paths:
         image_path = pages_dir / relative_path
         captured_at = captured_at_from_path(relative_path, timezone)
@@ -120,6 +122,7 @@ def process_candidate_batch(
                 model=vision_model,
             )
         except FireworksMonitorError as exc:
+            analysis_failures += 1
             LOGGER.warning("Skipping unanalyzable candidate %s: %s", relative_path, exc)
             continue
         LOGGER.info(
@@ -142,6 +145,17 @@ def process_candidate_batch(
                 )
             )
 
+    if candidate_paths and analysis_failures == len(candidate_paths):
+        error = FireworksMonitorError(
+            f"Vision analysis failed for all {analysis_failures} fireworks candidates"
+        )
+        if dry_run:
+            raise error
+        if line_client is None:
+            raise FireworksMonitorError("LINE settings are required outside dry-run mode")
+        _notify_monitor_error(line_client, error)
+        return []
+
     selected = select_best_candidates(analyzed, max_images=max_images)
     if dry_run:
         for ordinal, candidate in enumerate(selected, start=1):
@@ -156,7 +170,13 @@ def process_candidate_batch(
     if line_client is None:
         raise FireworksMonitorError("LINE settings are required outside dry-run mode")
     if not selected:
-        _notify_no_capture(line_client)
+        if collection_incomplete:
+            _notify_monitor_error(
+                line_client,
+                FireworksMonitorError("Local fireworks collection was incomplete"),
+            )
+        else:
+            _notify_no_capture(line_client)
         return []
     for ordinal, candidate in enumerate(selected, start=1):
         comment = candidate.analysis.comment or build_fireworks_comment(
@@ -178,7 +198,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Analyze collected fireworks candidates and send the best images."
     )
     parser.add_argument("--candidate-paths-json", required=True)
-    parser.add_argument("--status", choices=("ok", "monitor_error"), default="ok")
+    parser.add_argument(
+        "--status",
+        choices=("ok", "partial", "monitor_error"),
+        default="ok",
+    )
     parser.add_argument("--pages-dir", default="public")
     parser.add_argument("--max-images", type=int, default=MAX_IMAGES)
     parser.add_argument("--dry-run", action="store_true")
@@ -229,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         timezone=ZoneInfo(os.getenv("TIMEZONE", DEFAULT_TIMEZONE)),
         dry_run=args.dry_run,
         max_images=args.max_images,
+        collection_incomplete=args.status == "partial",
     )
     return 0
 
