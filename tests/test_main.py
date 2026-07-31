@@ -487,8 +487,10 @@ def test_17_message_becomes_hesitant_when_camera_and_formula_diverge(monkeypatch
 
     assert exit_code == 0
     message = fake_line_client.sent_messages[0]["text"]
-    assert "もうすぐ日没なのに、まだ読み切れないっピ" in message
     assert "予報よりカメラの空がしょんぼりっピ" in message
+    comment = message.split("コメント：\n", 1)[1].split("\n\n日没：", 1)[0]
+    assert len(comment.splitlines()) == 1
+    assert "海辺" not in comment
     assert "大当たり" not in message
 
 

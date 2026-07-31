@@ -2,17 +2,38 @@ from __future__ import annotations
 
 import re
 
+_STANDALONE_INTERJECTION = re.compile(
+    r"(?:^|(?<=[。！？!?]))(?P<space>\s*)"
+    r"(?P<word>わ[ぁあ]っ|やった|うわっ|ひええ|あれれ|えっ|おおっ|うーん|わくわく)"
+    r"(?:っ?ピ)?"
+    r"(?P<punct>[！!？?]+|…{2,}[。.]?)"
+)
+
 
 def apply_comment_voice(text: str) -> str:
-    """Ensure every Japanese sentence ends in the notification character's voice."""
+    """Add the character suffix while leaving standalone interjections natural."""
     comment = text.strip()
     if not comment:
         return comment
+    has_terminal_punctuation = bool(re.search(r"(?:[。！？!?]|…{2,})$", comment))
+
+    protected: list[str] = []
+
+    def protect_interjection(match: re.Match[str]) -> str:
+        word = "わあっ" if match.group("word") in {"わぁっ", "わあっ"} else match.group("word")
+        protected.append(f"{match.group('space')}{word}{match.group('punct')}")
+        return f"\ue000{len(protected) - 1}\ue001"
+
+    # 「わあっ！」のような独立した感嘆詞には、キャラクター語尾を付けない。
+    comment = _STANDALONE_INTERJECTION.sub(protect_interjection, comment)
 
     # Put the suffix before an ellipsis so low-energy comments read as
     # 「むずかしいっピ……。」rather than「むずかしい……っピ。」.
-    comment = re.sub(r"(?<!っピ)(…{2,})([。！？]?)", r"っピ\1\2", comment)
-    comment = re.sub(r"(?<!っピ)(?<!…)([。！？]+)", r"っピ\1", comment)
-    if not re.search(r"[。！？]$", comment):
+    comment = re.sub(r"(?<!っピ)(…{2,})([。！？!?]?)", r"っピ\1\2", comment)
+    comment = re.sub(r"(?<!っピ)(?<!…)([。！？!?]+)", r"っピ\1", comment)
+    if not has_terminal_punctuation:
         comment = f"{comment}っピ。"
+
+    for index, interjection in enumerate(protected):
+        comment = comment.replace(f"\ue000{index}\ue001", interjection)
     return comment
