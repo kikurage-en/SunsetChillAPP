@@ -45,8 +45,10 @@ def test_comment_uses_displayed_final_sunset_score(sample_summary):
     )
 
     assert "夕焼け条件は元気がないっピ" in message
-    assert "海辺はのんびりできるっピ！" in message
-    assert "夕焼けも海辺の気持ちよさも大当たり" not in message
+    comment = message.split("コメント：\n", 1)[1].split("\n\n日没：", 1)[0]
+    assert len(comment.splitlines()) == 1
+    assert "海辺" not in comment
+    assert "大当たり" not in comment
 
 
 def test_message_and_comment_use_western_sunset_cloud(sample_summary):
@@ -306,16 +308,29 @@ def test_comment_changes_by_scores_and_weather(sample_summary):
     high_cloud = replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50)
     windy = replace(sample_summary, wind_speed_10m=8)
 
-    assert "どっちも期待大っピ！" in build_comment(sample_summary, good)
-    assert "海辺は気持ちよく過ごせそうっピ！" in build_comment(
+    assert "夕焼け" in build_comment(sample_summary, good)
+    assert "海辺" not in build_comment(sample_summary, good).splitlines()[0]
+    assert "期待薄っピ" in build_comment(sample_summary, comfortable_but_low_sunset)
+    assert "海辺" not in build_comment(
         sample_summary, comfortable_but_low_sunset
-    )
-    assert "元気がなさそうっピ" in build_comment(sample_summary, bad)
+    ).splitlines()[0]
+    assert "期待薄っピ" in build_comment(sample_summary, bad)
     assert "水平線のあたりが雲でぎゅうぎゅうっピ" in build_comment(
         low_cloud, good
-    )
-    assert "キャンバスになりそうっピ" in build_comment(high_cloud, good)
-    assert "海風が元気すぎるかもっピ" in build_comment(windy, good)
+    ).splitlines()[0]
+    assert "キャンバスになりそうっピ" in build_comment(
+        high_cloud, good
+    ).splitlines()[0]
+    assert "海風が元気すぎるかもっピ" in build_comment(windy, good).splitlines()[1]
+
+
+def test_comment_omits_comfort_line_without_noteworthy_condition(sample_summary):
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=40, chill_label="C")
+
+    comment = build_comment(sample_summary, scores)
+
+    assert len(comment.splitlines()) == 1
+    assert "海辺" not in comment
 
 
 def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary):
@@ -324,10 +339,10 @@ def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary)
 
     comment = build_comment(summary, scores)
 
-    assert comment.splitlines() == [
-        "夕焼けはかなり楽しみっピ！海辺の居心地は、ほどほどっピ。",
-        "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。",
-    ]
+    sunset_line, comfort_line = comment.splitlines()
+    assert "夕焼け" in sunset_line
+    assert "海辺" not in sunset_line
+    assert comfort_line == "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。"
     assert "確認してください" not in comment
 
 
@@ -337,10 +352,13 @@ def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
 
     comment = build_comment(summary, scores, prediction=False)
 
-    assert comment.splitlines() == [
-        "夕焼けも海辺もおやすみ気分っピ……。こんな日もあるっピ。",
-        "あれれ、夕方なのに暑いっピ！海辺の空気もまだむわっとしてるっピ。",
-    ]
+    sunset_line, comfort_line = comment.splitlines()
+    assert "夕焼け条件は元気がないっピ" in sunset_line
+    assert "海辺" not in sunset_line
+    assert (
+        comfort_line
+        == "あれれ、夕方なのに暑いっピ！海辺の空気もまだむわっとしてるっピ。"
+    )
     assert "見込み" not in comment
 
 
@@ -406,7 +424,6 @@ def test_13_comment_becomes_hesitant_when_rain_timing_changes(sample_summary):
     comment = build_comment(summary, scores)
 
     assert comment.splitlines() == [
-        "うーん……まだ先の空は気が変わりそうっピ。ぼく、ちょっと自信ないっピ……。",
         "日没前後で雨の予報ががらっと変わるっピ。まだ言い切れないっピ……。",
     ]
     assert "大当たり" not in comment
@@ -430,7 +447,6 @@ def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
     )
 
     assert comment.splitlines() == [
-        "もうすぐ日没なのに、まだ読み切れないっピ……。ぼく、ちょっと自信ないっピ。",
         "目の前の空と予報の数字が反対方向っピ……。明るく言い切れないっピ。",
     ]
     assert "大当たり" not in comment
@@ -447,7 +463,8 @@ def test_non_scheduled_prediction_keeps_normal_confident_comment(sample_summary)
 
     comment = build_comment(summary, scores)
 
-    assert "どっちも期待大っピ！" in comment
+    assert "夕焼け" in comment
+    assert "海辺" not in comment.splitlines()[0]
     assert "自信ない" not in comment
 
 
@@ -480,22 +497,45 @@ def test_all_score_headlines_rotate_across_three_dates(sample_summary):
                     headlines,
                 )
                 assert all("っピ" in headline for headline in headlines)
+                assert all(
+                    not any(
+                        comfort_word in headline
+                        for comfort_word in ("海辺", "過ごしやすさ", "居心地", "快適さ")
+                    )
+                    for headline in headlines
+                )
 
 
-def test_weather_details_rotate_across_three_dates(sample_summary):
+def test_sunset_and_comfort_details_rotate_across_three_dates(sample_summary):
     scores = ScoreResult(sunset_score=60, sunset_label="B", chill_score=60, chill_label="B")
     dates = ("2026-07-29", "2026-07-30", "2026-07-31")
-    conditions = (
+    sunset_conditions = (
         replace(sample_summary, cloud_cover_low=80),
+        replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50),
+    )
+    comfort_conditions = (
         replace(sample_summary, apparent_temperature=29),
         replace(sample_summary, apparent_temperature=34),
         replace(sample_summary, wind_speed_10m=8),
-        replace(sample_summary, cloud_cover_low=20, cloud_cover_high=50),
     )
 
     for prediction in (True, False):
         run_time = "16:00" if prediction else "19:20"
-        for condition in conditions:
+        for condition in sunset_conditions:
+            comments = {
+                build_comment(
+                    replace(condition, date=day, run_time=run_time),
+                    scores,
+                    prediction=prediction,
+                )
+                for day in dates
+            }
+
+            assert len(comments) == 3
+            assert all(len(comment.splitlines()) == 1 for comment in comments)
+            assert all("海辺" not in comment for comment in comments)
+
+        for condition in comfort_conditions:
             details = {
                 build_comment(
                     replace(condition, date=day, run_time=run_time),
@@ -507,6 +547,13 @@ def test_weather_details_rotate_across_three_dates(sample_summary):
 
             assert len(details) == 3
             assert all("っピ" in detail for detail in details)
+            assert all(
+                not any(
+                    sunset_word in detail
+                    for sunset_word in ("夕焼け", "夕陽", "高い雲", "低い雲")
+                )
+                for detail in details
+            )
 
 
 def test_uncertainty_headline_and_detail_rotate_across_three_dates(sample_summary):
@@ -528,7 +575,8 @@ def test_uncertainty_headline_and_detail_rotate_across_three_dates(sample_summar
     ]
 
     assert len({lines[0] for lines in comments}) == 3
-    assert len({lines[1] for lines in comments}) == 3
+    assert all(len(lines) == 1 for lines in comments)
+    assert all("海辺" not in lines[0] for lines in comments)
 
 
 def test_every_uncertainty_reason_has_three_variants(sample_summary):
@@ -548,7 +596,7 @@ def test_every_uncertainty_reason_has_three_variants(sample_summary):
             _uncertain_prediction_comment(
                 reason,
                 replace(sample_summary, date=day, run_time="17:00"),
-            ).splitlines()[1]
+            )
             for day in ("2026-07-29", "2026-07-30", "2026-07-31")
         }
 
