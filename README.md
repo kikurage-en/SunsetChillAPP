@@ -53,6 +53,10 @@ GITHUB_REPOSITORY=kikurage-en/SunsetChillAPP
 GITHUB_WORKFLOW=daily_chill.yml
 GITHUB_REF=main
 GITHUB_TOKEN=
+AFTERGLOW_OFFSET_MINUTES=20
+AFTERGLOW_WINDOW_MINUTES=5
+AFTERGLOW_CAPTURE_INTERVAL_SECONDS=30
+AFTERGLOW_PREFILTER_CANDIDATES=3
 VISION_ENABLED=false
 VISION_API_KEY=
 VISION_MODEL=gemini-2.5-flash
@@ -113,7 +117,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。予定時刻に一時停止していても既定60分以内なら追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、日没+20分は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明します。気象庁の降水確率は日没を含む6時間値です。対象時間帯、予報体感温度、突風、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
+定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分を終点とする残照撮影窓**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。残照は既定で日没+15〜+20分を30秒間隔（最大11枚）で撮影し、その中のベスト画像を選んで通知します。予定時刻に一時停止していても既定60分以内なら1枚を追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は選定済みの同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、残照撮影窓の終了後は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明します。気象庁の降水確率は日没を含む6時間値です。対象時間帯、予報体感温度、突風、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
 
 本文冒頭は装飾やサービス名を付けず、`YYYY-MM-DD HH:MM` だけを表示します。
 コメントは人手での現地確認を依頼せず、1行目にLINE表示用の最終Sunset期待度と
@@ -136,7 +140,9 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 高評価の見込みに注意点を添える場合は「でも、」でつなぎ、対比を明確にします。
 予報値や判定材料の食い違いをそのままユーザーへ報告する表現は使いません。
 
-13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブは予定時刻に近いContabo側で `LIVE_CAMERA_URL` のYouTubeライブから1フレームを取得します。日没連動画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも最初に撮影できた同一画像を処理します。全ジョブとも画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックします。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブはContabo側で `LIVE_CAMERA_URL` のYouTubeライブから撮影します。日没時は1フレーム、残照はストリームURLを1回だけ解決して1本のffmpegプロセスから30秒間隔で撮影します。残照候補はSHA-256で重複除外し、橙・赤・紫の範囲・彩度・露出によるローカル評価の上位3枚を候補にします。Contaboの `.env` でも `VISION_ENABLED=true` と `VISION_API_KEY` を設定し、候補時刻が `VISION_TARGET_HOURS` に含まれる場合は、候補3枚を1回のVisionリクエストで比較します。未設定・対象時刻外・比較失敗時はローカル1位へフォールバックします。
+
+選定画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも選定済みの同一画像を処理します。全ジョブとも選定画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックし、残照窓では30秒間隔で繰り返します。同一サムネイルが続いた場合は1候補として扱います。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
 画像の長期保存元は `pages-images` branchです。加えて、各実行のArtifactを90日保持します。Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。Pagesを履歴branchから再構築する場合は `Publish image history` workflowを手動実行します。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
@@ -157,7 +163,7 @@ GITHUB_REF=main
 GITHUB_TOKEN=...
 ```
 
-13:00 / 17:00は従来どおりContaboのcronから起動します。日没時と日没+20分は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、日没+20分は `manual_mode=send_line` です。
+13:00 / 17:00は従来どおりContaboのcronから起動します。日没時と日没+15〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
 
 ```bash
 # 13:00 / 17:00 は固定時刻で予測を通知
@@ -194,8 +200,11 @@ journalctl -u zushi-chill-observation-scheduler.service
 ```
 
 永続状態は既定で `/var/lib/zushi-chill/observation_jobs.sqlite3`、撮影画像は
-`/var/lib/zushi-chill/spool` に置きます。`AFTERGLOW_OFFSET_MINUTES`（既定20）、
-`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`（既定60）などは `.env` で変更できます。
+`/var/lib/zushi-chill/spool` に置きます。残照窓は `AFTERGLOW_OFFSET_MINUTES`（終点、既定20）、
+`AFTERGLOW_WINDOW_MINUTES`（長さ、既定5・最大5）、`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`
+（既定30）、`AFTERGLOW_PREFILTER_CANDIDATES`（Vision比較へ渡すローカル上位数、既定3）で
+変更できます。候補画像と選定根拠は日付別spoolの `afterglow/candidates/` と
+`afterglow/selection.json` に残します。
 workflow dispatch全体の入力上限に収めるため、日没連動画像は最大45KBです。これを超える画像は
 ffmpegで段階的に縮小・再圧縮し、正規化できない場合は送信せず同じジョブとして再試行します。
 撮影前にサーバーまたはカメラが60分を超えて停止した場合、過去時点の画像は復元できないため
@@ -225,7 +234,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 ## ライブカメラ画像の Vision 解析
 
-`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。日没時ジョブを予約しても、この2設定がなければ画像の保存だけでVision評価値は記録されません。解析は3フェーズです。日没前は雲の構造から今夜の夕焼けを**予測**、日没時〜+10分は**太陽ディスクの見えやすさ**と**日没時の発色**を別々に評価、+10分より後は**残照**を評価します。解析結果はLINE本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開URLをダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE送信・保存は継続します。
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。日没時ジョブを予約しても、この2設定がなければ画像の保存だけでVision評価値は記録されません。解析は3フェーズです。日没前は雲の構造から今夜の夕焼けを**予測**、日没時〜+10分は**太陽ディスクの見えやすさ**と**日没時の発色**を別々に評価、+10分より後は**残照**を評価します。残照窓では、Contabo側の同設定を候補比較にも使用します。候補比較と、選定後にActionsで行う残照評価は別リクエストです。解析結果はLINE本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開URLをダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE送信・保存は継続します。
 
 日没前（予測フェーズ）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 Vision 8 割）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没時・残照フェーズは予測へのブレンドに使わず、観測画像の代理指標として記録します。`Chill指数` は Vision の影響を受けません。
 
@@ -237,7 +246,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 `SUNSETHUE_ENABLED=true` かつ `SUNSETHUE_API_KEY` が設定されている場合、各実行で [Sunsethue API](https://sunsethue.com/dev-api)（`GET https://api.sunsethue.com/event`）から逗子海岸の夕焼け品質予測を取得し、ログに記録します。Sunsethue は「日没時に光が雲へ届くか」を計算する ray-model で、西の水平線の抜けと上空の雲を内部で評価するため、座標は逗子海岸をそのまま渡します（`SUNSET_CLOUD_OFFSET_KM` の西地点分離は不要）。
 
-これは**式・Vision とは独立したベンチマーク**であり、**Chill 指数・Sunset 期待度・`final_sunset_score` のいずれも変えません**。目的は「式 `sunset_score` / Visionカメラ予測 / Sunsethue」を、日没時の発色と+20分の残照という画像代理指標に対して前向きに比較することです。取得に失敗してもメインのスコア算出・LINE送信・保存は継続します（非致命）。
+これは**式・Vision とは独立したベンチマーク**であり、**Chill 指数・Sunset期待度・`final_sunset_score` のいずれも変えません**。目的は「式 `sunset_score` / Visionカメラ予測 / Sunsethue」を、日没時の発色と残照窓のベスト画像という画像代理指標に対して前向きに比較することです。取得に失敗してもメインのスコア算出・LINE送信・保存は継続します（非致命）。旧+20分単発画像とベスト画像は評価対象が異なるため、検証時は `scheduled_at` と導入日で期間を分けます。
 
 ログには `sunsethue_quality`（0〜100、Sunsethue の `quality` 0〜1 を 100 倍）/ `sunsethue_cloud_cover`（%、`cloud_cover` 0〜1 を 100 倍）/ `sunsethue_quality_text`（Poor/Fair/Good/Great）の 3 カラムが追加されます（Google Sheets は自動移行）。認証は API キーを `key` クエリパラメータで渡します。Sunsethue は Cloudflare 配下でブラウザ以外の User-Agent を拒否するため、クライアントはブラウザ相当の User-Agent を送ります。無料枠は 1000 credits/日・**非商用**です。
 
@@ -246,10 +255,10 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 1. 13:00 JST に昼時点の見込みを確認
 2. 17:00 JST に夕方直前の見込みを確認（Vision「ライブカメラAI予測」も記録）
 3. 日没時にカメラ画像を保存し、太陽ディスクの見えやすさと日没時の発色を自動記録する（LINE送信なし）
-4. 日没+20分に画像を保存して残照を自動記録し、LINEにも残照評価を送信する
+4. 日没+15〜+20分のベスト画像を保存して残照を自動記録し、LINEにも残照評価を送信する
 5. 蓄積後に、17:00の各予測と同一日の `vision_sunset_color_score` / `vision_afterglow_score` の乖離を別々に確認する
 
-式の乖離検証には、表示用のブレンド値 `final_sunset_score` ではなく**純式スコア `sunset_score`**（17:00行）を使います。同一 `date` の日没時行にある `vision_sunset_color_score` と、+20分行の `vision_afterglow_score` に対する誤差を別集計し、どちらの目的を改善した変更かを明示します。`vision_sun_disk_visibility` は遮蔽判定の診断指標として使います。乖離が大きい日は保存画像を再確認・再採点できます。
+式の乖離検証には、表示用のブレンド値 `final_sunset_score` ではなく**純式スコア `sunset_score`**（17:00行）を使います。同一 `date` の日没時行にある `vision_sunset_color_score` と、残照行の `vision_afterglow_score` に対する誤差を別集計し、どちらの目的を改善した変更かを明示します。旧+20分単発と残照窓ベストは別期間として扱います。`vision_sun_disk_visibility` は遮蔽判定の診断指標として使います。乖離が大きい日は保存画像を再確認・再採点できます。
 
 高い降水確率と雨量0が食い違う日は、集計窓の最大値・合計値だけでなく、日没を挟む2つの時間値を使います。例えば日没18:54なら18:00を `before_sunset`、19:00を `at_sunset` とし、各時点の降水確率・雨量・天気コード・視程を保存します。これらは現時点では診断専用で、スコアを直接変えません。なおOpen-Meteoの降水確率・降水量・突風はタイムスタンプまでの直前1時間値なので、対象時間帯の集計だけはその区間終端として1時間補正します。
 
@@ -332,7 +341,7 @@ ruff check .
 pytest
 ```
 
-スコア計算、ラベル境界、強制上限、メッセージ生成、Open-Meteoレスポンス解析、気象庁6時間降水確率の期間選択、APIリトライ、dry-run CLI、CSV・Google Sheets保存、Visionの3フェーズと個別評価値、日没連動スケジューラ、GitHub Actionsの画像Artifact契約をテストしています。SNS投稿、画像生成、自動最適化はMVPに含めていません。
+スコア計算、ラベル境界、強制上限、メッセージ生成、Open-Meteoレスポンス解析、気象庁6時間降水確率の期間選択、APIリトライ、dry-run CLI、CSV・Google Sheets保存、Visionの3フェーズと個別評価値、残照候補の重複除外・ローカル評価・Vision比較、日没連動スケジューラ、GitHub Actionsの画像Artifact契約をテストしています。SNS投稿、画像生成、自動最適化はMVPに含めていません。
 
 ## 今後の改善
 

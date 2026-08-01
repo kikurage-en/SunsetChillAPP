@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -17,10 +18,19 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from zushi_chill.afterglow_selector import (
+    RankedAfterglowCandidate,
+    rank_afterglow_candidates,
+)
 from zushi_chill.config import ConfigError, Settings
 from zushi_chill.github_capture_store import GitHubCaptureStore, WorkflowRun
-from zushi_chill.live_camera import capture_live_camera_image
+from zushi_chill.live_camera import (
+    LiveCameraFrame,
+    capture_live_camera_image,
+    capture_live_camera_sequence,
+)
 from zushi_chill.solar_schedule import observation_times
+from zushi_chill.vision_client import select_best_afterglow_image
 
 LOGGER = logging.getLogger(__name__)
 ACTIVE_PHASES = frozenset({"sunset", "afterglow"})
@@ -42,12 +52,37 @@ class SchedulerSettings:
     database_path: Path
     spool_directory: Path
     afterglow_offset_minutes: int
+    afterglow_window_minutes: int
+    afterglow_capture_interval_seconds: int
+    afterglow_prefilter_candidates: int
     capture_max_delay_minutes: int
     run_visibility_grace_seconds: int
     retry_max_seconds: int
 
     @classmethod
     def from_env(cls) -> SchedulerSettings:
+        afterglow_offset_minutes = _positive_int(
+            "AFTERGLOW_OFFSET_MINUTES",
+            default=20,
+        )
+        afterglow_window_minutes = _positive_int(
+            "AFTERGLOW_WINDOW_MINUTES",
+            default=5,
+        )
+        afterglow_capture_interval_seconds = _positive_int(
+            "AFTERGLOW_CAPTURE_INTERVAL_SECONDS",
+            default=30,
+        )
+        if afterglow_window_minutes > afterglow_offset_minutes:
+            raise ConfigError(
+                "AFTERGLOW_WINDOW_MINUTES cannot exceed AFTERGLOW_OFFSET_MINUTES"
+            )
+        if afterglow_window_minutes > 5:
+            raise ConfigError("AFTERGLOW_WINDOW_MINUTES cannot exceed 5 minutes")
+        if afterglow_capture_interval_seconds > afterglow_window_minutes * 60:
+            raise ConfigError(
+                "AFTERGLOW_CAPTURE_INTERVAL_SECONDS cannot exceed the afterglow window"
+            )
         return cls(
             database_path=Path(
                 os.getenv(
@@ -58,9 +93,12 @@ class SchedulerSettings:
             spool_directory=Path(
                 os.getenv("OBSERVATION_SPOOL_DIR", "/var/lib/zushi-chill/spool")
             ),
-            afterglow_offset_minutes=_positive_int(
-                "AFTERGLOW_OFFSET_MINUTES",
-                default=20,
+            afterglow_offset_minutes=afterglow_offset_minutes,
+            afterglow_window_minutes=afterglow_window_minutes,
+            afterglow_capture_interval_seconds=afterglow_capture_interval_seconds,
+            afterglow_prefilter_candidates=_positive_int(
+                "AFTERGLOW_PREFILTER_CANDIDATES",
+                default=3,
             ),
             capture_max_delay_minutes=_positive_int(
                 "OBSERVATION_CAPTURE_MAX_DELAY_MINUTES",
@@ -178,17 +216,23 @@ class ObservationJobStore:
             raise KeyError(observation_id)
         return _job_from_row(row)
 
-    def due_jobs(self, now: datetime) -> list[ObservationJob]:
+    def due_jobs(
+        self, now: datetime, *, afterglow_lookahead: timedelta = timedelta(0)
+    ) -> list[ObservationJob]:
+        afterglow_cutoff = now + afterglow_lookahead
         with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT * FROM observation_jobs
                 WHERE status NOT IN ('completed', 'capture_missed')
-                  AND scheduled_at <= ?
+                  AND (
+                    (phase = 'afterglow' AND scheduled_at <= ?)
+                    OR (phase != 'afterglow' AND scheduled_at <= ?)
+                  )
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                 ORDER BY scheduled_at DESC, observation_id
                 """,
-                (_iso(now), _iso(now)),
+                (_iso(afterglow_cutoff), _iso(now), _iso(now)),
             ).fetchall()
         return [_job_from_row(row) for row in rows]
 
@@ -256,6 +300,13 @@ class ObservationScheduler:
         github: GitHubCaptureStore,
         now: Callable[[], datetime] | None = None,
         capture: Callable[..., None] = capture_live_camera_image,
+        capture_sequence: Callable[
+            ..., tuple[LiveCameraFrame, ...]
+        ] = capture_live_camera_sequence,
+        rank_afterglow: Callable[
+            [tuple[LiveCameraFrame, ...]], tuple[RankedAfterglowCandidate, ...]
+        ] = rank_afterglow_candidates,
+        select_best_afterglow: Callable[..., int] = select_best_afterglow_image,
     ):
         self.app_settings = app_settings
         self.scheduler_settings = scheduler_settings
@@ -264,6 +315,9 @@ class ObservationScheduler:
         self.tz = ZoneInfo(app_settings.timezone)
         self._now = now or (lambda: datetime.now(self.tz))
         self._capture = capture
+        self._capture_sequence = capture_sequence
+        self._rank_afterglow = rank_afterglow
+        self._select_best_afterglow = select_best_afterglow
 
     def ensure_daily_jobs(self, target_date: date, *, now: datetime | None = None) -> None:
         current = now or self._now()
@@ -293,12 +347,19 @@ class ObservationScheduler:
         current = now or self._now()
         self.ensure_daily_jobs(current.date(), now=current)
         advanced: list[ObservationJob] = []
-        for job in self.store.due_jobs(current):
+        afterglow_lookahead = timedelta(
+            minutes=self.scheduler_settings.afterglow_window_minutes
+        )
+        for job in self.store.due_jobs(
+            current,
+            afterglow_lookahead=afterglow_lookahead,
+        ):
             try:
                 self._advance(job, current)
             except Exception as exc:
                 LOGGER.exception("Observation %s failed: %s", job.observation_id, exc)
-                retry_at = current + timedelta(
+                failed_at = self._now()
+                retry_at = failed_at + timedelta(
                     seconds=_retry_seconds(
                         max(job.dispatch_attempts, 1),
                         self.scheduler_settings.retry_max_seconds,
@@ -306,7 +367,7 @@ class ObservationScheduler:
                 )
                 self.store.update(
                     job.observation_id,
-                    now=current,
+                    now=failed_at,
                     next_attempt_at=retry_at,
                     last_error=str(exc),
                 )
@@ -335,7 +396,11 @@ class ObservationScheduler:
                     next_attempt_at=None,
                 )
                 return
-            self._capture_job(job, current)
+            if job.phase == "afterglow":
+                self._capture_afterglow_job(job, current)
+            else:
+                self._capture_job(job, current)
+            current = self._now()
             job = self.store.get(job.observation_id)
 
         if job.status == "captured":
@@ -372,9 +437,10 @@ class ObservationScheduler:
         finally:
             temporary_path.unlink(missing_ok=True)
         digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
+        finished_at = self._now()
         self.store.update(
             job.observation_id,
-            now=current,
+            now=finished_at,
             status="captured",
             capture_path=str(final_path),
             captured_at=captured_at,
@@ -383,6 +449,105 @@ class ObservationScheduler:
             last_error="",
         )
         LOGGER.info("Captured %s at %s", job.observation_id, captured_at.isoformat())
+
+    def _capture_afterglow_job(self, job: ObservationJob, current: datetime) -> None:
+        window_start = job.scheduled_at - timedelta(
+            minutes=self.scheduler_settings.afterglow_window_minutes
+        )
+        capture_started_at = max(self._now(), window_start)
+        remaining_seconds = round((job.scheduled_at - capture_started_at).total_seconds())
+        if remaining_seconds < self.scheduler_settings.afterglow_capture_interval_seconds:
+            LOGGER.warning(
+                "Afterglow window is nearly over for %s; capturing one fallback frame",
+                job.observation_id,
+            )
+            self._capture_job(job, current)
+            return
+
+        target_directory = (
+            self.scheduler_settings.spool_directory / job.target_date / job.phase
+        )
+        candidates_directory = target_directory / "candidates"
+        frames = self._capture_sequence(
+            live_camera_url=self.app_settings.live_camera_url,
+            live_camera_video_id=self.app_settings.live_camera_video_id,
+            output_directory=candidates_directory,
+            capture_started_at=capture_started_at,
+            duration_seconds=remaining_seconds,
+            interval_seconds=self.scheduler_settings.afterglow_capture_interval_seconds,
+            timeout_seconds=self.app_settings.live_camera_capture_timeout_seconds,
+        )
+        ranked = self._rank_afterglow(frames)
+        finalists = ranked[: self.scheduler_settings.afterglow_prefilter_candidates]
+        selected_index = 0
+        selection_method = "local_color"
+        if (
+            self.app_settings.vision_enabled
+            and self.app_settings.vision_api_key
+            and len(finalists) > 1
+            and any(
+                candidate.frame.captured_at.hour
+                in self.app_settings.vision_target_hours
+                for candidate in finalists
+            )
+        ):
+            try:
+                selected_index = self._select_best_afterglow(
+                    image_paths=[candidate.frame.path for candidate in finalists],
+                    capture_times=[candidate.frame.captured_at for candidate in finalists],
+                    api_key=self.app_settings.vision_api_key,
+                    model=self.app_settings.vision_model,
+                    timeout_seconds=self.app_settings.vision_timeout_seconds,
+                )
+                selection_method = "vision_comparison"
+            except Exception as exc:
+                LOGGER.warning(
+                    "Vision afterglow comparison failed; using local winner: %s",
+                    exc,
+                )
+        selected = finalists[selected_index]
+        final_path = self._save_selected_afterglow(target_directory, selected)
+        digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
+        finished_at = self._now()
+        self.store.update(
+            job.observation_id,
+            now=finished_at,
+            status="captured",
+            capture_path=str(final_path),
+            captured_at=selected.frame.captured_at,
+            capture_sha256=digest,
+            next_attempt_at=None,
+            last_error="",
+        )
+        _write_afterglow_manifest(
+            target_directory / "selection.json",
+            ranked=ranked,
+            selected=selected,
+            selection_method=selection_method,
+        )
+        LOGGER.info(
+            "Selected %s from %s unique afterglow candidate(s) using %s",
+            selected.frame.path,
+            len(ranked),
+            selection_method,
+        )
+
+    def _save_selected_afterglow(
+        self,
+        target_directory: Path,
+        selected: RankedAfterglowCandidate,
+    ) -> Path:
+        target_directory.mkdir(parents=True, exist_ok=True)
+        filename = selected.frame.captured_at.strftime("%Y%m%dT%H%M%S%z") + ".jpg"
+        final_path = target_directory / filename
+        temporary_path = target_directory / f".{filename}.tmp.jpg"
+        try:
+            shutil.copy2(selected.frame.path, temporary_path)
+            _normalize_capture(temporary_path)
+            os.replace(temporary_path, final_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        return final_path
 
     def _prepare_job(self, job: ObservationJob, current: datetime) -> None:
         capture_path = Path(job.capture_path)
@@ -643,6 +808,42 @@ def _is_current_run(run: WorkflowRun, job: ObservationJob) -> bool:
 
 def _retry_seconds(attempts: int, maximum: int) -> int:
     return min(60 * (2 ** max(attempts - 1, 0)), maximum)
+
+
+def _write_afterglow_manifest(
+    path: Path,
+    *,
+    ranked: tuple[RankedAfterglowCandidate, ...],
+    selected: RankedAfterglowCandidate,
+    selection_method: str,
+) -> None:
+    payload = {
+        "selection_method": selection_method,
+        "selected_sha256": selected.sha256,
+        "selected_captured_at": selected.frame.captured_at.isoformat(timespec="seconds"),
+        "candidates": [
+            {
+                "filename": candidate.frame.path.name,
+                "captured_at": candidate.frame.captured_at.isoformat(timespec="seconds"),
+                "sha256": candidate.sha256,
+                "local_score": candidate.local_score,
+                "selected": candidate.sha256 == selected.sha256,
+            }
+            for candidate in ranked
+        ],
+    }
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary_path, path)
+    except OSError as exc:
+        LOGGER.warning("Failed to write afterglow selection manifest %s: %s", path, exc)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _normalize_capture(path: Path) -> None:

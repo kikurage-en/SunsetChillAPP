@@ -1,6 +1,6 @@
 # 検証運用ステータス
 
-最終更新: 2026-07-27
+最終更新: 2026-08-01
 
 このファイルは進行中の検証運用の現状と保留中の判断を記録する Truth Source。別セッション（コールドスタート）から現状を把握するための入口。仕様の詳細は `README.md`、算出ロジックはコードが正。
 
@@ -12,7 +12,7 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 - **層2**: 厚い中層雲キャップ（中層雲 55%→上限60、70%→上限40）。2026-07-17 に天井の再校正を追加（好条件でも通常上限80、超快晴＝Sunset用雲の total<15% かつ low<5% のみ90）。2026-07-21型の「高降水確率・雨量0・晴天コード・西空の薄い雲」が揃う場合だけ、降水減点を暫定-25とする。2026-07-25から**雨シグナル**（評価時間帯の代表天気コードが雨・雷雨系 or 窓内予想雨量合計≥1.0mm）では純式を上限40に制限する（`SUNSET_RAIN_CAP`。減点は雨量に比例させない）。
 - **層3**: 日没前（予測モード）で Vision 解析成功時、表示する `Sunset期待度` を式とVisionカメラAI予測のブレンドにする（`final = round((1-w)*sunset_score + w*vision_sunset_score)`、`w=SUNSET_VISION_BLEND_WEIGHT` 既定0.8）。**上方キャップ `final ≤ 式+30`**（2026-07-18導入: カメラは西から来る雲の壁を見えないため。下方修正は無制限）。2026-07-25から雨シグナル時は上方修正自体を無効化し `final ≤ 純式` とする（下方修正は維持）。**純式 `sunset_score` 列は上書きせず温存**し、表示値は別列 `final_sunset_score`。日没時・残照フェーズ、欠測、13:00はブレンドせず式。
 - **層4**: Sunsethue API（ray-model）の夕焼け品質予測を **log-only** 収集（列 `sunsethue_quality` 0-100 / `sunsethue_cloud_cover` % / `sunsethue_quality_text`）。スコアには影響しない独立ベンチマーク。`SUNSETHUE_ENABLED=true` で稼働。
-- **評価層**: ライブカメラ画像を日没時と日没+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、+20分は `vision_afterglow_score` をVisionで別評価する。取得成功画像は `pages-images` branchへ累積保存し、Actions Artifactにも90日指定で保存する。将来の再採点元データとして保持する（専用の一括再採点CLIは未実装）。
+- **評価層**: ライブカメラ画像を日没時と日没+15〜+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、残照窓は30秒間隔の候補から選んだベスト画像の `vision_afterglow_score` をVisionで別評価する。残照候補はローカル色評価の上位3枚をVisionで一括比較し、Vision未設定・失敗時はローカル1位を使う。選定画像は `pages-images` branchへ累積保存し、Actions Artifactにも90日指定で保存する。全候補と選定manifestはContaboのspoolに保持する（専用の一括再採点CLIは未実装）。
 - **降水確率の用途分離**: LINEの現地天気参考値とChill指数は気象庁・神奈川県東部の6時間降水確率を優先し、欠測時はOpen-Meteoへフォールバックする。Sunset期待度は地点・時刻粒度を優先してOpen-Meteoを維持する。両値は別列で前向き比較する。
 - **LINE天気参考欄**: 13:00 / 17:00など日没前の予測では、日没時刻に最も近いhourly行の気温・湿度・風・夕焼け方向の層別雲量・視程を表示する。最寄りhourly時刻はログだけに保存し、本文へは表示しない。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明する。両指数は表示用スナップショットと分離し、対象時間帯集計を維持する。降水確率は日没を含む気象庁6時間値を優先する。
 - **LINE冒頭**: サービス名や括弧を付けず、`YYYY-MM-DD HH:MM` だけを表示する。
@@ -20,6 +20,24 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 - **dry-runのLINE抑止**: `manual_mode=dry_run` は通常通知だけでなく失敗通知も送信しない。検証実行の成否はGitHub Actions上で確認する。
 
 **運用反映**: `main` がTruth Sourceで、GitHub Actions `daily_chill.yml` は `GITHUB_REF=main` を実行する。Contabo上のcheckoutはpushだけでは更新されないため、反映時に `git pull` が必要。13:00 / 17:00の固定cronは維持し、日没連動ジョブはsystemdの毎分timerとSQLite永続キューへ移行する。保存スキーマは74列で、Google Sheetsの旧ヘッダーと列幅は次回実行時に自動移行する。
+
+**2026-08-01 残照ベストショット選定（コード実装済み・本番反映待ち）**: 日没+20分の
+`scheduled_at` はログ互換のため維持し、永続スケジューラが5分先読みして日没+15分から
+撮影を開始する。ストリーム取得時は1本のffmpegプロセスから30秒間隔で最大11枚、
+ストリーム解決失敗時はキャッシュ回避付きライブサムネイルを同間隔で取得する。
+SHA-256重複除外後、橙・赤・紫の発色範囲・彩度・露出によるローカル評価で上位3枚へ絞り、
+Contabo側でVisionが有効なら1回の複数画像比較でベストを選ぶ。比較失敗時はローカル1位、
+撮影窓に間に合わなかった場合は従来どおり1枚撮影へフォールバックする。選定後は従来の
+45KB正規化・SHA照合・workflow dispatch・Pages保存・LINE再送防止を変更しない。
+`selection.json` に全候補の時刻・ハッシュ・ローカル点・選定方式を保存する。
+5分間のoneshotを許容するためsystemd unitは `TimeoutStartSec=10min` とする。
+
+本番反映時のユーザー実行タスクは、mainへの反映後にContaboで `git pull --ff-only`、
+`.venv/bin/pip install --upgrade -e . yt-dlp`、
+`scripts/install_observation_scheduler.sh` を実行し、Contaboの `.env` に新しい残照設定を追加、
+AI比較を使う場合は同環境でも `VISION_ENABLED=true` / `VISION_API_KEY` を設定すること。
+旧+20分単発の画像代理値とベストショット代理値は対象が変わるため、前向き検証では
+2026-08-01実装の本番導入日を境に別期間として扱う。
 
 **2026-07-26 日没連動ジョブ欠測と対策**: 朝8時の旧スケジューラが日没時刻取得中に
 Open-MeteoのHTTP 503で停止し、後続の `at` 予約が1件も作られなかった。このため日没時と
