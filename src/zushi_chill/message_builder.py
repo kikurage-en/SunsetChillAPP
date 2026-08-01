@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from zushi_chill.comment_variants import select_comment_variant
 from zushi_chill.comment_voice import apply_comment_voice
+from zushi_chill.constants import RAIN_WEATHER_CODES
 from zushi_chill.models import (
     JmaPrecipitationForecast,
     ScoreResult,
@@ -14,15 +15,6 @@ from zushi_chill.prediction_uncertainty import (
     detect_prediction_uncertainty,
 )
 from zushi_chill.scoring import has_dry_high_precipitation_conflict, score_label
-
-_ACTUAL_HIGH_HEAT_COMMENTS = (
-    "うわっ、むしむしっピ！海辺でもかなり暑い状態っピ。",
-    "まだむしむしが残ってるっピ……。海辺の暑さもしぶといっピ。",
-    "あれれ、夕方なのに暑いっピ！海辺の空気もまだむわっとしてるっピ。",
-    "暑さがなかなか帰ってくれないっピ……。かなり蒸し暑い状態っピ。",
-    "むわっとした空気が続いてるっピ。海辺もまだ熱気たっぷりっピ……。",
-    "ひええ、空気が重たいっピ！海辺でも蒸し暑さが強いっピ。",
-)
 
 _PREDICTION_SUNSET_VARIANTS = {
     "good": (
@@ -213,75 +205,15 @@ def build_comment(
             ),
         )
 
-    comfort_details: list[str] = []
-    if summary.apparent_temperature >= 32:
-        comfort_details.append(
-            _comment_variant(
-                summary,
-                "high-heat-prediction" if prediction else "high-heat-actual",
-                (
-                    "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。",
-                    "ひええ、暑さが本気っピ！海辺でもむしむしが強くなりそうっピ。",
-                    (
-                        "空気がむわっとしそうっピ……。"
-                        "海辺でもかなり暑く感じそうっピ。"
-                    ),
-                )
-                if prediction
-                else _ACTUAL_HIGH_HEAT_COMMENTS,
-            )
-        )
-    elif summary.apparent_temperature >= 28:
-        comfort_details.append(
-            _comment_variant(
-                summary,
-                "moderate-heat-prediction" if prediction else "moderate-heat-actual",
-                (
-                    "海辺ではちょっとむしむししそうっピ。",
-                    "少しむしむししそうっピ。海辺も涼しさは控えめっピ。",
-                    (
-                        "海辺の空気がちょっぴり重たそうっピ。"
-                        "少し暑く感じそうっピ。"
-                    ),
-                )
-                if prediction
-                else (
-                    "海辺ではちょっとむしむしする状態っピ。",
-                    "海辺の空気がちょっぴり重たいっピ。少しむしむしっピ。",
-                    "まだ少し暑さが残ってるっピ。海辺も涼しさは控えめっピ。",
-                ),
-            )
-        )
-    if summary.wind_speed_10m >= 8:
-        comfort_details.append(
-            _comment_variant(
-                summary,
-                "strong-wind-prediction" if prediction else "strong-wind-actual",
-                (
-                    (
-                        "風がびゅうびゅうになりそうっピ！"
-                        "海辺ののんびり度が下がりそうっピ。"
-                    ),
-                    "海風が元気すぎるかもっピ！のんびりするには強そうっピ。",
-                    (
-                        "びゅーっと強い風になりそうっピ。"
-                        "海辺の快適さが逃げちゃいそうっピ……。"
-                    ),
-                )
-                if prediction
-                else (
-                    "風がびゅうびゅうっピ！海辺ののんびり度が下がる状態っピ。",
-                    "海風が元気すぎるっピ！のんびりするには強い風っピ。",
-                    "びゅーっと強い風っピ。海辺の快適さが逃げちゃうっピ……。",
-                ),
-            )
-        )
+    comfort_comment = _comfort_comment(summary, prediction=prediction)
 
     # 1行目は夕焼けだけ、2行目は過ごしやすさの特記事項だけに分ける。
     # 夕焼け側の補足は改行せず、過ごしやすさに特記事項がなければ1行で終える。
     if sunset_details:
         sunset_comment = f"{sunset_comment} {sunset_details[0]}"
-    return "\n".join([sunset_comment, *comfort_details[:1]])
+    return "\n".join(
+        [sunset_comment, *([comfort_comment] if comfort_comment is not None else [])]
+    )
 
 
 def _comment_variant(
@@ -294,6 +226,222 @@ def _comment_variant(
         summary.run_time,
         category,
         variants,
+    )
+
+
+def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None:
+    wind_speed = max(
+        summary.wind_speed_10m,
+        _optional_or_fallback(
+            summary.wind_speed_10m_at_sunset, summary.wind_speed_10m
+        ),
+    )
+    if summary.apparent_temperature < 28:
+        return _strong_wind_comment(summary, prediction=prediction) if wind_speed >= 8 else None
+
+    humidity = _optional_or_fallback(
+        summary.relative_humidity_2m_at_sunset, summary.relative_humidity_2m
+    )
+    heat_level = "high" if summary.apparent_temperature >= 32 else "moderate"
+    heat_comment = _heat_comment(
+        summary,
+        heat_level=heat_level,
+        humid=humidity >= 75,
+        prediction=prediction,
+    )
+    modifier = _comfort_modifier(
+        summary,
+        wind_speed=wind_speed,
+        prediction=prediction,
+    )
+    return f"{heat_comment}{modifier}"
+
+
+def _heat_comment(
+    summary: WeatherSummary,
+    *,
+    heat_level: str,
+    humid: bool,
+    prediction: bool,
+) -> str:
+    variants = {
+        ("high", True, True): (
+            "気温も湿度も高く、海辺はかなりむし暑くなりそうっピ。",
+            "暑さに湿気も重なって、海辺の空気はむわっとしそうっピ。",
+            "気温の高さと湿気で、蒸し暑さがしっかり残りそうっピ。",
+            "ひええ、気温も湿度も高くて、海辺の暑さは本気っピ！",
+            "湿気をまとった暑さが、夕方まで続きそうっピ……。",
+            "海辺まで熱気と湿気が残って、かなり暑く感じそうっピ。",
+        ),
+        ("high", True, False): (
+            "気温も湿度も高く、海辺はかなり蒸し暑い状態っピ。",
+            "暑さに湿気も重なって、海辺の空気がむわっとしてるっピ。",
+            "気温の高さと湿気で、蒸し暑さがしっかり残ってるっピ。",
+            "ひええ、気温も湿度も高くて、海辺の暑さは本気っピ！",
+            "湿気をまとった暑さが、まだ続いてるっピ……。",
+            "海辺まで熱気と湿気が残って、かなり暑く感じるっピ。",
+        ),
+        ("high", False, True): (
+            "気温が高く、海辺でもかなり暑くなりそうっピ。",
+            "夕方も気温が高く、暑さがしっかり残りそうっピ。",
+            "海辺でも気温の高さが手ごわそうっピ。",
+            "ひええ、夕方になっても暑さは本気っピ！",
+            "高い気温がしぶとく残りそうっピ……。",
+            "海辺でも熱気が残って、かなり暑く感じそうっピ。",
+        ),
+        ("high", False, False): (
+            "気温が高く、海辺でもかなり暑い状態っピ。",
+            "夕方も気温が高く、暑さがしっかり残ってるっピ。",
+            "海辺でも気温の高さが手ごわいっピ。",
+            "ひええ、夕方になっても暑さは本気っピ！",
+            "高い気温がしぶとく残ってるっピ……。",
+            "海辺でも熱気が残って、かなり暑く感じるっピ。",
+        ),
+        ("moderate", True, True): (
+            "気温と湿度が高めで、少しむし暑くなりそうっピ。",
+            "湿気と暑さが重なって、海辺は少しむわっとしそうっピ。",
+            "気温は高めで湿気もあり、涼しさは控えめになりそうっピ。",
+        ),
+        ("moderate", True, False): (
+            "気温と湿度が高めで、少しむし暑い状態っピ。",
+            "湿気と暑さが重なって、海辺は少しむわっとしてるっピ。",
+            "気温は高めで湿気もあり、涼しさは控えめっピ。",
+        ),
+        ("moderate", False, True): (
+            "気温は少し高めで、海辺でも暑さが残りそうっピ。",
+            "夕方も気温が高めで、涼しさは控えめになりそうっピ。",
+            "海辺では少し暑く感じそうっピ。",
+        ),
+        ("moderate", False, False): (
+            "気温は少し高めで、海辺にも暑さが残ってるっピ。",
+            "夕方も気温が高めで、涼しさは控えめっピ。",
+            "海辺では少し暑く感じる状態っピ。",
+        ),
+    }[(heat_level, humid, prediction)]
+    return _comment_variant(
+        summary,
+        f"heat-{heat_level}-{'humid' if humid else 'dry'}-"
+        f"{'prediction' if prediction else 'actual'}",
+        variants,
+    )
+
+
+def _comfort_modifier(
+    summary: WeatherSummary,
+    *,
+    wind_speed: float,
+    prediction: bool,
+) -> str:
+    temperature = (
+        _optional_or_fallback(summary.temperature_2m_at_sunset, summary.temperature_2m)
+        if prediction
+        else _optional_or_fallback(
+            summary.temperature_2m_at_run_time,
+            _optional_or_fallback(
+                summary.temperature_2m_at_sunset, summary.temperature_2m
+            ),
+        )
+    )
+    daytime_max = summary.temperature_2m_daytime_max
+    cooling = daytime_max is not None and daytime_max - temperature >= 3
+    breeze = 3 <= wind_speed < 8
+    rain = (
+        summary.weather_code in RAIN_WEATHER_CODES or summary.precipitation >= 1.0
+    )
+
+    if wind_speed >= 8:
+        modifier = "strong-wind"
+    elif rain:
+        modifier = "rain"
+    elif cooling and breeze:
+        modifier = "cooling-breeze"
+    elif cooling:
+        modifier = "cooling"
+    elif breeze:
+        modifier = "breeze"
+    else:
+        return ""
+
+    variants = {
+        ("strong-wind", True): (
+            "それに、海風も強くなりそうで、のんびりはしにくそうっピ。",
+            "さらに風まで強まりそうで、海辺では落ち着きにくそうっピ。",
+            "おまけに海風も元気すぎそうで、快適さは下がりそうっピ。",
+        ),
+        ("strong-wind", False): (
+            "それに、海風も強くて、のんびりはしにくい状態っピ。",
+            "さらに風まで強く、海辺では落ち着きにくい状態っピ。",
+            "おまけに海風も元気すぎて、快適さは下がってるっピ。",
+        ),
+        ("rain", True): (
+            "それに、雨の気配もあって、海辺では過ごしにくそうっピ。",
+            "さらに雨もありそうで、のんびりするには手ごわそうっピ。",
+            "雨の心配も重なって、海辺の快適さは下がりそうっピ。",
+        ),
+        ("rain", False): (
+            "それに、雨の気配もあって、海辺では過ごしにくい状態っピ。",
+            "さらに雨もあって、のんびりするには手ごわいっピ。",
+            "雨も重なって、海辺の快適さは下がってるっピ。",
+        ),
+        ("cooling-breeze", True): (
+            "でも、日中より気温が下がって、海風もありそうっピ。",
+            "でも、昼間との気温差と海風で、少し助かりそうっピ。",
+            "でも、夕方は気温が下がり、風もあるぶん少し楽になりそうっピ。",
+        ),
+        ("cooling-breeze", False): (
+            "でも、日中より気温が下がって、海風も吹いてるっピ。",
+            "でも、昼間との気温差と海風で、少し助かるっピ。",
+            "でも、昼間より気温が低く、風もあるぶん少し楽っピ。",
+        ),
+        ("cooling", True): (
+            "でも、日中より気温が下がるぶん、昼間よりは楽になりそうっピ。",
+            "でも、夕方は気温が下がって、暑さが少し和らぎそうっピ。",
+            "でも、昼間との気温差があるぶん、少しほっとできそうっピ。",
+        ),
+        ("cooling", False): (
+            "でも、日中より気温が下がって、昼間よりは楽っピ。",
+            "でも、夕方になって気温が下がり、暑さは少し和らいでるっピ。",
+            "でも、昼間との気温差があるぶん、少しほっとするっピ。",
+        ),
+        ("breeze", True): (
+            "でも、海風があるぶん少し助かりそうっピ。",
+            "でも、風があるから、体感は少し楽になりそうっピ。",
+            "でも、海からの風が暑さを少しやわらげてくれそうっピ。",
+        ),
+        ("breeze", False): (
+            "でも、海風があるぶん少し助かるっピ。",
+            "でも、風があるから、体感は少し楽っピ。",
+            "でも、海からの風が暑さを少しやわらげてるっピ。",
+        ),
+    }[(modifier, prediction)]
+    return _comment_variant(
+        summary,
+        f"comfort-{modifier}-{'prediction' if prediction else 'actual'}",
+        variants,
+    )
+
+
+def _strong_wind_comment(summary: WeatherSummary, *, prediction: bool) -> str:
+    return _comment_variant(
+        summary,
+        "strong-wind-prediction" if prediction else "strong-wind-actual",
+        (
+            (
+                "風がびゅうびゅうになりそうっピ！"
+                "海辺ののんびり度が下がりそうっピ。"
+            ),
+            "海風が元気すぎるかもっピ！のんびりするには強そうっピ。",
+            (
+                "びゅーっと強い風になりそうっピ。"
+                "海辺の快適さが逃げちゃいそうっピ……。"
+            ),
+        )
+        if prediction
+        else (
+            "風がびゅうびゅうっピ！海辺ののんびり度が下がる状態っピ。",
+            "海風が元気すぎるっピ！のんびりするには強い風っピ。",
+            "びゅーっと強い風っピ。海辺の快適さが逃げちゃうっピ……。",
+        ),
     )
 
 

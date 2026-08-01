@@ -19,6 +19,7 @@ def test_parse_forecast_extracts_sunset_and_target_window(sample_summary):
     assert sample_summary.precipitation == 0
     assert sample_summary.visibility == 18000
     assert sample_summary.temperature_2m_at_run_time == 26.0
+    assert sample_summary.temperature_2m_daytime_max == 26.0
     assert sample_summary.sunset_snapshot_time.strftime("%H:%M") == "19:00"
     assert sample_summary.temperature_2m_at_sunset == 22.0
     assert sample_summary.relative_humidity_2m_at_sunset == 72.0
@@ -28,6 +29,21 @@ def test_parse_forecast_extracts_sunset_and_target_window(sample_summary):
     assert sample_summary.visibility_at_sunset_snapshot == 18000.0
     assert sample_summary.wind_speed_10m_at_sunset == 4.0
     assert sample_summary.wind_direction_10m_at_sunset == 190.0
+
+
+def test_parse_forecast_daytime_max_ignores_nighttime_temperature(sample_payload):
+    sample_payload["hourly"]["temperature_2m"][2] = 40.0
+    sample_payload["hourly"]["temperature_2m"][22] = 41.0
+
+    summary = parse_forecast(
+        sample_payload,
+        location_name="逗子海岸",
+        latitude=35.2956,
+        longitude=139.5736,
+        timezone="Asia/Tokyo",
+    )
+
+    assert summary.temperature_2m_daytime_max == 26.0
 
 
 def test_parse_forecast_selects_temperature_nearest_to_run_time(sample_payload):
