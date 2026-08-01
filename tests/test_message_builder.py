@@ -355,10 +355,8 @@ def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
     sunset_line, comfort_line = comment.splitlines()
     assert "夕焼け条件は元気がないっピ" in sunset_line
     assert "海辺" not in sunset_line
-    assert (
-        comfort_line
-        == "あれれ、夕方なのに暑いっピ！海辺の空気もまだむわっとしてるっピ。"
-    )
+    assert "海辺" in comfort_line
+    assert "暑" in comfort_line or "むしむし" in comfort_line
     assert "見込み" not in comment
 
 
@@ -410,7 +408,11 @@ def test_comment_marks_dry_high_precipitation_conflict_as_uncertain(sample_summa
 
     comment = build_comment(summary, scores, cloud)
 
-    assert "どっちになるか迷うっピ" in comment
+    assert "夕焼けは" in comment
+    assert "西の空" in comment
+    assert "自信は控えめっピ" in comment
+    assert "予報" not in comment
+    assert "数字" not in comment
 
 
 def test_13_comment_becomes_hesitant_when_rain_timing_changes(sample_summary):
@@ -423,10 +425,12 @@ def test_13_comment_becomes_hesitant_when_rain_timing_changes(sample_summary):
 
     comment = build_comment(summary, scores)
 
-    assert comment.splitlines() == [
-        "日没前後で雨の予報ががらっと変わるっピ。まだ言い切れないっピ……。",
-    ]
-    assert "大当たり" not in comment
+    assert len(comment.splitlines()) == 1
+    assert "夕焼けはすっごく期待できそうっピ" in comment
+    assert " でも、" in comment
+    assert "天気が変わりやすそうっピ" in comment
+    assert "予報" not in comment
+    assert "数字" not in comment
 
 
 def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
@@ -446,10 +450,12 @@ def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
         formula_sunset_score=40,
     )
 
-    assert comment.splitlines() == [
-        "目の前の空と予報の数字が反対方向っピ……。明るく言い切れないっピ。",
-    ]
-    assert "大当たり" not in comment
+    assert len(comment.splitlines()) == 1
+    assert "夕焼けはかなり楽しみっピ" in comment
+    assert " でも、" in comment
+    assert "目の前の空" in comment
+    assert "予報" not in comment
+    assert "数字" not in comment
 
 
 def test_non_scheduled_prediction_keeps_normal_confident_comment(sample_summary):
@@ -556,7 +562,7 @@ def test_sunset_and_comfort_details_rotate_across_three_dates(sample_summary):
             )
 
 
-def test_uncertainty_headline_and_detail_rotate_across_three_dates(sample_summary):
+def test_uncertainty_direction_and_caveat_rotate_across_dates(sample_summary):
     scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
     vision = VisionResult(
         sunset_score=85,
@@ -577,9 +583,12 @@ def test_uncertainty_headline_and_detail_rotate_across_three_dates(sample_summar
     assert len({lines[0] for lines in comments}) == 3
     assert all(len(lines) == 1 for lines in comments)
     assert all("海辺" not in lines[0] for lines in comments)
+    assert all("夕焼け" in lines[0] or "空の色" in lines[0] for lines in comments)
+    assert all("予報" not in lines[0] for lines in comments)
+    assert all("数字" not in lines[0] for lines in comments)
 
 
-def test_every_uncertainty_reason_has_three_variants(sample_summary):
+def test_every_uncertainty_reason_has_five_user_facing_variants(sample_summary):
     uncertainty_reasons = (
         "missing_values",
         "convective_weather",
@@ -597,11 +606,86 @@ def test_every_uncertainty_reason_has_three_variants(sample_summary):
                 reason,
                 replace(sample_summary, date=day, run_time="17:00"),
             )
-            for day in ("2026-07-29", "2026-07-30", "2026-07-31")
+            for day in (
+                "2026-07-29",
+                "2026-07-30",
+                "2026-07-31",
+                "2026-08-01",
+                "2026-08-02",
+            )
         }
 
-        assert len(details) == 3, (reason, details)
+        assert len(details) == 5, (reason, details)
         assert all("っピ" in detail for detail in details)
+        assert all("予報" not in detail for detail in details)
+        assert all("数字" not in detail for detail in details)
+
+
+def test_precipitation_disagreement_keeps_direction_and_uses_sky_language(
+    sample_summary,
+):
+    summary = replace(sample_summary, run_time="17:00", precipitation_probability=53)
+    scores = ScoreResult(sunset_score=76, sunset_label="A", chill_score=66, chill_label="B")
+    period_start = summary.sunset_time.replace(hour=18, minute=0)
+    jma = JmaPrecipitationForecast(
+        probability=10,
+        period_start=period_start,
+        period_end=period_start + timedelta(hours=6),
+        area_name="東部",
+        report_time=period_start.replace(hour=17),
+    )
+
+    comment = build_comment(summary, scores, jma_precipitation=jma)
+
+    assert "夕焼け" in comment or "空の色" in comment
+    assert " でも、" in comment
+    assert any(word in comment for word in ("空模様", "天気", "空が"))
+    assert "予報" not in comment
+    assert "数字" not in comment
+    assert "言い切れない" not in comment
+
+
+def test_precipitation_disagreement_does_not_repeat_between_adjacent_runs(
+    sample_summary,
+):
+    period_start = sample_summary.sunset_time.replace(hour=18, minute=0)
+    jma = JmaPrecipitationForecast(
+        probability=10,
+        period_start=period_start,
+        period_end=period_start + timedelta(hours=6),
+        area_name="東部",
+        report_time=period_start.replace(hour=17),
+    )
+    observations = (
+        ("2026-07-31", "17:00", 76),
+        ("2026-08-01", "13:00", 80),
+        ("2026-08-01", "17:00", 75),
+        ("2026-08-02", "13:00", 72),
+    )
+    comments = [
+        build_comment(
+            replace(
+                sample_summary,
+                date=day,
+                run_time=run_time,
+                precipitation_probability=53,
+            ),
+            ScoreResult(
+                sunset_score=score,
+                sunset_label="A",
+                chill_score=66,
+                chill_label="B",
+            ),
+            jma_precipitation=jma,
+        ).splitlines()[0]
+        for day, run_time, score in observations
+    ]
+
+    assert all(
+        current != following
+        for current, following in zip(comments, comments[1:], strict=False)
+    )
+    assert all("予報" not in comment for comment in comments)
 
 
 def test_wind_direction_label_boundaries():
