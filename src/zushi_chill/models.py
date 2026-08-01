@@ -41,6 +41,9 @@ class WeatherSummary:
     # LINEの天気参考値として表示する、実行時刻に最も近いhourly気温。
     # Chill指数は従来どおり apparent_temperature の対象時間帯平均を使う。
     temperature_2m_at_run_time: float | None = None
+    # 過ごしやすさコメントで夕方との気温差を見るための、6時〜日没の最高気温。
+    # 表示組み立て専用で、保存スキーマには含めない。
+    temperature_2m_daytime_max: float | None = None
     # 日没前の予測メッセージへ表示する、日没時刻に最も近いhourly行の値。
     # Sunset期待度・Chill指数は従来どおり対象時間帯の集計値を使う。
     sunset_snapshot_time: datetime | None = None
@@ -151,6 +154,7 @@ class PredictionRecord:
         # 実行時気温と逗子上空の雲スナップショットは表示組み立て用。日没時表示値は
         # 下で時刻・気象値と、日没方向の層別雲量に分けて保存する。
         data.pop("temperature_2m_at_run_time", None)
+        data.pop("temperature_2m_daytime_max", None)
         for field in (
             "cloud_cover_low_at_sunset",
             "cloud_cover_mid_at_sunset",

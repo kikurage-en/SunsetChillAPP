@@ -342,8 +342,134 @@ def test_comment_interprets_scores_and_high_apparent_temperature(sample_summary)
     sunset_line, comfort_line = comment.splitlines()
     assert "夕焼け" in sunset_line
     assert "海辺" not in sunset_line
-    assert comfort_line == "うわっ、むしむしっピ！海辺でもかなり暑く感じそうっピ。"
+    assert "気温" in comfort_line or "暑さ" in comfort_line
+    assert "日中" in comfort_line or "昼間" in comfort_line
+    assert "海風" in comfort_line or "風" in comfort_line
+    assert "むしむし" not in comfort_line
     assert "確認してください" not in comment
+
+
+def test_high_humidity_comment_combines_cooling_and_breeze(sample_summary):
+    summary = replace(
+        sample_summary,
+        apparent_temperature=34.4,
+        relative_humidity_2m_at_sunset=84,
+        temperature_2m_daytime_max=34,
+        temperature_2m_at_sunset=29,
+        wind_speed_10m_at_sunset=4.5,
+    )
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=50, chill_label="C")
+
+    comfort_line = build_comment(summary, scores).splitlines()[1]
+
+    assert any(word in comfort_line for word in ("湿度", "湿気", "むし暑"))
+    assert "日中" in comfort_line or "昼間" in comfort_line or "夕方" in comfort_line
+    assert "海風" in comfort_line or "風" in comfort_line
+
+
+def test_actual_high_humidity_comment_uses_current_cooling_and_breeze(sample_summary):
+    summary = replace(
+        sample_summary,
+        run_time="19:20",
+        apparent_temperature=34.4,
+        relative_humidity_2m_at_sunset=84,
+        temperature_2m_daytime_max=34,
+        temperature_2m_at_run_time=29,
+        wind_speed_10m_at_sunset=4.5,
+    )
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=45, chill_label="C")
+
+    comfort_line = build_comment(summary, scores, prediction=False).splitlines()[1]
+
+    assert any(word in comfort_line for word in ("湿度", "湿気", "むし暑"))
+    assert "日中" in comfort_line or "昼間" in comfort_line
+    assert "海風" in comfort_line or "風" in comfort_line
+    assert "なりそう" not in comfort_line
+    assert "ありそう" not in comfort_line
+
+
+def test_high_temperature_with_lower_humidity_does_not_claim_mugginess(sample_summary):
+    summary = replace(
+        sample_summary,
+        apparent_temperature=34.4,
+        relative_humidity_2m_at_sunset=60,
+        temperature_2m_daytime_max=30,
+        temperature_2m_at_sunset=29,
+        wind_speed_10m=2,
+        wind_speed_10m_at_sunset=2,
+    )
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=55, chill_label="C")
+
+    comfort_line = build_comment(summary, scores).splitlines()[1]
+
+    assert "気温" in comfort_line or "暑さ" in comfort_line or "熱気" in comfort_line
+    assert all(word not in comfort_line for word in ("湿度", "湿気", "むし", "むわ"))
+
+
+def test_high_heat_and_strong_wind_are_combined(sample_summary):
+    summary = replace(
+        sample_summary,
+        apparent_temperature=34.4,
+        relative_humidity_2m_at_sunset=82,
+        wind_speed_10m=9,
+    )
+    scores = ScoreResult(sunset_score=75, sunset_label="A", chill_score=40, chill_label="C")
+
+    comfort_line = build_comment(summary, scores).splitlines()[1]
+
+    assert any(word in comfort_line for word in ("湿度", "湿気", "むし暑"))
+    assert "風" in comfort_line
+    assert "助か" not in comfort_line
+
+
+def test_high_heat_and_rain_are_combined(sample_summary):
+    summary = replace(
+        sample_summary,
+        apparent_temperature=34.4,
+        relative_humidity_2m_at_sunset=82,
+        precipitation=1.5,
+        weather_code=61,
+        wind_speed_10m=2,
+        wind_speed_10m_at_sunset=2,
+    )
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=35, chill_label="D")
+
+    comfort_line = build_comment(summary, scores).splitlines()[1]
+
+    assert any(word in comfort_line for word in ("湿度", "湿気", "むし暑"))
+    assert "雨" in comfort_line
+
+
+def test_same_day_comfort_comments_vary_and_keep_multiple_factors(sample_summary):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=45, chill_label="C")
+    observations = (
+        ("13:00", True),
+        ("17:00", True),
+        ("19:20", False),
+    )
+    comments = [
+        build_comment(
+            replace(
+                sample_summary,
+                date="2026-08-01",
+                run_time=run_time,
+                apparent_temperature=34.4,
+                relative_humidity_2m_at_sunset=84,
+                temperature_2m_daytime_max=34,
+                temperature_2m_at_sunset=29,
+                temperature_2m_at_run_time=29,
+                wind_speed_10m_at_sunset=4.5,
+            ),
+            scores,
+            prediction=prediction,
+        ).splitlines()[1]
+        for run_time, prediction in observations
+    ]
+
+    assert len(set(comments)) == 3
+    assert all(any(word in comment for word in ("湿度", "湿気", "むし暑")) for comment in comments)
+    assert all(any(word in comment for word in ("日中", "昼間", "夕方")) for comment in comments)
+    assert all("海風" in comment or "風" in comment for comment in comments)
 
 
 def test_after_sunset_comment_uses_actual_state_wording(sample_summary):

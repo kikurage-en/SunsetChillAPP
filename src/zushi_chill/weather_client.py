@@ -218,6 +218,20 @@ def parse_forecast(
         len(times),
         allow_missing="temperature_2m" in allow_missing_fields,
     )
+    daytime_indexes = [
+        index
+        for index, item_time in enumerate(times)
+        if item_time.date() == sunset_time.date()
+        and item_time.hour >= 6
+        and item_time <= sunset_time
+    ]
+    daytime_temperatures = _values_for_indexes(
+        hourly,
+        "temperature_2m",
+        daytime_indexes,
+        len(times),
+        allow_missing="temperature_2m" in allow_missing_fields,
+    )
 
     return WeatherSummary(
         date=sunset_time.date().isoformat(),
@@ -257,6 +271,7 @@ def parse_forecast(
             if run_time_temperature is not None
             else _mean(values["temperature_2m"])
         ),
+        temperature_2m_daytime_max=max(daytime_temperatures),
         sunset_snapshot_time=times[sunset_snapshot_index],
         temperature_2m_at_sunset=sunset_snapshot["temperature_2m"],
         relative_humidity_2m_at_sunset=sunset_snapshot["relative_humidity_2m"],

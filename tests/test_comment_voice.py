@@ -34,5 +34,19 @@ def test_apply_comment_voice_only_suffixes_explanation_after_interjection():
     )
 
 
+def test_apply_comment_voice_normalizes_pi_nee_to_single_bright_suffix():
+    assert (
+        apply_comment_voice("わあっ！空がまだ、きれいなピンク色に染まってるっピねぇ……。")
+        == "わあっ！空がまだ、きれいなピンク色に染まってるっピ！"
+    )
+
+
+def test_apply_comment_voice_repairs_already_duplicated_pi_nee_suffix():
+    assert (
+        apply_comment_voice("わあっ！空がまだ、きれいなピンク色に染まってるっピねぇっピ……。")
+        == "わあっ！空がまだ、きれいなピンク色に染まってるっピ！"
+    )
+
+
 def test_apply_comment_voice_leaves_hesitation_without_suffix():
     assert apply_comment_voice("うーん……") == "うーん……"

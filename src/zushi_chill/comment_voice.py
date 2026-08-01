@@ -15,6 +15,14 @@ def apply_comment_voice(text: str) -> str:
     comment = text.strip()
     if not comment:
         return comment
+
+    # モデルが「っピねぇ……」と語尾を重ねた場合は、明るい一語尾へ整える。
+    # すでに二重化した「っピねぇっピ……」も同じ形へ戻す。
+    comment = re.sub(
+        r"っピね[ぇえ](?:っピ)?(?:…{2,}[。.]?|[。！？!?]+)",
+        "っピ！",
+        comment,
+    )
     has_terminal_punctuation = bool(re.search(r"(?:[。！？!?]|…{2,})$", comment))
 
     protected: list[str] = []
