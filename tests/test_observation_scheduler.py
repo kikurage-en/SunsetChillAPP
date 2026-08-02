@@ -201,6 +201,7 @@ def test_scheduler_samples_afterglow_window_and_dispatches_vision_winner(tmp_pat
     assert Path(job.capture_path).read_bytes() == b"purple"
     assert sequence_calls[0]["duration_seconds"] == 300
     assert sequence_calls[0]["interval_seconds"] == 30
+    assert sequence_calls[0]["fallback_interval_seconds"] == 60
     assert [path.read_bytes() for path in vision_calls[0]["image_paths"]] == [
         b"orange",
         b"purple",
@@ -457,12 +458,14 @@ def test_scheduler_settings_parse_afterglow_window(monkeypatch, tmp_path):
     monkeypatch.setenv("AFTERGLOW_OFFSET_MINUTES", "20")
     monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "5")
     monkeypatch.setenv("AFTERGLOW_CAPTURE_INTERVAL_SECONDS", "30")
+    monkeypatch.setenv("AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS", "60")
     monkeypatch.setenv("AFTERGLOW_PREFILTER_CANDIDATES", "3")
 
     settings = SchedulerSettings.from_env()
 
     assert settings.afterglow_window_minutes == 5
     assert settings.afterglow_capture_interval_seconds == 30
+    assert settings.afterglow_thumbnail_interval_seconds == 60
     assert settings.afterglow_prefilter_candidates == 3
 
     monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "21")
@@ -477,6 +480,7 @@ def _scheduler_settings(tmp_path, *, capture_max_delay_minutes=60):
         afterglow_offset_minutes=20,
         afterglow_window_minutes=5,
         afterglow_capture_interval_seconds=30,
+        afterglow_thumbnail_interval_seconds=60,
         afterglow_prefilter_candidates=3,
         capture_max_delay_minutes=capture_max_delay_minutes,
         run_visibility_grace_seconds=120,

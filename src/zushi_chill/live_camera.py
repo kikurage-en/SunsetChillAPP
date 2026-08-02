@@ -40,11 +40,16 @@ def capture_live_camera_image(
     output_path: str | Path,
     live_camera_video_id: str = "",
     timeout_seconds: int = 20,
+    youtube_cookies_path: str = "",
 ) -> None:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    stream_url = _resolve_stream_url(live_camera_url, timeout_seconds=timeout_seconds)
+    stream_url = _resolve_stream_url(
+        live_camera_url,
+        timeout_seconds=timeout_seconds,
+        youtube_cookies_path=youtube_cookies_path,
+    )
     if stream_url and _capture_stream_frame(
         stream_url,
         output_path=output,
@@ -69,15 +74,18 @@ def capture_live_camera_sequence(
     capture_started_at: datetime,
     duration_seconds: int,
     interval_seconds: int,
+    fallback_interval_seconds: int | None = None,
     live_camera_video_id: str = "",
     timeout_seconds: int = 20,
+    youtube_cookies_path: str = "",
 ) -> tuple[LiveCameraFrame, ...]:
     """Capture live-camera frames throughout one bounded observation window.
 
     The stream URL is resolved once and one ffmpeg process samples it at the
     requested interval. If the stream is unavailable, live thumbnails are
-    fetched on the same cadence. Existing ``frame-*.jpg`` files in the target
-    directory are generated retry artifacts and are replaced.
+    fetched at ``fallback_interval_seconds`` (or the stream cadence when it is
+    omitted). Existing ``frame-*.jpg`` files in the target directory are
+    generated retry artifacts and are replaced.
     """
     if capture_started_at.tzinfo is None:
         raise ValueError("capture_started_at must include a timezone")
@@ -85,20 +93,26 @@ def capture_live_camera_sequence(
         raise ValueError("duration_seconds must be positive")
     if interval_seconds <= 0:
         raise ValueError("interval_seconds must be positive")
+    if fallback_interval_seconds is not None and fallback_interval_seconds <= 0:
+        raise ValueError("fallback_interval_seconds must be positive")
 
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
     for old_frame in output.glob("frame-*.jpg"):
         old_frame.unlink(missing_ok=True)
 
-    frame_count = max(1, round(duration_seconds / interval_seconds) + 1)
-    stream_url = _resolve_stream_url(live_camera_url, timeout_seconds=timeout_seconds)
+    stream_frame_count = max(1, round(duration_seconds / interval_seconds) + 1)
+    stream_url = _resolve_stream_url(
+        live_camera_url,
+        timeout_seconds=timeout_seconds,
+        youtube_cookies_path=youtube_cookies_path,
+    )
     if stream_url:
         frames = _capture_stream_sequence(
             stream_url,
             output_directory=output,
             capture_started_at=capture_started_at,
-            frame_count=frame_count,
+            frame_count=stream_frame_count,
             interval_seconds=interval_seconds,
             timeout_seconds=timeout_seconds,
         )
@@ -106,12 +120,17 @@ def capture_live_camera_sequence(
             return frames
 
     if live_camera_video_id:
+        thumbnail_interval_seconds = fallback_interval_seconds or interval_seconds
+        thumbnail_frame_count = max(
+            1,
+            round(duration_seconds / thumbnail_interval_seconds) + 1,
+        )
         frames = _capture_thumbnail_sequence(
             live_camera_video_id,
             output_directory=output,
             capture_started_at=capture_started_at,
-            frame_count=frame_count,
-            interval_seconds=interval_seconds,
+            frame_count=thumbnail_frame_count,
+            interval_seconds=thumbnail_interval_seconds,
             duration_seconds=duration_seconds,
             timeout_seconds=timeout_seconds,
         )
@@ -121,7 +140,12 @@ def capture_live_camera_sequence(
     raise LiveCameraError("Live camera sequence capture failed")
 
 
-def _resolve_stream_url(live_camera_url: str, *, timeout_seconds: int) -> str:
+def _resolve_stream_url(
+    live_camera_url: str,
+    *,
+    timeout_seconds: int,
+    youtube_cookies_path: str = "",
+) -> str:
     if not live_camera_url.strip():
         return ""
     command = [
@@ -132,8 +156,10 @@ def _resolve_stream_url(live_camera_url: str, *, timeout_seconds: int) -> str:
         "--format",
         "best[protocol^=m3u8]/best",
         "--get-url",
-        live_camera_url.strip(),
     ]
+    if youtube_cookies_path:
+        command.extend(["--cookies", youtube_cookies_path])
+    command.append(live_camera_url.strip())
     try:
         completed = subprocess.run(
             command,

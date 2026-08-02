@@ -89,6 +89,7 @@ def test_settings_strips_string_environment_values(monkeypatch):
     monkeypatch.setenv("LIVE_CAMERA_URL", " https://youtube.example/watch ")
     monkeypatch.setenv("LIVE_CAMERA_VIDEO_ID", " video-id ")
     monkeypatch.setenv("LIVE_CAMERA_PUBLIC_DIR", " /var/www/zushi-chill/public ")
+    monkeypatch.setenv("YOUTUBE_COOKIES_PATH", " /var/lib/zushi-chill/secrets/youtube.txt ")
     monkeypatch.setenv("CSV_PATH", " logs/test.csv ")
     monkeypatch.setenv("GOOGLE_SHEETS_SPREADSHEET_ID", " sheet-id ")
     monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", ' {"type":"service_account"} ')
@@ -106,6 +107,7 @@ def test_settings_strips_string_environment_values(monkeypatch):
     assert settings.live_camera_url == "https://youtube.example/watch"
     assert settings.live_camera_video_id == "video-id"
     assert settings.live_camera_public_dir == "/var/www/zushi-chill/public"
+    assert settings.youtube_cookies_path == "/var/lib/zushi-chill/secrets/youtube.txt"
     assert settings.csv_path == "logs/test.csv"
     assert settings.google_sheets_spreadsheet_id == "sheet-id"
     assert settings.google_service_account_json == '{"type":"service_account"}'
@@ -121,6 +123,13 @@ def test_settings_validates_dry_run_bool(monkeypatch):
     monkeypatch.setenv("DRY_RUN", "maybe")
 
     with pytest.raises(ConfigError, match="DRY_RUN"):
+        Settings.from_env()
+
+
+def test_settings_rejects_relative_youtube_cookies_path(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_COOKIES_PATH", "secrets/youtube.txt")
+
+    with pytest.raises(ConfigError, match="YOUTUBE_COOKIES_PATH"):
         Settings.from_env()
 
 

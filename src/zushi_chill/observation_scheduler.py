@@ -54,6 +54,7 @@ class SchedulerSettings:
     afterglow_offset_minutes: int
     afterglow_window_minutes: int
     afterglow_capture_interval_seconds: int
+    afterglow_thumbnail_interval_seconds: int
     afterglow_prefilter_candidates: int
     capture_max_delay_minutes: int
     run_visibility_grace_seconds: int
@@ -73,6 +74,10 @@ class SchedulerSettings:
             "AFTERGLOW_CAPTURE_INTERVAL_SECONDS",
             default=30,
         )
+        afterglow_thumbnail_interval_seconds = _positive_int(
+            "AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS",
+            default=60,
+        )
         if afterglow_window_minutes > afterglow_offset_minutes:
             raise ConfigError(
                 "AFTERGLOW_WINDOW_MINUTES cannot exceed AFTERGLOW_OFFSET_MINUTES"
@@ -82,6 +87,10 @@ class SchedulerSettings:
         if afterglow_capture_interval_seconds > afterglow_window_minutes * 60:
             raise ConfigError(
                 "AFTERGLOW_CAPTURE_INTERVAL_SECONDS cannot exceed the afterglow window"
+            )
+        if afterglow_thumbnail_interval_seconds > afterglow_window_minutes * 60:
+            raise ConfigError(
+                "AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS cannot exceed the afterglow window"
             )
         return cls(
             database_path=Path(
@@ -96,6 +105,7 @@ class SchedulerSettings:
             afterglow_offset_minutes=afterglow_offset_minutes,
             afterglow_window_minutes=afterglow_window_minutes,
             afterglow_capture_interval_seconds=afterglow_capture_interval_seconds,
+            afterglow_thumbnail_interval_seconds=afterglow_thumbnail_interval_seconds,
             afterglow_prefilter_candidates=_positive_int(
                 "AFTERGLOW_PREFILTER_CANDIDATES",
                 default=3,
@@ -429,6 +439,7 @@ class ObservationScheduler:
                 live_camera_video_id=self.app_settings.live_camera_video_id,
                 output_path=temporary_path,
                 timeout_seconds=self.app_settings.live_camera_capture_timeout_seconds,
+                youtube_cookies_path=self.app_settings.youtube_cookies_path,
             )
             if not temporary_path.exists() or temporary_path.stat().st_size == 0:
                 raise RuntimeError("Capture command returned without a non-empty image")
@@ -475,7 +486,11 @@ class ObservationScheduler:
             capture_started_at=capture_started_at,
             duration_seconds=remaining_seconds,
             interval_seconds=self.scheduler_settings.afterglow_capture_interval_seconds,
+            fallback_interval_seconds=(
+                self.scheduler_settings.afterglow_thumbnail_interval_seconds
+            ),
             timeout_seconds=self.app_settings.live_camera_capture_timeout_seconds,
+            youtube_cookies_path=self.app_settings.youtube_cookies_path,
         )
         ranked = self._rank_afterglow(frames)
         finalists = ranked[: self.scheduler_settings.afterglow_prefilter_candidates]

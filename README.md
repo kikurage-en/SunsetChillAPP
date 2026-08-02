@@ -35,6 +35,7 @@ LIVE_CAMERA_IMAGE_URL=
 LIVE_CAMERA_PREVIEW_IMAGE_URL=
 LIVE_CAMERA_PUBLIC_DIR=public
 LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS=20
+YOUTUBE_COOKIES_PATH=
 STORAGE_BACKEND=csv
 CSV_PATH=logs/chill_predictions.csv
 GOOGLE_SHEETS_SPREADSHEET_ID=...
@@ -56,6 +57,7 @@ GITHUB_TOKEN=
 AFTERGLOW_OFFSET_MINUTES=20
 AFTERGLOW_WINDOW_MINUTES=5
 AFTERGLOW_CAPTURE_INTERVAL_SECONDS=30
+AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS=60
 AFTERGLOW_PREFILTER_CANDIDATES=3
 VISION_ENABLED=false
 VISION_API_KEY=
@@ -144,7 +146,9 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブはContabo側で `LIVE_CAMERA_URL` のYouTubeライブから撮影します。日没時は1フレーム、残照はストリームURLを1回だけ解決して1本のffmpegプロセスから30秒間隔で撮影します。残照候補はSHA-256で重複除外し、橙・赤・紫の範囲・彩度・露出によるローカル評価の上位3枚を候補にします。Contaboの `.env` でも `VISION_ENABLED=true` と `VISION_API_KEY` を設定し、候補時刻が `VISION_TARGET_HOURS` に含まれる場合は、候補3枚を1回のVisionリクエストで比較します。未設定・対象時刻外・比較失敗時はローカル1位へフォールバックします。
 
-選定画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも選定済みの同一画像を処理します。全ジョブとも選定画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックし、残照窓では30秒間隔で繰り返します。同一サムネイルが続いた場合は1候補として扱います。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+選定画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも選定済みの同一画像を処理します。全ジョブとも選定画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックし、残照窓では既定60秒間隔で繰り返します。同一サムネイルが続いた場合は1候補として扱います。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
+
+ContaboのIPがYouTubeからbot確認を要求された場合は、専用アカウントからNetscape形式で書き出したYouTube CookieをContaboの権限600のファイルへ置き、その絶対パスを `YOUTUBE_COOKIES_PATH` に設定できます。CookieファイルはGitへ登録せず、通常利用するGoogleアカウントのCookieも使用しません。
 
 画像の長期保存元は `pages-images` branchです。加えて、各実行のArtifactを90日保持します。Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。Pagesを履歴branchから再構築する場合は `Publish image history` workflowを手動実行します。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 
@@ -204,7 +208,8 @@ journalctl -u zushi-chill-observation-scheduler.service
 永続状態は既定で `/var/lib/zushi-chill/observation_jobs.sqlite3`、撮影画像は
 `/var/lib/zushi-chill/spool` に置きます。残照窓は `AFTERGLOW_OFFSET_MINUTES`（終点、既定20）、
 `AFTERGLOW_WINDOW_MINUTES`（長さ、既定5・最大5）、`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`
-（既定30）、`AFTERGLOW_PREFILTER_CANDIDATES`（Vision比較へ渡すローカル上位数、既定3）で
+（ストリーム時、既定30）、`AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS`（サムネイル時、既定60）、
+`AFTERGLOW_PREFILTER_CANDIDATES`（Vision比較へ渡すローカル上位数、既定3）で
 変更できます。候補画像と選定根拠は日付別spoolの `afterglow/candidates/` と
 `afterglow/selection.json` に残します。
 workflow dispatch全体の入力上限に収めるため、日没連動画像は最大45KBです。これを超える画像は

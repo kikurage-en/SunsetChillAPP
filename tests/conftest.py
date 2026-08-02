@@ -35,6 +35,8 @@ def isolate_ci_job_env(monkeypatch):
         "LIVE_CAMERA_VIDEO_ID",
         "LIVE_CAMERA_IMAGE_BASE_URL",
         "LIVE_CAMERA_IMAGE_URL",
+        "YOUTUBE_COOKIES_PATH",
+        "AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS",
         "JMA_FORECAST_ENABLED",
         "JMA_OFFICE_CODE",
         "JMA_AREA_CODE",

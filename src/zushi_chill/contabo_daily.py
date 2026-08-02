@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
                 live_camera_video_id=settings.live_camera_video_id,
                 output_path=Path(settings.live_camera_public_dir) / relative_path,
                 timeout_seconds=settings.live_camera_capture_timeout_seconds,
+                youtube_cookies_path=settings.youtube_cookies_path,
             )
             os.environ["LIVE_CAMERA_IMAGE_URL"] = build_capture_url(
                 settings.live_camera_image_base_url,

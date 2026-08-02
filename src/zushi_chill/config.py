@@ -55,6 +55,7 @@ class Settings:
     live_camera_video_id: str = ""
     live_camera_public_dir: str = "public"
     live_camera_capture_timeout_seconds: int = 20
+    youtube_cookies_path: str = ""
     webhook_host: str = "127.0.0.1"
     webhook_port: int = 8080
     vision_enabled: bool = False
@@ -117,6 +118,9 @@ class Settings:
             "LIVE_CAMERA_CAPTURE_TIMEOUT_SECONDS",
             default=20,
         )
+        youtube_cookies_path = _env("YOUTUBE_COOKIES_PATH", "")
+        if youtube_cookies_path and not Path(youtube_cookies_path).is_absolute():
+            raise ConfigError("YOUTUBE_COOKIES_PATH must be an absolute path")
         webhook_port = _positive_int_from_env("WEBHOOK_PORT", default=8080)
         if webhook_port > 65535:
             raise ConfigError("WEBHOOK_PORT must be between 1 and 65535")
@@ -162,6 +166,7 @@ class Settings:
             live_camera_video_id=_env("LIVE_CAMERA_VIDEO_ID", ""),
             live_camera_public_dir=_env("LIVE_CAMERA_PUBLIC_DIR", "public"),
             live_camera_capture_timeout_seconds=live_camera_capture_timeout_seconds,
+            youtube_cookies_path=youtube_cookies_path,
             webhook_host=_env("WEBHOOK_HOST", "127.0.0.1"),
             webhook_port=webhook_port,
             vision_enabled=_bool_from_env(_env("VISION_ENABLED", "")),

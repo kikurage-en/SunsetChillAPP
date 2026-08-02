@@ -21,10 +21,10 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 
 **運用反映**: `main` がTruth Sourceで、GitHub Actions `daily_chill.yml` は `GITHUB_REF=main` を実行する。Contabo上のcheckoutはpushだけでは更新されないため、反映時に `git pull` が必要。13:00 / 17:00の固定cronは維持し、日没連動ジョブはsystemdの毎分timerとSQLite永続キューへ移行する。保存スキーマは74列で、Google Sheetsの旧ヘッダーと列幅は次回実行時に自動移行する。
 
-**2026-08-01 残照ベストショット選定（コード実装済み・本番反映待ち）**: 日没+20分の
+**2026-08-02 残照ベストショット選定（本番確認済み）**: 日没+20分の
 `scheduled_at` はログ互換のため維持し、永続スケジューラが5分先読みして日没+15分から
 撮影を開始する。ストリーム取得時は1本のffmpegプロセスから30秒間隔で最大11枚、
-ストリーム解決失敗時はキャッシュ回避付きライブサムネイルを同間隔で取得する。
+ストリーム解決失敗時はキャッシュ回避付きライブサムネイルを取得する。
 SHA-256重複除外後、橙・赤・紫の発色範囲・彩度・露出によるローカル評価で上位3枚へ絞り、
 Contabo側でVisionが有効なら1回の複数画像比較でベストを選ぶ。比較失敗時はローカル1位、
 撮影窓に間に合わなかった場合は従来どおり1枚撮影へフォールバックする。選定後は従来の
@@ -32,10 +32,9 @@ Contabo側でVisionが有効なら1回の複数画像比較でベストを選ぶ
 `selection.json` に全候補の時刻・ハッシュ・ローカル点・選定方式を保存する。
 5分間のoneshotを許容するためsystemd unitは `TimeoutStartSec=10min` とする。
 
-本番反映時のユーザー実行タスクは、mainへの反映後にContaboで `git pull --ff-only`、
-`.venv/bin/pip install --upgrade -e . yt-dlp`、
-`scripts/install_observation_scheduler.sh` を実行し、Contaboの `.env` に新しい残照設定を追加、
-AI比較を使う場合は同環境でも `VISION_ENABLED=true` / `VISION_API_KEY` を設定すること。
+PR #16（merge commit `7022e03`）をmainとContaboへ反映し、2026-08-02は日没+15〜+20分に
+11回取得した。サムネイル更新が遅く重複除外後は2枚だったが、ContaboのGemini比較で
+18:59の候補を選び、Actions run `30743008254` とLINE送信が成功した。
 旧+20分単発の画像代理値とベストショット代理値は対象が変わるため、前向き検証では
 2026-08-01実装の本番導入日を境に別期間として扱う。
 
@@ -76,6 +75,12 @@ Pagesだけを履歴branchから再構築する `Publish image history` workflow
 失敗した。ただしライブサムネイルの取得は成功し、1280×720のJPEGとして検証済み。
 今夜の欠測防止はこのフォールバックで機能するが、画像の元時刻が取得時刻と完全一致する
 保証はない。ストリーム実フレーム化はCookie等の認証情報を安全に管理する別対策が必要。
+
+**2026-08-02 YouTube bot判定対策**: 最新yt-dlp `2026.07.04`、`web_safari`、
+bgutil PO Token Provider 1.3.1をContaboで順に実測したが、いずれも同じbot確認で失敗した。
+Providerは効果がなく、実行依存のnpm監査で高重要度警告も検出したため導入物を削除した。
+次段階として、リポジトリ外の権限600のNetscape形式Cookieを `YOUTUBE_COOKIES_PATH` で
+yt-dlpへ渡す対応と、ストリーム失敗時だけサムネイル取得を既定60秒間隔へ下げる対応を進める。
 
 **2026-07-22運用確認**: Contaboのcheckoutを最新`main`へ同期した。最新workflowのdry-run（Actions run `29842953215`、commit `f62c6b5`）は、ruff 0.4.10、全214テスト、画像取得・Artifact保存・Pages公開、気象庁降水確率20%を含む新形式メッセージ生成、Google Sheets保存まで成功し、通常LINEと失敗通知はともにスキップされた。先行run `29842513490` で判明したruff版差によるlint失敗は `b4c9423` で修正し、dry-run失敗時にもLINE通知しない条件を `f62c6b5` と契約テストで固定した。
 

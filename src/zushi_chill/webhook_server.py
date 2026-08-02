@@ -103,6 +103,7 @@ def _handler_class(settings: Settings):
                     live_camera_video_id=settings.live_camera_video_id,
                     output_path=image_path,
                     timeout_seconds=settings.live_camera_capture_timeout_seconds,
+                    youtube_cookies_path=settings.youtube_cookies_path,
                 )
                 image_url = build_capture_url(settings.live_camera_image_base_url, relative_path)
                 line_client.reply_image(reply_token, image_url=image_url)
