@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -178,15 +179,99 @@ def analyze_image(
         timeout_seconds=timeout_seconds,
     )
     encoded = base64.b64encode(image_bytes).decode("ascii")
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"inline_data": {"mime_type": "image/jpeg", "data": encoded}},
-                    {"text": build_prompt(capture_time=capture_time, sunset_time=sunset_time)},
-                ]
-            }
+    raw = _generate_content(
+        parts=[
+            {"inline_data": {"mime_type": "image/jpeg", "data": encoded}},
+            {"text": build_prompt(capture_time=capture_time, sunset_time=sunset_time)},
         ],
+        api_key=api_key,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+
+    phase = (
+        vision_evaluation_phase(capture_time, sunset_time)
+        if capture_time is not None and sunset_time is not None
+        else ""
+    )
+    return _parse_response(raw, model=model, evaluation_phase=phase)
+
+
+def select_best_afterglow_image(
+    *,
+    image_paths: Sequence[Path],
+    capture_times: Sequence[datetime],
+    api_key: str,
+    model: str = "gemini-2.5-flash",
+    timeout_seconds: int = 30,
+) -> int:
+    """Return the zero-based index of the most beautiful afterglow candidate."""
+    if not api_key:
+        raise VisionError("VISION_API_KEY is required to compare afterglow images")
+    if not image_paths or len(image_paths) != len(capture_times):
+        raise VisionError("Afterglow image paths and capture times must have equal length")
+
+    parts: list[dict[str, Any]] = [
+        {
+            "text": (
+                "以下は同じ日の逗子海岸で日没後の短い時間帯に連続撮影した候補画像です。"
+                "橙・赤・紫の鮮やかさと空に占める発色範囲、階調、雲への光の広がりを"
+                "比較し、最も美しい夕焼けの1枚を選んでください。暗いだけの画像、"
+                "白飛び、単なる青空、雨や灰色の雲は高く評価しないでください。"
+                "撮影時刻の早い遅い自体は評価理由にしないでください。"
+                "次のJSONだけを返してください: {\"best_index\": 1から候補数の整数}"
+            )
+        }
+    ]
+    for index, (image_path, capture_time) in enumerate(
+        zip(image_paths, capture_times, strict=True),
+        start=1,
+    ):
+        try:
+            image = image_path.read_bytes()
+        except OSError as exc:
+            raise VisionError(f"Failed to read candidate image {image_path}: {exc}") from exc
+        if not image:
+            raise VisionError(f"Candidate image is empty: {image_path}")
+        parts.extend(
+            [
+                {"text": f"候補{index}（撮影時刻 {capture_time.strftime('%H:%M:%S')}）"},
+                {
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": base64.b64encode(image).decode("ascii"),
+                    }
+                },
+            ]
+        )
+
+    raw = _generate_content(
+        parts=parts,
+        api_key=api_key,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+    try:
+        parsed = json.loads(_response_text(raw))
+        best_index = int(parsed["best_index"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise VisionError(f"Gemini returned an invalid afterglow selection: {raw}") from exc
+    if not 1 <= best_index <= len(image_paths):
+        raise VisionError(
+            f"Gemini selected candidate {best_index}, expected 1-{len(image_paths)}"
+        )
+    return best_index - 1
+
+
+def _generate_content(
+    *,
+    parts: list[dict[str, Any]],
+    api_key: str,
+    model: str,
+    timeout_seconds: int,
+) -> Any:
+    payload = {
+        "contents": [{"parts": parts}],
         "generationConfig": {"responseMimeType": "application/json"},
     }
     url = f"{GEMINI_API_BASE}/{model}:generateContent?key={api_key}"
@@ -204,13 +289,14 @@ def analyze_image(
             raw = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise VisionError(f"Gemini request failed: {exc}") from exc
+    return raw
 
-    phase = (
-        vision_evaluation_phase(capture_time, sunset_time)
-        if capture_time is not None and sunset_time is not None
-        else ""
-    )
-    return _parse_response(raw, model=model, evaluation_phase=phase)
+
+def _response_text(raw: Any) -> str:
+    try:
+        return str(raw["candidates"][0]["content"]["parts"][0]["text"])
+    except (KeyError, IndexError, TypeError) as exc:
+        raise VisionError(f"Unexpected Gemini response shape: {raw}") from exc
 
 
 def _load_image_bytes(

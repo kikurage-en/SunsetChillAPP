@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from zushi_chill.afterglow_selector import RankedAfterglowCandidate
 from zushi_chill.config import Settings
 from zushi_chill.github_capture_store import WorkflowRun
+from zushi_chill.live_camera import LiveCameraFrame
 from zushi_chill.observation_scheduler import (
     ObservationJobStore,
     ObservationScheduler,
@@ -126,6 +132,150 @@ def test_scheduler_captures_freshest_phase_first_when_both_are_due(tmp_path):
     scheduler.tick(now=clock[0])
 
     assert captured_phases == ["afterglow", "sunset"]
+
+
+def test_scheduler_samples_afterglow_window_and_dispatches_vision_winner(tmp_path):
+    clock = [datetime(2026, 7, 26, 19, 5, tzinfo=JST)]
+    github = FakeGitHub()
+    store = ObservationJobStore(tmp_path / "jobs.sqlite3")
+    sequence_calls = []
+    vision_calls = []
+
+    def capture_sequence(**kwargs):
+        sequence_calls.append(kwargs)
+        candidate_dir = Path(kwargs["output_directory"])
+        candidate_dir.mkdir(parents=True)
+        frames = []
+        for index, image in enumerate((b"orange", b"purple", b"gray")):
+            path = candidate_dir / f"frame-{index + 1:03d}.jpg"
+            path.write_bytes(image)
+            frames.append(
+                LiveCameraFrame(
+                    path=path,
+                    captured_at=clock[0] + timedelta(seconds=index * 30),
+                )
+            )
+        return tuple(frames)
+
+    def rank_afterglow(frames):
+        return tuple(
+            RankedAfterglowCandidate(
+                frame=frame,
+                local_score=90 - index * 10,
+                sha256=hashlib.sha256(frame.path.read_bytes()).hexdigest(),
+            )
+            for index, frame in enumerate(frames)
+        )
+
+    def select_best_afterglow(**kwargs):
+        vision_calls.append(kwargs)
+        return 1
+
+    scheduler = ObservationScheduler(
+        app_settings=replace(
+            _app_settings(),
+            vision_enabled=True,
+            vision_api_key="vision-key",
+        ),
+        scheduler_settings=_scheduler_settings(tmp_path),
+        store=store,
+        github=github,
+        now=lambda: clock[0],
+        capture_sequence=capture_sequence,
+        rank_afterglow=rank_afterglow,
+        select_best_afterglow=select_best_afterglow,
+    )
+    scheduler.ensure_daily_jobs(clock[0].date(), now=clock[0])
+    store.update(
+        "2026-07-26:sunset",
+        now=clock[0],
+        status="completed",
+        completed_at=clock[0],
+    )
+
+    scheduler.tick(now=clock[0])
+
+    job = store.get("2026-07-26:afterglow")
+    assert job.scheduled_at == datetime(2026, 7, 26, 19, 10, tzinfo=JST)
+    assert job.captured_at == clock[0] + timedelta(seconds=30)
+    assert Path(job.capture_path).read_bytes() == b"purple"
+    assert sequence_calls[0]["duration_seconds"] == 300
+    assert sequence_calls[0]["interval_seconds"] == 30
+    assert [path.read_bytes() for path in vision_calls[0]["image_paths"]] == [
+        b"orange",
+        b"purple",
+        b"gray",
+    ]
+    assert base64.b64decode(github.dispatched[0]["inputs"]["capture_base64"]) == b"purple"
+    manifest = json.loads(
+        (tmp_path / "spool/2026-07-26/afterglow/selection.json").read_text()
+    )
+    assert manifest["selection_method"] == "vision_comparison"
+    assert manifest["selected_sha256"] == hashlib.sha256(b"purple").hexdigest()
+
+
+def test_scheduler_uses_local_afterglow_winner_when_vision_comparison_fails(tmp_path):
+    now = datetime(2026, 7, 26, 19, 5, tzinfo=JST)
+    store = ObservationJobStore(tmp_path / "jobs.sqlite3")
+
+    def capture_sequence(**kwargs):
+        candidate_dir = Path(kwargs["output_directory"])
+        candidate_dir.mkdir(parents=True)
+        frames = []
+        for index, image in enumerate((b"local-winner", b"runner-up")):
+            path = candidate_dir / f"frame-{index + 1:03d}.jpg"
+            path.write_bytes(image)
+            frames.append(
+                LiveCameraFrame(
+                    path=path,
+                    captured_at=now + timedelta(seconds=index * 30),
+                )
+            )
+        return tuple(frames)
+
+    def rank_afterglow(frames):
+        return tuple(
+            RankedAfterglowCandidate(
+                frame=frame,
+                local_score=90 - index * 20,
+                sha256=hashlib.sha256(frame.path.read_bytes()).hexdigest(),
+            )
+            for index, frame in enumerate(frames)
+        )
+
+    def fail_vision_comparison(**kwargs):
+        raise RuntimeError("vision unavailable")
+
+    scheduler = ObservationScheduler(
+        app_settings=replace(
+            _app_settings(),
+            vision_enabled=True,
+            vision_api_key="vision-key",
+        ),
+        scheduler_settings=_scheduler_settings(tmp_path),
+        store=store,
+        github=FakeGitHub(),
+        now=lambda: now,
+        capture_sequence=capture_sequence,
+        rank_afterglow=rank_afterglow,
+        select_best_afterglow=fail_vision_comparison,
+    )
+    scheduler.ensure_daily_jobs(now.date(), now=now)
+    store.update(
+        "2026-07-26:sunset",
+        now=now,
+        status="completed",
+        completed_at=now,
+    )
+
+    scheduler.tick(now=now)
+
+    job = store.get("2026-07-26:afterglow")
+    assert Path(job.capture_path).read_bytes() == b"local-winner"
+    manifest = json.loads(
+        (tmp_path / "spool/2026-07-26/afterglow/selection.json").read_text()
+    )
+    assert manifest["selection_method"] == "local_color"
 
 
 def test_scheduler_refuses_to_dispatch_a_capture_whose_checksum_changed(tmp_path):
@@ -301,11 +451,33 @@ def test_afterglow_retry_becomes_log_only_before_line_retry_key_expires(tmp_path
     assert github.dispatched[-1]["inputs"]["manual_mode"] == "dry_run"
 
 
+def test_scheduler_settings_parse_afterglow_window(monkeypatch, tmp_path):
+    monkeypatch.setenv("OBSERVATION_DB_PATH", str(tmp_path / "jobs.sqlite3"))
+    monkeypatch.setenv("OBSERVATION_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("AFTERGLOW_OFFSET_MINUTES", "20")
+    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "5")
+    monkeypatch.setenv("AFTERGLOW_CAPTURE_INTERVAL_SECONDS", "30")
+    monkeypatch.setenv("AFTERGLOW_PREFILTER_CANDIDATES", "3")
+
+    settings = SchedulerSettings.from_env()
+
+    assert settings.afterglow_window_minutes == 5
+    assert settings.afterglow_capture_interval_seconds == 30
+    assert settings.afterglow_prefilter_candidates == 3
+
+    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "21")
+    with pytest.raises(ValueError, match="cannot exceed"):
+        SchedulerSettings.from_env()
+
+
 def _scheduler_settings(tmp_path, *, capture_max_delay_minutes=60):
     return SchedulerSettings(
         database_path=tmp_path / "jobs.sqlite3",
         spool_directory=tmp_path / "spool",
         afterglow_offset_minutes=20,
+        afterglow_window_minutes=5,
+        afterglow_capture_interval_seconds=30,
+        afterglow_prefilter_candidates=3,
         capture_max_delay_minutes=capture_max_delay_minutes,
         run_visibility_grace_seconds=120,
         retry_max_seconds=1800,

@@ -10,7 +10,11 @@ import pytest
 from zushi_chill import main as main_module
 from zushi_chill import vision_client
 from zushi_chill.config import Settings
-from zushi_chill.vision_client import VisionError, analyze_image
+from zushi_chill.vision_client import (
+    VisionError,
+    analyze_image,
+    select_best_afterglow_image,
+)
 
 
 class FakeResponse:
@@ -37,6 +41,13 @@ def _gemini_body(
     result = {"sunset_score": score, "sky_condition": condition, "comment": comment}
     result.update(extra)
     inner = json.dumps(result)
+    return json.dumps(
+        {"candidates": [{"content": {"parts": [{"text": inner}]}}]}
+    ).encode("utf-8")
+
+
+def _selection_body(best_index: int) -> bytes:
+    inner = json.dumps({"best_index": best_index})
     return json.dumps(
         {"candidates": [{"content": {"parts": [{"text": inner}]}}]}
     ).encode("utf-8")
@@ -364,3 +375,56 @@ def test_analyze_image_uses_legacy_score_as_afterglow_fallback(monkeypatch, tmp_
     assert result.evaluation_phase == "afterglow"
     assert result.afterglow_score == 63
     assert result.sunset_color_score is None
+
+
+def test_select_best_afterglow_image_compares_candidates_in_one_request(
+    monkeypatch,
+    tmp_path,
+):
+    first = tmp_path / "first.jpg"
+    second = tmp_path / "second.jpg"
+    first.write_bytes(b"first-jpeg")
+    second.write_bytes(b"second-jpeg")
+    calls: list = []
+    monkeypatch.setattr(
+        vision_client,
+        "urlopen",
+        _fake_urlopen([FakeResponse(body=_selection_body(2))], calls),
+    )
+
+    selected = select_best_afterglow_image(
+        image_paths=[first, second],
+        capture_times=[_RUN_1920, _RUN_1920.replace(second=30)],
+        api_key="key",
+    )
+
+    assert selected == 1
+    assert len(calls) == 1
+    payload = json.loads(calls[0].data)
+    parts = payload["contents"][0]["parts"]
+    inline_images = [part["inline_data"]["data"] for part in parts if "inline_data" in part]
+    assert inline_images == [
+        base64.b64encode(b"first-jpeg").decode("ascii"),
+        base64.b64encode(b"second-jpeg").decode("ascii"),
+    ]
+    assert "撮影時刻の早い遅い自体は評価理由にしない" in parts[0]["text"]
+
+
+def test_select_best_afterglow_image_rejects_out_of_range_choice(
+    monkeypatch,
+    tmp_path,
+):
+    image = tmp_path / "only.jpg"
+    image.write_bytes(b"jpeg")
+    monkeypatch.setattr(
+        vision_client,
+        "urlopen",
+        _fake_urlopen([FakeResponse(body=_selection_body(2))], []),
+    )
+
+    with pytest.raises(VisionError, match="expected 1-1"):
+        select_best_afterglow_image(
+            image_paths=[image],
+            capture_times=[_RUN_1920],
+            api_key="key",
+        )

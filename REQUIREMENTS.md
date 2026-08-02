@@ -1,6 +1,6 @@
 # 逗子サンセットチル指数 現行要件
 
-最終更新: 2026-07-27
+最終更新: 2026-08-01
 
 この文書は現在の機能要件と受け入れ条件を定義する。操作・セットアップ手順は
 `README.md`、本番反映状況と前向き検証の判断は `STATUS.md`、スコア閾値と保存カラムの
@@ -24,7 +24,8 @@ LINEグループへ通知する。一般公開向けの気象予報サービス�
 - 当日の日没時刻と、日没90分前〜30分後の評価時間帯を算出する。
 - `Sunset期待度` と `Chill指数` を0〜100で算出する。
 - 日没前のライブカメラ画像をVision LLMで解析し、表示用Sunset期待度へブレンドする。
-- 日没時と日没後の画像を自動取得し、発色と残照を人手なしで別評価する。
+- 日没時と日没後の画像を自動取得し、発色と残照を人手なしで別評価する。残照は
+  日没+15〜+20分の連続候補からベスト画像を選ぶ。
 - Sunsethue APIの予測をlog-onlyの独立ベンチマークとして保存する。
 - LINE Messaging APIでテキストと、取得できた場合はライブカメラ画像を送信する。
 - Google SheetsまたはCSVへ予測・画像評価・送信結果を保存する。
@@ -134,15 +135,21 @@ VisionブレンドはChill指数へ影響させない。
 | `sunset` | 日没時〜+10分 | 太陽ディスクの見えやすさと日没時の発色を別評価 |
 | `afterglow` | 日没+10分より後 | 残照だけを評価 |
 
-日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、日没+20分は
-`vision_afterglow_score` を記録する。`vision_sunset_score` は後方互換の総合値として残す。
+日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、日没+15〜+20分は
+選定したベスト画像の `vision_afterglow_score` を記録する。`vision_sunset_score` は
+後方互換の総合値として残す。
 
 これらは同じVision LLMによる画像代理指標であり、独立したground truthとは扱わない。
 予測との誤差は日没時の発色と残照で別々に集計する。
 
 ### 4.2 画像取得と保存
 
-- 日没連動ジョブはContaboでYouTubeライブから1フレームを取得し、取得時刻を確定する。
+- 日没時ジョブはContaboでYouTubeライブから1フレームを取得する。残照ジョブは日没+20分の
+  予定時刻を維持しつつ5分先読みし、+15〜+20分を30秒間隔で最大11枚取得する。
+- 残照ストリームは1回だけURL解決し、1本のffmpegプロセスでサンプリングする。解決不能時は
+  キャッシュ回避付きYouTubeライブサムネイルを同間隔で取得する。
+- 残照候補はSHA-256で重複除外し、発色範囲・彩度・露出のローカル評価上位3枚を残す。
+  ContaboでVisionが有効なら1回の複数画像比較でベストを選び、未設定・失敗時はローカル1位を使う。
 - 取得画像はContaboの永続spoolへ固定し、45KB以下のJPEGへ正規化する。
 - 固定画像をBase64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡し、
   Actions側でハッシュを照合してから使用する。
@@ -157,8 +164,8 @@ VisionブレンドはChill指数へ影響させない。
 - 日没連動ジョブでは画像取得・保存失敗をジョブ失敗として再試行し、空の観測行を
   完了扱いにしない。Vision解析失敗は非致命とする。
 
-保存画像を別モデルで一括再採点する専用CLIは現時点では実装対象外とする。Artifactは
-将来の再採点元データとして保持する。
+保存画像を別モデルで一括再採点する専用CLIは現時点では実装対象外とする。選定画像のArtifactは
+将来の再採点元データとして保持し、全候補と選定manifestはContaboのspoolへ保持する。
 
 ## 5. 実行スケジュール
 
@@ -170,11 +177,12 @@ GitHub Actions自身には `schedule` を持たせず、`workflow_dispatch` だ�
 | 13:00 | `send_line` | 送信 | 昼時点の見込み |
 | 17:00 | `send_line` | 送信 | 夕方直前の見込み・カメラAI予測 |
 | 当日の日没時 | `dry_run` | 送信しない | 日没時画像の評価・保存 |
-| 日没+20分 | `send_line` | 送信 | 残照評価・通知 |
+| 日没+15〜+20分 | `send_line` | 窓終了後に送信 | ベスト残照画像の選定・評価・通知 |
 
 日没連動の2件はAstralによるネットワーク非依存の日没計算と、SQLiteの永続ジョブを使う。
-systemd timerは毎分ジョブを確認し、予定時刻を過ぎた未実行ジョブを追いつき実行する。
-撮影画像は最初の成功時に固定し、以後のOpen-Meteo・GitHub・Vision・保存失敗では同じ画像で
+systemd timerは毎分ジョブを確認し、残照だけ予定時刻を5分先読みして撮影窓を開始する。
+予定時刻を過ぎた未実行ジョブは1枚撮影で追いつき実行する。選定画像は最初の成功時に固定し、
+以後のOpen-Meteo・GitHub・Vision・保存失敗では同じ画像で
 再試行する。ジョブ状態は再起動後も保持し、GitHub Actions成功を確認するまで完了にしない。
 撮影前の停止が既定60分を超えた場合は過去画像を捏造せず `capture_missed` として監査に残す。
 
@@ -350,7 +358,9 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 カバーする。
 
 永続観測スケジューラは `OBSERVATION_DB_PATH`、`OBSERVATION_SPOOL_DIR`、
-`AFTERGLOW_OFFSET_MINUTES`、`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`、
+`AFTERGLOW_OFFSET_MINUTES`、`AFTERGLOW_WINDOW_MINUTES`、
+`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`、`AFTERGLOW_PREFILTER_CANDIDATES`、
+`OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`、
 `OBSERVATION_RUN_VISIBILITY_GRACE_SECONDS`、`OBSERVATION_RETRY_MAX_SECONDS` で設定する。
 
 ## 11. テスト・受け入れ条件
@@ -369,8 +379,9 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 - ライブカメラコメントの独立した感嘆詞に `っピ` が付かないことをテストする。
 - 2026-07-21型の条件付き降水減点と、2026-07-16型へ緩和が誤適用されないことを
   回帰テストする。
-- 日没時と日没+20分のローカル日没計算、永続ジョブ、追いつき実行、同一画像での
-  再試行、監査をテストする。
+- 日没時と残照窓のローカル日没計算、5分先読み、30秒間隔の最大11枚取得、重複除外、
+  ローカル評価、Vision比較とフォールバック、追いつき実行、選定済み同一画像での再試行、
+  監査をテストする。
 - GitHub Actionsの固定画像取得、Artifact保存、Pages公開、dry-run/send-line分岐を検証する。
 - dry-runでは通常通知・失敗通知ともLINEへ送らず、通常実行では送信結果を保存する。
 - 画像・Vision・Sunsethueの非致命エラーで主要処理が継続する。
