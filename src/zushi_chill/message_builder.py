@@ -236,12 +236,24 @@ def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None
             summary.wind_speed_10m_at_sunset, summary.wind_speed_10m
         ),
     )
-    if summary.apparent_temperature < 28:
-        return _strong_wind_comment(summary, prediction=prediction) if wind_speed >= 8 else None
-
     humidity = _optional_or_fallback(
         summary.relative_humidity_2m_at_sunset, summary.relative_humidity_2m
     )
+    temperature = _comfort_temperature(summary, prediction=prediction)
+    if (
+        not prediction
+        and temperature < 27
+        and summary.apparent_temperature >= 28
+    ):
+        return _cool_actual_comment(
+            summary,
+            temperature=temperature,
+            humid=humidity >= 75,
+            wind_speed=wind_speed,
+        )
+    if summary.apparent_temperature < 28:
+        return _strong_wind_comment(summary, prediction=prediction) if wind_speed >= 8 else None
+
     heat_level = "high" if summary.apparent_temperature >= 32 else "moderate"
     heat_comment = _heat_comment(
         summary,
@@ -255,6 +267,96 @@ def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None
         prediction=prediction,
     )
     return f"{heat_comment}{modifier}"
+
+
+def _comfort_temperature(summary: WeatherSummary, *, prediction: bool) -> float:
+    if prediction:
+        return _optional_or_fallback(
+            summary.temperature_2m_at_sunset, summary.temperature_2m
+        )
+    return _optional_or_fallback(
+        summary.temperature_2m_at_run_time,
+        _optional_or_fallback(summary.temperature_2m_at_sunset, summary.temperature_2m),
+    )
+
+
+def _cool_actual_comment(
+    summary: WeatherSummary,
+    *,
+    temperature: float,
+    humid: bool,
+    wind_speed: float,
+) -> str:
+    daytime_max = summary.temperature_2m_daytime_max
+    cooled_from_daytime = (
+        daytime_max is not None and daytime_max - temperature >= 3
+    )
+    temperature_band = int(temperature)
+    temperature_description = (
+        f"気温は{temperature_band}℃台まで下がって"
+        if cooled_from_daytime
+        else f"気温は{temperature_band}℃台で"
+    )
+    coolness = "かなり涼しい" if temperature < 26 else "涼しめ"
+    rain = (
+        summary.weather_code in RAIN_WEATHER_CODES or summary.precipitation >= 1.0
+    )
+
+    if wind_speed >= 8:
+        condition = "strong-wind"
+    elif rain:
+        condition = "rain"
+    elif humid and wind_speed >= 3:
+        condition = "humid-breeze"
+    elif humid:
+        condition = "humid"
+    elif wind_speed >= 3:
+        condition = "breeze"
+    else:
+        condition = "comfortable"
+
+    variants = {
+        "strong-wind": (
+            f"{temperature_description}、{coolness}っピ！でも、海風は強すぎるっピ。",
+            f"{temperature_description}、涼しいっピ。風の強さには注意っピ。",
+            f"海辺は{temperature_band}℃台で涼しいっピ！ただ、風がびゅうびゅうっピ。",
+        ),
+        "rain": (
+            f"{temperature_description}、{coolness}っピ！ただ、雨で過ごしにくいっピ。",
+            f"{temperature_description}、涼しいっピ。でも、雨は残ってるっピ。",
+            f"海辺は{temperature_band}℃台で涼しいっピ！雨には気をつけたいっピ。",
+        ),
+        "humid-breeze": (
+            (
+                f"{temperature_description}、{coolness}っピ！"
+                "海風も心地いいけど、湿気は少し残ってるっピ。"
+            ),
+            (
+                f"{temperature_description}、風もあるから涼しくて過ごしやすいっピ！"
+                "ただ、湿度は高めっピ。"
+            ),
+            (
+                f"海辺は{temperature_band}℃台で、風もあるから涼しいっピ！"
+                "湿気だけ少し残ってるっピ。"
+            ),
+        ),
+        "humid": (
+            f"{temperature_description}、{coolness}っピ！ただ、湿気は少し残ってるっピ。",
+            f"{temperature_description}、涼しいっピ。湿度だけ高めっピ。",
+            f"海辺は{temperature_band}℃台で涼しいっピ！でも、少し湿気があるっピ。",
+        ),
+        "breeze": (
+            f"{temperature_description}、海風もあるから涼しくて過ごしやすいっピ！",
+            f"{temperature_description}、風も心地よくて涼しいっピ！",
+            f"海辺は{temperature_band}℃台で、風もあるから涼しくて快適っピ！",
+        ),
+        "comfortable": (
+            f"{temperature_description}、涼しくてかなり過ごしやすいっピ！",
+            f"{temperature_description}、しっかり涼しいっピ！",
+            f"海辺は{temperature_band}℃台で、かなり涼しいっピ！",
+        ),
+    }[condition]
+    return _comment_variant(summary, f"cool-actual-{condition}", variants)
 
 
 def _heat_comment(
@@ -332,16 +434,7 @@ def _comfort_modifier(
     wind_speed: float,
     prediction: bool,
 ) -> str:
-    temperature = (
-        _optional_or_fallback(summary.temperature_2m_at_sunset, summary.temperature_2m)
-        if prediction
-        else _optional_or_fallback(
-            summary.temperature_2m_at_run_time,
-            _optional_or_fallback(
-                summary.temperature_2m_at_sunset, summary.temperature_2m
-            ),
-        )
-    )
+    temperature = _comfort_temperature(summary, prediction=prediction)
     daytime_max = summary.temperature_2m_daytime_max
     cooling = daytime_max is not None and daytime_max - temperature >= 3
     breeze = 3 <= wind_speed < 8

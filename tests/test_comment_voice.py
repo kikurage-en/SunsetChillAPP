@@ -23,6 +23,21 @@ def test_apply_comment_voice_leaves_standalone_interjection_without_suffix():
     assert apply_comment_voice("わぁっ!") == "わあっ!"
 
 
+def test_apply_comment_voice_removes_suffix_from_long_a_interjection():
+    assert apply_comment_voice("あああっピ！") == "あああっ！"
+
+
+def test_apply_comment_voice_adds_punctuation_to_bare_long_a_interjection():
+    assert apply_comment_voice("あああっピ") == "あああっ！"
+
+
+def test_apply_comment_voice_only_suffixes_explanation_after_long_a_interjection():
+    assert (
+        apply_comment_voice("あああっピ！空がピンク色です！")
+        == "あああっ！空がピンク色ですっピ！"
+    )
+
+
 def test_apply_comment_voice_normalizes_suffixed_interjection():
     assert apply_comment_voice("わぁっピ！") == "わあっ！"
 
