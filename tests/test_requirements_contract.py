@@ -99,6 +99,8 @@ def test_requirements_document_current_automated_image_evaluation():
         "vision_afterglow_score",
         "日没+15〜+20分",
         "30秒間隔で最大11枚",
+        "サムネイルを60秒間隔",
+        "`YOUTUBE_COOKIES_PATH`",
         "SHA-256で重複除外",
         "独立したground truthとは扱わない",
         "GitHub Actions自身には `schedule` を持たせず",

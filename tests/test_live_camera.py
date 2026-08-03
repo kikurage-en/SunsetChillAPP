@@ -43,11 +43,23 @@ def test_capture_live_camera_image_uses_stream_frame(tmp_path, monkeypatch):
         live_camera_url="https://youtube.example/watch",
         live_camera_video_id="video-id",
         output_path=output_path,
+        youtube_cookies_path="/var/lib/zushi-chill/secrets/youtube.txt",
     )
 
     assert output_path.read_bytes() == b"jpeg"
     assert calls[0][0] == "yt-dlp"
-    assert calls[0][1:3] == ["--js-runtimes", "node"]
+    assert calls[0][1:5] == [
+        "--remote-components",
+        "ejs:github",
+        "--js-runtimes",
+        "node",
+    ]
+    assert calls[0][calls[0].index("--cookies") + 1] == (
+        "/var/lib/zushi-chill/secrets/youtube.txt"
+    )
+    assert calls[0][calls[0].index("--extractor-args") + 1] == (
+        "youtube:player_client=mweb"
+    )
     assert calls[1][0] == "ffmpeg"
 
 
@@ -160,18 +172,17 @@ def test_capture_live_camera_sequence_falls_back_to_cache_busted_thumbnails(
         capture_started_at=started_at,
         duration_seconds=60,
         interval_seconds=30,
+        fallback_interval_seconds=60,
     )
 
     assert [frame.path.read_bytes() for frame in frames] == [
         b"thumbnail-1",
         b"thumbnail-2",
-        b"thumbnail-3",
     ]
     assert [frame.captured_at for frame in frames] == [
         started_at,
-        started_at + timedelta(seconds=30),
         started_at + timedelta(seconds=60),
     ]
     cache_busters = [url.rsplit("=", 1)[-1] for url in urls]
-    assert len(cache_busters) == 3
-    assert len(set(cache_busters)) == 3
+    assert len(cache_busters) == 2
+    assert len(set(cache_busters)) == 2
