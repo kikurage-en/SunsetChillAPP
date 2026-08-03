@@ -473,7 +473,12 @@ def test_same_day_comfort_comments_vary_and_keep_multiple_factors(sample_summary
 
 
 def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
-    summary = replace(sample_summary, apparent_temperature=34.4)
+    summary = replace(
+        sample_summary,
+        apparent_temperature=34.4,
+        temperature_2m_at_run_time=29,
+        temperature_2m_at_sunset=29,
+    )
     scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=45, chill_label="C")
 
     comment = build_comment(summary, scores, prediction=False)
@@ -484,6 +489,33 @@ def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
     assert "海辺" in comfort_line
     assert "暑" in comfort_line or "むしむし" in comfort_line
     assert "見込み" not in comment
+
+
+def test_after_sunset_25_degree_comment_prioritizes_current_temperature(
+    sample_summary,
+):
+    summary = replace(
+        sample_summary,
+        date="2026-08-03",
+        run_time="19:20",
+        apparent_temperature=30.2,
+        temperature_2m_daytime_max=33.4,
+        temperature_2m_at_run_time=25.6,
+        temperature_2m_at_sunset=25.8,
+        relative_humidity_2m_at_sunset=84,
+        wind_speed_10m=3.5,
+        wind_speed_10m_at_sunset=4.0,
+    )
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=60, chill_label="B")
+
+    comfort_line = build_comment(summary, scores, prediction=False).splitlines()[1]
+
+    assert "25℃台" in comfort_line
+    assert "涼し" in comfort_line
+    assert "風" in comfort_line
+    assert "湿" in comfort_line
+    assert "涼しさは控えめ" not in comfort_line
+    assert "気温は高め" not in comfort_line
 
 
 def test_after_sunset_high_heat_comment_changes_on_consecutive_dates(sample_summary):
@@ -502,6 +534,8 @@ def test_after_sunset_high_heat_comment_changes_on_consecutive_dates(sample_summ
             date=day,
             run_time="19:20",
             apparent_temperature=34.4,
+            temperature_2m_at_run_time=29,
+            temperature_2m_at_sunset=29,
         )
         for day in dates
     ]

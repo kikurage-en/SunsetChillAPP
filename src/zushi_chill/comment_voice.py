@@ -4,10 +4,11 @@ import re
 
 _STANDALONE_INTERJECTION = re.compile(
     r"(?:^|(?<=[。！？!?]))(?P<space>\s*)"
-    r"(?P<word>わ[ぁあ]っ|やった|うわっ|ひええ|あれれ|えっ|おおっ|うーん|わくわく)"
+    r"(?P<word>わ[ぁあ]っ|あ+っ|やった|うわっ|ひええ|あれれ|えっ|おおっ|うーん|わくわく)"
     r"(?:っ?ピ)?"
     r"(?P<punct>[！!？?]+|…{2,}[。.]?)"
 )
+_BARE_A_INTERJECTION = re.compile(r"^(?P<word>あ+っ)(?:っ?ピ)?$")
 
 
 def apply_comment_voice(text: str) -> str:
@@ -15,6 +16,8 @@ def apply_comment_voice(text: str) -> str:
     comment = text.strip()
     if not comment:
         return comment
+    if bare_interjection := _BARE_A_INTERJECTION.fullmatch(comment):
+        return f"{bare_interjection.group('word')}！"
 
     # モデルが「っピねぇ……」と語尾を重ねた場合は、明るい一語尾へ整える。
     # すでに二重化した「っピねぇっピ……」も同じ形へ戻す。
