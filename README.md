@@ -148,7 +148,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 選定画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも選定済みの同一画像を処理します。全ジョブとも選定画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックし、残照窓では既定60秒間隔で繰り返します。同一サムネイルが続いた場合は1候補として扱います。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
-ContaboのIPがYouTubeからbot確認を要求された場合は、専用アカウントからNetscape形式で書き出したYouTube CookieをContaboの権限600のファイルへ置き、その絶対パスを `YOUTUBE_COOKIES_PATH` に設定できます。CookieファイルはGitへ登録せず、通常利用するGoogleアカウントのCookieも使用しません。
+ContaboのIPがYouTubeからbot確認を要求された場合は、専用アカウントからNetscape形式で書き出したYouTube CookieをContaboの権限600のファイルへ置き、その絶対パスを `YOUTUBE_COOKIES_PATH` に設定できます。Cookie使用時はmwebクライアントとyt-dlp公式のJavaScriptチャレンジ解決コンポーネントを利用します。CookieファイルはGitへ登録せず、通常利用するGoogleアカウントのCookieも使用しません。
 
 画像の長期保存元は `pages-images` branchです。加えて、各実行のArtifactを90日保持します。Artifact名は `live-camera-YYYY-MM-DD-HHMM` です。GitHub Actionsの実行画面から取得するか、GitHub CLIを使う場合は `gh run download <RUN_ID> -n live-camera-YYYY-MM-DD-HHMM` でダウンロードできます。Pagesを履歴branchから再構築する場合は `Publish image history` workflowを手動実行します。保存画像を別モデルで一括再採点する専用CLIは現時点では未実装です。
 

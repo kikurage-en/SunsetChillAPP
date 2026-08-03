@@ -149,7 +149,8 @@ VisionブレンドはChill指数へ影響させない。
 - 残照ストリームは1回だけURL解決し、1本のffmpegプロセスでサンプリングする。解決不能時は
   キャッシュ回避付きYouTubeライブサムネイルを60秒間隔で取得する。
 - ContaboのIPがbot確認を要求された場合は、リポジトリ外の権限600のNetscape形式Cookieを
-  `YOUTUBE_COOKIES_PATH` でyt-dlpへ渡せるようにする。
+  `YOUTUBE_COOKIES_PATH` でyt-dlpへ渡す。Cookie使用時はmwebクライアントを選び、
+  yt-dlp公式のJavaScriptチャレンジ解決コンポーネントを有効にする。
 - 残照候補はSHA-256で重複除外し、発色範囲・彩度・露出のローカル評価上位3枚を残す。
   ContaboでVisionが有効なら1回の複数画像比較でベストを選び、未設定・失敗時はローカル1位を使う。
 - 取得画像はContaboの永続spoolへ固定し、45KB以下のJPEGへ正規化する。

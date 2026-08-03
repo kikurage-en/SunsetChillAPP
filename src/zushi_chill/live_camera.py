@@ -150,6 +150,8 @@ def _resolve_stream_url(
         return ""
     command = [
         "yt-dlp",
+        "--remote-components",
+        "ejs:github",
         "--js-runtimes",
         "node",
         "--no-playlist",
@@ -158,7 +160,14 @@ def _resolve_stream_url(
         "--get-url",
     ]
     if youtube_cookies_path:
-        command.extend(["--cookies", youtube_cookies_path])
+        command.extend(
+            [
+                "--cookies",
+                youtube_cookies_path,
+                "--extractor-args",
+                "youtube:player_client=mweb",
+            ]
+        )
     command.append(live_camera_url.strip())
     try:
         completed = subprocess.run(

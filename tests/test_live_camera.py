@@ -48,9 +48,17 @@ def test_capture_live_camera_image_uses_stream_frame(tmp_path, monkeypatch):
 
     assert output_path.read_bytes() == b"jpeg"
     assert calls[0][0] == "yt-dlp"
-    assert calls[0][1:3] == ["--js-runtimes", "node"]
+    assert calls[0][1:5] == [
+        "--remote-components",
+        "ejs:github",
+        "--js-runtimes",
+        "node",
+    ]
     assert calls[0][calls[0].index("--cookies") + 1] == (
         "/var/lib/zushi-chill/secrets/youtube.txt"
+    )
+    assert calls[0][calls[0].index("--extractor-args") + 1] == (
+        "youtube:player_client=mweb"
     )
     assert calls[1][0] == "ffmpeg"
 
