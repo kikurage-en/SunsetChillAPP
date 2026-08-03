@@ -80,7 +80,14 @@ Pagesだけを履歴branchから再構築する `Publish image history` workflow
 bgutil PO Token Provider 1.3.1をContaboで順に実測したが、いずれも同じbot確認で失敗した。
 Providerは効果がなく、実行依存のnpm監査で高重要度警告も検出したため導入物を削除した。
 次段階として、リポジトリ外の権限600のNetscape形式Cookieを `YOUTUBE_COOKIES_PATH` で
-yt-dlpへ渡す対応と、ストリーム失敗時だけサムネイル取得を既定60秒間隔へ下げる対応を進める。
+yt-dlpへ渡す対応と、ストリーム失敗時だけサムネイル取得を既定60秒間隔へ下げる対応を進めた。
+
+**2026-08-03 YouTube Cookie実機検証**: 専用アカウントから書き出したyoutube.com Cookieを
+Contaboの `/var/lib/zushi-chill/secrets` 配下へ権限600で配置した。Cookie単独ではbot確認は
+解消したものの映像形式を取得できず、Cookieにmwebクライアントとyt-dlp公式のJavaScript
+チャレンジ解決コンポーネントを組み合わせることでストリームURL解決に成功した。
+サムネイルへのフォールバックを無効にした実画像取得、および本番と同じsystemd sandbox
+（`ProtectHome=true`、`ProtectSystem=full`）の両方で1920×1080 JPEGの取得成功を確認した。
 
 **2026-07-22運用確認**: Contaboのcheckoutを最新`main`へ同期した。最新workflowのdry-run（Actions run `29842953215`、commit `f62c6b5`）は、ruff 0.4.10、全214テスト、画像取得・Artifact保存・Pages公開、気象庁降水確率20%を含む新形式メッセージ生成、Google Sheets保存まで成功し、通常LINEと失敗通知はともにスキップされた。先行run `29842513490` で判明したruff版差によるlint失敗は `b4c9423` で修正し、dry-run失敗時にもLINE通知しない条件を `f62c6b5` と契約テストで固定した。
 
