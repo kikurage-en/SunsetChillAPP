@@ -230,40 +230,57 @@ def _comment_variant(
 
 
 def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None:
-    wind_speed = max(
-        summary.wind_speed_10m,
-        _optional_or_fallback(
-            summary.wind_speed_10m_at_sunset, summary.wind_speed_10m
-        ),
+    conditions = summary if prediction else summary.with_run_time_weather()
+    wind_speed = (
+        max(
+            summary.wind_speed_10m,
+            _optional_or_fallback(
+                summary.wind_speed_10m_at_sunset, summary.wind_speed_10m
+            ),
+        )
+        if prediction
+        else conditions.wind_speed_10m
     )
-    humidity = _optional_or_fallback(
-        summary.relative_humidity_2m_at_sunset, summary.relative_humidity_2m
+    wind_gusts = conditions.wind_gusts_10m
+    humidity = (
+        _optional_or_fallback(
+            summary.relative_humidity_2m_at_sunset, summary.relative_humidity_2m
+        )
+        if prediction
+        else conditions.relative_humidity_2m
     )
     temperature = _comfort_temperature(summary, prediction=prediction)
     if (
         not prediction
         and temperature < 27
-        and summary.apparent_temperature >= 28
+        and (
+            25 <= temperature < 26
+            or conditions.apparent_temperature >= 28
+        )
     ):
         return _cool_actual_comment(
-            summary,
+            conditions,
             temperature=temperature,
             humid=humidity >= 75,
             wind_speed=wind_speed,
+            wind_gusts=wind_gusts,
         )
-    if summary.apparent_temperature < 28:
+    if conditions.apparent_temperature < 28:
+        if not prediction and wind_gusts >= 12:
+            return _gust_comment(conditions)
         return _strong_wind_comment(summary, prediction=prediction) if wind_speed >= 8 else None
 
-    heat_level = "high" if summary.apparent_temperature >= 32 else "moderate"
+    heat_level = "high" if conditions.apparent_temperature >= 32 else "moderate"
     heat_comment = _heat_comment(
-        summary,
+        conditions,
         heat_level=heat_level,
         humid=humidity >= 75,
         prediction=prediction,
     )
     modifier = _comfort_modifier(
-        summary,
+        conditions,
         wind_speed=wind_speed,
+        wind_gusts=wind_gusts,
         prediction=prediction,
     )
     return f"{heat_comment}{modifier}"
@@ -286,6 +303,7 @@ def _cool_actual_comment(
     temperature: float,
     humid: bool,
     wind_speed: float,
+    wind_gusts: float,
 ) -> str:
     daytime_max = summary.temperature_2m_daytime_max
     cooled_from_daytime = (
@@ -304,6 +322,8 @@ def _cool_actual_comment(
 
     if wind_speed >= 8:
         condition = "strong-wind"
+    elif wind_gusts >= 12:
+        condition = "gust"
     elif rain:
         condition = "rain"
     elif humid and wind_speed >= 3:
@@ -320,6 +340,11 @@ def _cool_actual_comment(
             f"{temperature_description}、{coolness}っピ！でも、海風は強すぎるっピ。",
             f"{temperature_description}、涼しいっピ。風の強さには注意っピ。",
             f"海辺は{temperature_band}℃台で涼しいっピ！ただ、風がびゅうびゅうっピ。",
+        ),
+        "gust": (
+            f"{temperature_description}、{coolness}っピ！でも、ときどき強い風が吹くっピ。",
+            f"{temperature_description}、涼しいっピ。ただ、急な強い風には注意っピ。",
+            f"海辺は{temperature_band}℃台でかなり涼しいっピ！でも、風が急に強まるっピ。",
         ),
         "rain": (
             f"{temperature_description}、{coolness}っピ！ただ、雨で過ごしにくいっピ。",
@@ -432,6 +457,7 @@ def _comfort_modifier(
     summary: WeatherSummary,
     *,
     wind_speed: float,
+    wind_gusts: float,
     prediction: bool,
 ) -> str:
     temperature = _comfort_temperature(summary, prediction=prediction)
@@ -444,6 +470,8 @@ def _comfort_modifier(
 
     if wind_speed >= 8:
         modifier = "strong-wind"
+    elif not prediction and wind_gusts >= 12:
+        modifier = "gust"
     elif rain:
         modifier = "rain"
     elif cooling and breeze:
@@ -465,6 +493,11 @@ def _comfort_modifier(
             "それに、海風も強くて、のんびりはしにくい状態っピ。",
             "さらに風まで強く、海辺では落ち着きにくい状態っピ。",
             "おまけに海風も元気すぎて、快適さは下がってるっピ。",
+        ),
+        ("gust", False): (
+            "それに、ときどき風が強く吹いて、のんびりはしにくい状態っピ。",
+            "さらに急な強い風もあって、海辺では落ち着きにくい状態っピ。",
+            "おまけに風が急に強まって、快適さは下がってるっピ。",
         ),
         ("rain", True): (
             "それに、雨の気配もあって、海辺では過ごしにくそうっピ。",
@@ -511,6 +544,18 @@ def _comfort_modifier(
         summary,
         f"comfort-{modifier}-{'prediction' if prediction else 'actual'}",
         variants,
+    )
+
+
+def _gust_comment(summary: WeatherSummary) -> str:
+    return _comment_variant(
+        summary,
+        "gust-actual",
+        (
+            "ときどき風が強く吹いて、海辺では落ち着きにくい状態っピ。",
+            "急に強い風が吹くから、のんびり度は控えめっピ。",
+            "風が急に強まって、海辺の快適さが少し下がってるっピ。",
+        ),
     )
 
 
@@ -655,6 +700,7 @@ def build_line_message(
             sunset_label=final_sunset_label or score_label(final_sunset_score),
             chill_score=scores.chill_score,
             chill_label=scores.chill_label,
+            chill_weather_basis=scores.chill_weather_basis,
         )
     comment = scores.comment or build_comment(
         summary,
@@ -670,6 +716,7 @@ def build_line_message(
         final_sunset_score if final_sunset_score is not None else scores.sunset_score
     )
     display_sunset_label = final_sunset_label or scores.sunset_label
+    use_run_time_weather = vision_mode != "predict"
     use_sunset_snapshot = vision_mode == "predict" and summary.sunset_snapshot_time is not None
     display_cloud_low = (
         cloud.cloud_cover_low_at_sunset
@@ -714,7 +761,12 @@ def build_line_message(
             f"（{vision.sky_condition}）\n"
             f"{apply_comment_voice(vision.comment)}{detail_section}"
         )
-    precipitation_line = _precipitation_probability_line(summary, jma_precipitation)
+    precipitation_line = _precipitation_probability_line(
+        summary,
+        jma_precipitation,
+        use_run_time_weather=use_run_time_weather,
+    )
+    gust_line = ""
     if use_sunset_snapshot:
         display_temperature = _optional_or_fallback(
             summary.temperature_2m_at_sunset, summary.temperature_2m
@@ -731,6 +783,16 @@ def build_line_message(
         display_visibility = _optional_or_fallback(
             summary.visibility_at_sunset_snapshot, summary.visibility
         )
+        sunset_line = f"日没：{summary.sunset_time.strftime('%H:%M')}"
+    elif use_run_time_weather:
+        current = summary.with_run_time_weather()
+        display_temperature = current.temperature_2m
+        display_humidity = current.relative_humidity_2m
+        display_wind_speed = current.wind_speed_10m
+        display_wind_direction = current.wind_direction_10m
+        display_visibility = current.visibility
+        if current.wind_gusts_10m >= 12:
+            gust_line = f"\n突風：{current.wind_gusts_10m:.1f}m/s"
         sunset_line = f"日没：{summary.sunset_time.strftime('%H:%M')}"
     else:
         display_temperature = _optional_or_fallback(
@@ -751,7 +813,7 @@ Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
 {sunset_line}
 気温：{display_temperature:.1f}℃
 湿度：{display_humidity:.0f}%
-風：{wind_direction_label(display_wind_direction)} {display_wind_speed:.1f}m/s
+風：{wind_direction_label(display_wind_direction)} {display_wind_speed:.1f}m/s{gust_line}
 {precipitation_line}
 
 夕焼け方向の雲
@@ -766,7 +828,12 @@ def _optional_or_fallback(value: float | None, fallback: float) -> float:
 def _precipitation_probability_line(
     summary: WeatherSummary,
     jma_precipitation: JmaPrecipitationForecast | None,
+    *,
+    use_run_time_weather: bool = False,
 ) -> str:
+    if use_run_time_weather:
+        current = summary.with_run_time_weather()
+        return f"降水確率：{current.precipitation_probability:.0f}%"
     if jma_precipitation is None:
         return f"降水確率：{summary.precipitation_probability:.0f}%"
     return f"降水確率：{jma_precipitation.probability}%"

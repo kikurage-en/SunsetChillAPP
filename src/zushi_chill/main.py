@@ -93,12 +93,14 @@ def main(argv: list[str] | None = None) -> int:
             summary,
             offline=bool(args.input_json),
         )
+        mode = vision_mode(run_time, summary.sunset_time)
         scores_without_comment = calculate_scores(
             summary,
             sunset_cloud,
             chill_precipitation_probability=(
                 jma_precipitation.probability if jma_precipitation else None
             ),
+            chill_use_run_time_weather=mode == "actual",
         )
         live_camera_image_url = settings.live_camera_image_url or build_capture_url(
             settings.live_camera_image_base_url,
@@ -107,7 +109,6 @@ def main(argv: list[str] | None = None) -> int:
         vision_result = _analyze_live_camera(
             settings, run_time, live_camera_image_url, summary.sunset_time
         )
-        mode = vision_mode(run_time, summary.sunset_time)
         final_sunset_score, final_sunset_label = _blend_final_sunset(
             scores_without_comment, vision_result, mode, settings, summary
         )

@@ -21,18 +21,31 @@ def calculate_scores(
     sunset_cloud: SunsetCloud | None = None,
     *,
     chill_precipitation_probability: float | None = None,
+    chill_use_run_time_weather: bool = False,
 ) -> ScoreResult:
     sunset_score = calculate_sunset_score(summary, sunset_cloud)
+    chill_summary = (
+        summary.with_run_time_weather() if chill_use_run_time_weather else summary
+    )
     chill_score = calculate_chill_score(
-        summary,
+        chill_summary,
         sunset_score,
-        precipitation_probability=chill_precipitation_probability,
+        # 気象庁値は6時間の予測値。日没後の現在評価では、同じhourly行に揃えた
+        # Open-Meteoの時間別降水確率を使い、現在値と予測窓を混在させない。
+        precipitation_probability=(
+            None
+            if chill_use_run_time_weather
+            else chill_precipitation_probability
+        ),
     )
     return ScoreResult(
         sunset_score=sunset_score,
         sunset_label=score_label(sunset_score),
         chill_score=chill_score,
         chill_label=score_label(chill_score),
+        chill_weather_basis=(
+            "run_time" if chill_use_run_time_weather else "target_window"
+        ),
     )
 
 

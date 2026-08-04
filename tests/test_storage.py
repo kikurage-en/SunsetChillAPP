@@ -52,6 +52,12 @@ def test_csv_storage_writes_prediction_record(tmp_path, sample_summary):
     assert rows[0]["sunset_cloud_cover_low_at_sunset"] == "25.0"
     assert rows[0]["sunset_cloud_cover_mid_at_sunset"] == "40.0"
     assert rows[0]["sunset_cloud_cover_high_at_sunset"] == "55.0"
+    assert rows[0]["chill_weather_basis"] == "target_window"
+    assert rows[0]["run_time_snapshot_time"].endswith("13:00+09:00")
+    assert rows[0]["temperature_2m_at_run_time"] == "26.0"
+    assert rows[0]["apparent_temperature_at_run_time"] == "26.0"
+    assert rows[0]["relative_humidity_2m_at_run_time"] == "60.0"
+    assert rows[0]["wind_gusts_10m_at_run_time"] == "6.0"
 
 
 def test_csv_columns_include_vision_fields_after_error_message():
@@ -70,7 +76,8 @@ def test_csv_columns_include_vision_fields_after_error_message():
 
 
 def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
-    assert CSV_COLUMNS[-28:-6] == [
+    diagnostics_start = CSV_COLUMNS.index("precipitation_probability_before_sunset")
+    assert CSV_COLUMNS[diagnostics_start : diagnostics_start + 22] == [
         "precipitation_probability_before_sunset",
         "precipitation_before_sunset",
         "weather_code_before_sunset",
@@ -94,7 +101,8 @@ def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
         "sunset_cloud_cover_mid_at_sunset",
         "sunset_cloud_cover_high_at_sunset",
     ]
-    assert CSV_COLUMNS[-6:] == [
+    observation_start = CSV_COLUMNS.index("observation_id")
+    assert CSV_COLUMNS[observation_start : observation_start + 6] == [
         "observation_id",
         "observation_phase",
         "scheduled_at",
@@ -102,6 +110,25 @@ def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
         "capture_delay_seconds",
         "observation_data_quality",
     ]
+    assert CSV_COLUMNS[observation_start + 6 :] == [
+        "chill_weather_basis",
+        "run_time_snapshot_time",
+        "temperature_2m_at_run_time",
+        "apparent_temperature_at_run_time",
+        "relative_humidity_2m_at_run_time",
+        "precipitation_probability_at_run_time",
+        "precipitation_at_run_time",
+        "weather_code_at_run_time",
+        "cloud_cover_at_run_time",
+        "cloud_cover_low_at_run_time",
+        "cloud_cover_mid_at_run_time",
+        "cloud_cover_high_at_run_time",
+        "visibility_at_run_time",
+        "wind_speed_10m_at_run_time",
+        "wind_direction_10m_at_run_time",
+        "wind_gusts_10m_at_run_time",
+    ]
+    assert len(CSV_COLUMNS) == 90
 
 
 def test_csv_storage_writes_jma_precipitation_forecast(tmp_path, sample_summary):
@@ -165,9 +192,7 @@ def test_csv_storage_writes_empty_vision_fields_when_absent(tmp_path, sample_sum
     path = tmp_path / "predictions.csv"
     scores = ScoreResult(sunset_score=90, sunset_label="S", chill_score=88, chill_label="S")
 
-    CsvStorage(path).save(
-        PredictionRecord(summary=sample_summary, scores=scores, line_sent=False)
-    )
+    CsvStorage(path).save(PredictionRecord(summary=sample_summary, scores=scores, line_sent=False))
 
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
     assert rows[0]["vision_sunset_score"] == ""
@@ -265,9 +290,7 @@ def test_csv_storage_replaces_only_matching_run_time(tmp_path, sample_summary):
 
     storage.save(PredictionRecord(summary=sample_summary, scores=pending, line_sent=False))
     storage.save(PredictionRecord(summary=afternoon_summary, scores=pending, line_sent=False))
-    storage.replace_latest(
-        PredictionRecord(summary=afternoon_summary, scores=sent, line_sent=True)
-    )
+    storage.replace_latest(PredictionRecord(summary=afternoon_summary, scores=sent, line_sent=True))
 
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
     assert len(rows) == 2
@@ -462,7 +485,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:BV2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:CL2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -486,7 +509,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:BV3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:CL3"
     assert fake_service.appends == []
 
 
@@ -542,7 +565,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:BV"
+    assert fake_service.last_get["range"] == "'predictions'!A:CL"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -589,7 +612,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:BV2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:CL2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):
@@ -669,9 +692,7 @@ class FakeSheetsService:
                         }
                     )
                 sheets.append({"properties": properties})
-            return FakeExecute(
-                {"sheets": sheets}
-            )
+            return FakeExecute({"sheets": sheets})
         return FakeExecute({"values": self.get_values})
 
     def update(self, **kwargs):
