@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 
 
@@ -38,9 +38,23 @@ class WeatherSummary:
     precipitation_at_sunset: float | None = None
     weather_code_at_sunset: int | None = None
     visibility_at_sunset: float | None = None
-    # LINEの天気参考値として表示する、実行時刻に最も近いhourly気温。
-    # Chill指数は従来どおり apparent_temperature の対象時間帯平均を使う。
+    # 実行時刻に最も近いOpen-Meteo hourly行。日没前のChill指数は従来どおり
+    # 対象時間帯の集計値、日没時・残照時はこの一式を使い、異なる時刻基準を混ぜない。
+    run_time_snapshot_time: datetime | None = None
     temperature_2m_at_run_time: float | None = None
+    apparent_temperature_at_run_time: float | None = None
+    relative_humidity_2m_at_run_time: float | None = None
+    precipitation_probability_at_run_time: float | None = None
+    precipitation_at_run_time: float | None = None
+    weather_code_at_run_time: int | None = None
+    cloud_cover_at_run_time: float | None = None
+    cloud_cover_low_at_run_time: float | None = None
+    cloud_cover_mid_at_run_time: float | None = None
+    cloud_cover_high_at_run_time: float | None = None
+    visibility_at_run_time: float | None = None
+    wind_speed_10m_at_run_time: float | None = None
+    wind_direction_10m_at_run_time: float | None = None
+    wind_gusts_10m_at_run_time: float | None = None
     # 過ごしやすさコメントで夕方との気温差を見るための、6時〜日没の最高気温。
     # 表示組み立て専用で、保存スキーマには含めない。
     temperature_2m_daytime_max: float | None = None
@@ -55,6 +69,69 @@ class WeatherSummary:
     visibility_at_sunset_snapshot: float | None = None
     wind_speed_10m_at_sunset: float | None = None
     wind_direction_10m_at_sunset: float | None = None
+
+    def with_run_time_weather(self) -> WeatherSummary:
+        """Return a copy whose scoring fields use the nearest run-time hourly row.
+
+        Missing optional hourly fields fall back independently to the target-window
+        aggregates, so an allowed upstream omission does not discard the rest of a
+        usable run-time snapshot.
+        """
+
+        def current(value: float | int | None, fallback: float | int) -> float | int:
+            return fallback if value is None else value
+
+        return replace(
+            self,
+            temperature_2m=float(
+                current(self.temperature_2m_at_run_time, self.temperature_2m)
+            ),
+            apparent_temperature=float(
+                current(
+                    self.apparent_temperature_at_run_time,
+                    self.apparent_temperature,
+                )
+            ),
+            relative_humidity_2m=float(
+                current(
+                    self.relative_humidity_2m_at_run_time,
+                    self.relative_humidity_2m,
+                )
+            ),
+            precipitation_probability=float(
+                current(
+                    self.precipitation_probability_at_run_time,
+                    self.precipitation_probability,
+                )
+            ),
+            precipitation=float(
+                current(self.precipitation_at_run_time, self.precipitation)
+            ),
+            weather_code=int(current(self.weather_code_at_run_time, self.weather_code)),
+            cloud_cover=float(current(self.cloud_cover_at_run_time, self.cloud_cover)),
+            cloud_cover_low=float(
+                current(self.cloud_cover_low_at_run_time, self.cloud_cover_low)
+            ),
+            cloud_cover_mid=float(
+                current(self.cloud_cover_mid_at_run_time, self.cloud_cover_mid)
+            ),
+            cloud_cover_high=float(
+                current(self.cloud_cover_high_at_run_time, self.cloud_cover_high)
+            ),
+            visibility=float(current(self.visibility_at_run_time, self.visibility)),
+            wind_speed_10m=float(
+                current(self.wind_speed_10m_at_run_time, self.wind_speed_10m)
+            ),
+            wind_direction_10m=float(
+                current(
+                    self.wind_direction_10m_at_run_time,
+                    self.wind_direction_10m,
+                )
+            ),
+            wind_gusts_10m=float(
+                current(self.wind_gusts_10m_at_run_time, self.wind_gusts_10m)
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -94,6 +171,7 @@ class ScoreResult:
     chill_score: int
     chill_label: str
     comment: str = ""
+    chill_weather_basis: str = "target_window"
 
 
 @dataclass(frozen=True)
@@ -151,9 +229,8 @@ class PredictionRecord:
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
-        # 実行時気温と逗子上空の雲スナップショットは表示組み立て用。日没時表示値は
-        # 下で時刻・気象値と、日没方向の層別雲量に分けて保存する。
-        data.pop("temperature_2m_at_run_time", None)
+        # 日中最高気温と逗子上空の日没時雲スナップショットは表示組み立て専用。
+        # 実行時スナップショットはChill指数の再現に必要なため保存する。
         data.pop("temperature_2m_daytime_max", None)
         for field in (
             "cloud_cover_low_at_sunset",
@@ -175,9 +252,28 @@ class PredictionRecord:
             "visibility_at_sunset_snapshot",
             "wind_speed_10m_at_sunset",
             "wind_direction_10m_at_sunset",
+            "temperature_2m_at_run_time",
+            "apparent_temperature_at_run_time",
+            "relative_humidity_2m_at_run_time",
+            "precipitation_probability_at_run_time",
+            "precipitation_at_run_time",
+            "weather_code_at_run_time",
+            "cloud_cover_at_run_time",
+            "cloud_cover_low_at_run_time",
+            "cloud_cover_mid_at_run_time",
+            "cloud_cover_high_at_run_time",
+            "visibility_at_run_time",
+            "wind_speed_10m_at_run_time",
+            "wind_direction_10m_at_run_time",
+            "wind_gusts_10m_at_run_time",
         ):
             if data[field] is None:
                 data[field] = ""
+        data["run_time_snapshot_time"] = (
+            self.summary.run_time_snapshot_time.isoformat(timespec="minutes")
+            if self.summary.run_time_snapshot_time
+            else ""
+        )
         data["sunset_snapshot_time"] = (
             self.summary.sunset_snapshot_time.isoformat(timespec="minutes")
             if self.summary.sunset_snapshot_time
@@ -200,6 +296,7 @@ class PredictionRecord:
                 "target_window_end": self.summary.target_window_end.isoformat(timespec="minutes"),
                 "chill_score": self.scores.chill_score,
                 "chill_label": self.scores.chill_label,
+                "chill_weather_basis": self.scores.chill_weather_basis,
                 "sunset_score": self.scores.sunset_score,
                 "sunset_label": self.scores.sunset_label,
                 "comment": self.scores.comment,

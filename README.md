@@ -73,8 +73,9 @@ SUNSETHUE_TIMEOUT_SECONDS=20
 ```
 
 `JMA_FORECAST_ENABLED=true` では、気象庁の神奈川県東部向け6時間降水確率を取得します。
-LINEの降水確率表示とChill指数の降水リスクにはこの値を優先し、取得できない場合だけ
-Open-Meteoの対象時間帯最大値へフォールバックします。GitHub Actions本番は有効です。
+日没前のLINE降水確率表示と予想Chill指数にはこの値を優先し、取得できない場合だけ
+Open-Meteoの対象時間帯最大値へフォールバックします。日没時・残照時は他の気象値と
+時刻を揃えるため、Open-Meteoの実行時刻付近の時間別値を使います。GitHub Actions本番は有効です。
 気象庁値は6時間・予報区単位、Open-Meteo値は地点格子・時間単位で定義が異なるため、
 Sunset期待度には後者を維持し、両方をログへ分けて保存します。
 
@@ -119,7 +120,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分を終点とする残照撮影窓**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。残照は既定で日没+15〜+20分を30秒間隔（最大11枚）で撮影し、その中のベスト画像を選んで通知します。予定時刻に一時停止していても既定60分以内なら1枚を追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は選定済みの同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、残照撮影窓の終了後は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズのコメントは予測表現を使わず、その時点の条件を説明します。気象庁の降水確率は日没を含む6時間値です。対象時間帯、予報体感温度、突風、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
+定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分を終点とする残照撮影窓**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。残照は既定で日没+15〜+20分を30秒間隔（最大11枚）で撮影し、その中のベスト画像を選んで通知します。予定時刻に一時停止していても既定60分以内なら1枚を追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は選定済みの同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、残照撮影窓の終了後は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズは、Chill指数・天気参考欄・コメントを実行時刻に最も近い同じhourly行へ揃えます。突風12m/s以上でChill上限が効く場合だけ突風値も表示します。対象時間帯、体感温度、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
 
 本文冒頭は装飾やサービス名を付けず、`YYYY-MM-DD HH:MM` だけを表示します。
 コメントは人手での現地確認を依頼せず、1行目にLINE表示用の最終Sunset期待度と
@@ -250,7 +251,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 従来の `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` に加え、`vision_evaluation_phase` / `vision_sun_disk_visibility` / `vision_sunset_color_score` / `vision_afterglow_score` を記録します。`vision_sunset_score` は後方互換の総合値として残します。同じAIによる画像採点は独立した真値ではなく**画像代理指標**ですが、元画像をArtifactに保存するため、将来モデルや評価基準を変えて再採点できます。
 
-保存スキーマは74列です。従来の68列へ、`observation_id`、`observation_phase`、`scheduled_at`、`captured_at`、`capture_delay_seconds`、`observation_data_quality` を末尾追加し、予定時刻と実撮影時刻を混同せず遅延データを識別できるようにしています。既存のCSVを使う場合はこの6列をヘッダーへ追加してください（不一致時は `ConfigError` で停止）。Google Sheetsは列幅を74列まで自動拡張し、prefixが一致する旧ヘッダーを自動移行します。
+保存スキーマは90列です。従来の74列をprefixとして保ち、`chill_weather_basis` と実行時刻付近のhourly時刻・14気象フィールドを末尾へ追加しています。これにより日没後Chill指数の入力を後から再現できます。既存のCSVを使う場合はこの16列をヘッダーへ追加してください（不一致時は `ConfigError` で停止）。Google Sheetsは列幅を90列まで自動拡張し、prefixが一致する旧ヘッダーを自動移行します。
 
 ## Sunsethue API による独立ベンチマーク（log-only）
 
@@ -291,7 +292,7 @@ final_sunset_score = round(
 
 `SUNSET_VISION_BLEND_WEIGHT`（既定 0.8）が 0、Vision が無効・欠測、または日没時・残照フェーズの実行では、ブレンドせず `final_sunset_score = sunset_score` とします。またブレンド結果には**上方キャップ `final_sunset_score ≤ sunset_score + 30`** を適用します。17:00 のカメラは逗子上空の見かけしか写せず「これから西から来る雲の壁」（式が西地点の予報で捕捉するもの）を見えないため、Vision の楽観による持ち上げ幅を制限します。加えて雨シグナル（前節の判定）の実行では上方修正そのものを無効化し、`final_sunset_score ≤ sunset_score` とします（2026-07-25: 窓内4.7mm・雨コードの予報下でVision 65が表示を45→61へ持ち上げ、実際の日没時発色は0だった）。下方修正は制限しません（目の前の悪い空を写しているカメラは信頼できるため）。**純式スコア `sunset_score` はブレンドで上書きせず別カラムで保持**し、同一日の `vision_sunset_color_score` と `vision_afterglow_score` に対する誤差を別々に検証します。表示ラベル（S〜D）は `final_sunset_score` を基準にします。
 
-`Chill指数` は対象時間帯平均の体感温度、湿度、風、降水リスク、Sunset期待度（純式 `sunset_score`）を重み付きで合成します。Vision ブレンドの影響は受けません。降水リスクは一般の天気予報と認識を揃えるため気象庁の6時間降水確率を優先し、欠測時だけOpen-Meteoへフォールバックします。日没前のLINE予測には日没時刻に最も近いhourly気温・湿度・風などを表示しますが、Chill計算用の体感温度・湿度・風は対象時間帯集計のまま分離します。Chill指数の雲量など他の気象値は逗子海岸のOpen-Meteo値です。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
+`Chill指数` は体感温度、湿度、風、降水リスク、Sunset期待度（純式 `sunset_score`）を重み付きで合成し、Vision ブレンドの影響は受けません。13:00・17:00は対象時間帯の集計値を使い、降水リスクには気象庁の6時間降水確率を優先します。日没時・残照時は、実行時刻に最も近いOpen-Meteo hourly行の体感温度・湿度・風・降水・天気コード・雲量を一式で使います。保存列 `chill_weather_basis` は前者を `target_window`、後者を `run_time` と記録します。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
 
 `Sunset期待度` の初期式は以下です。
 

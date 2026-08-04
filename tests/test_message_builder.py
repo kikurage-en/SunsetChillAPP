@@ -311,16 +311,10 @@ def test_comment_changes_by_scores_and_weather(sample_summary):
     assert "夕焼け" in build_comment(sample_summary, good)
     assert "海辺" not in build_comment(sample_summary, good).splitlines()[0]
     assert "期待薄っピ" in build_comment(sample_summary, comfortable_but_low_sunset)
-    assert "海辺" not in build_comment(
-        sample_summary, comfortable_but_low_sunset
-    ).splitlines()[0]
+    assert "海辺" not in build_comment(sample_summary, comfortable_but_low_sunset).splitlines()[0]
     assert "期待薄っピ" in build_comment(sample_summary, bad)
-    assert "水平線のあたりが雲でぎゅうぎゅうっピ" in build_comment(
-        low_cloud, good
-    ).splitlines()[0]
-    assert "キャンバスになりそうっピ" in build_comment(
-        high_cloud, good
-    ).splitlines()[0]
+    assert "水平線のあたりが雲でぎゅうぎゅうっピ" in build_comment(low_cloud, good).splitlines()[0]
+    assert "キャンバスになりそうっピ" in build_comment(high_cloud, good).splitlines()[0]
     assert "海風が元気すぎるかもっピ" in build_comment(windy, good).splitlines()[1]
 
 
@@ -372,10 +366,13 @@ def test_actual_high_humidity_comment_uses_current_cooling_and_breeze(sample_sum
         sample_summary,
         run_time="19:20",
         apparent_temperature=34.4,
+        apparent_temperature_at_run_time=34.4,
         relative_humidity_2m_at_sunset=84,
+        relative_humidity_2m_at_run_time=84,
         temperature_2m_daytime_max=34,
         temperature_2m_at_run_time=29,
         wind_speed_10m_at_sunset=4.5,
+        wind_speed_10m_at_run_time=4.5,
     )
     scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=45, chill_label="C")
 
@@ -454,11 +451,14 @@ def test_same_day_comfort_comments_vary_and_keep_multiple_factors(sample_summary
                 date="2026-08-01",
                 run_time=run_time,
                 apparent_temperature=34.4,
+                apparent_temperature_at_run_time=34.4,
                 relative_humidity_2m_at_sunset=84,
+                relative_humidity_2m_at_run_time=84,
                 temperature_2m_daytime_max=34,
                 temperature_2m_at_sunset=29,
                 temperature_2m_at_run_time=29,
                 wind_speed_10m_at_sunset=4.5,
+                wind_speed_10m_at_run_time=4.5,
             ),
             scores,
             prediction=prediction,
@@ -475,7 +475,9 @@ def test_same_day_comfort_comments_vary_and_keep_multiple_factors(sample_summary
 def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
     summary = replace(
         sample_summary,
+        run_time="19:20",
         apparent_temperature=34.4,
+        apparent_temperature_at_run_time=34.4,
         temperature_2m_at_run_time=29,
         temperature_2m_at_sunset=29,
     )
@@ -499,12 +501,15 @@ def test_after_sunset_25_degree_comment_prioritizes_current_temperature(
         date="2026-08-03",
         run_time="19:20",
         apparent_temperature=30.2,
+        apparent_temperature_at_run_time=30.2,
         temperature_2m_daytime_max=33.4,
         temperature_2m_at_run_time=25.6,
         temperature_2m_at_sunset=25.8,
         relative_humidity_2m_at_sunset=84,
+        relative_humidity_2m_at_run_time=84,
         wind_speed_10m=3.5,
         wind_speed_10m_at_sunset=4.0,
+        wind_speed_10m_at_run_time=4.0,
     )
     scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=60, chill_label="B")
 
@@ -516,6 +521,58 @@ def test_after_sunset_25_degree_comment_prioritizes_current_temperature(
     assert "湿" in comfort_line
     assert "涼しさは控えめ" not in comfort_line
     assert "気温は高め" not in comfort_line
+
+
+def test_after_sunset_cool_comment_and_message_explain_gust_cap(sample_summary):
+    summary = replace(
+        sample_summary,
+        date="2026-08-03",
+        run_time="18:59",
+        temperature_2m_at_run_time=25.3,
+        apparent_temperature_at_run_time=27.6,
+        relative_humidity_2m_at_run_time=78,
+        precipitation_probability_at_run_time=0,
+        precipitation_at_run_time=0,
+        weather_code_at_run_time=2,
+        visibility_at_run_time=26220,
+        wind_speed_10m_at_run_time=4.17,
+        wind_direction_10m_at_run_time=32,
+        wind_gusts_10m_at_run_time=13.1,
+    )
+    scores = ScoreResult(
+        sunset_score=40,
+        sunset_label="C",
+        chill_score=50,
+        chill_label="C",
+        chill_weather_basis="run_time",
+    )
+    period_start = summary.sunset_time.replace(hour=18, minute=0)
+    jma = JmaPrecipitationForecast(
+        probability=20,
+        period_start=period_start,
+        period_end=period_start + timedelta(hours=6),
+        area_name="東部",
+        report_time=period_start.replace(hour=17),
+    )
+
+    comment = build_comment(summary, scores, prediction=False)
+    message = build_line_message(
+        summary,
+        replace(scores, comment=comment),
+        vision_mode="actual",
+        jma_precipitation=jma,
+    )
+
+    comfort_line = comment.splitlines()[1]
+    assert "25℃台" in comfort_line
+    assert "涼し" in comfort_line
+    assert "風" in comfort_line
+    assert "気温：25.3℃" in message
+    assert "湿度：78%" in message
+    assert "風：北北東 4.2m/s" in message
+    assert "突風：13.1m/s" in message
+    assert "降水確率：0%" in message
+    assert "降水確率：20%" not in message
 
 
 def test_after_sunset_high_heat_comment_changes_on_consecutive_dates(sample_summary):
@@ -534,14 +591,14 @@ def test_after_sunset_high_heat_comment_changes_on_consecutive_dates(sample_summ
             date=day,
             run_time="19:20",
             apparent_temperature=34.4,
+            apparent_temperature_at_run_time=34.4,
             temperature_2m_at_run_time=29,
             temperature_2m_at_sunset=29,
         )
         for day in dates
     ]
     details = [
-        build_comment(summary, scores, prediction=False).splitlines()[1]
-        for summary in summaries
+        build_comment(summary, scores, prediction=False).splitlines()[1] for summary in summaries
     ]
     repeated = build_comment(summaries[0], scores, prediction=False).splitlines()[1]
 
@@ -690,7 +747,16 @@ def test_sunset_and_comfort_details_rotate_across_three_dates(sample_summary):
         for condition in sunset_conditions:
             comments = {
                 build_comment(
-                    replace(condition, date=day, run_time=run_time),
+                    replace(
+                        condition,
+                        date=day,
+                        run_time=run_time,
+                        temperature_2m_at_run_time=condition.temperature_2m,
+                        apparent_temperature_at_run_time=(condition.apparent_temperature),
+                        relative_humidity_2m_at_run_time=(condition.relative_humidity_2m),
+                        wind_speed_10m_at_run_time=condition.wind_speed_10m,
+                        wind_gusts_10m_at_run_time=condition.wind_gusts_10m,
+                    ),
                     scores,
                     prediction=prediction,
                 )
@@ -704,7 +770,17 @@ def test_sunset_and_comfort_details_rotate_across_three_dates(sample_summary):
         for condition in comfort_conditions:
             details = {
                 build_comment(
-                    replace(condition, date=day, run_time=run_time),
+                    replace(
+                        condition,
+                        date=day,
+                        run_time=run_time,
+                        temperature_2m_at_run_time=(
+                            29 if condition.apparent_temperature >= 28 else condition.temperature_2m
+                        ),
+                        apparent_temperature_at_run_time=(condition.apparent_temperature),
+                        relative_humidity_2m_at_run_time=(condition.relative_humidity_2m),
+                        wind_speed_10m_at_run_time=condition.wind_speed_10m,
+                    ),
                     scores,
                     prediction=prediction,
                 ).splitlines()[1]
@@ -715,8 +791,7 @@ def test_sunset_and_comfort_details_rotate_across_three_dates(sample_summary):
             assert all("っピ" in detail for detail in details)
             assert all(
                 not any(
-                    sunset_word in detail
-                    for sunset_word in ("夕焼け", "夕陽", "高い雲", "低い雲")
+                    sunset_word in detail for sunset_word in ("夕焼け", "夕陽", "高い雲", "低い雲")
                 )
                 for detail in details
             )
@@ -842,8 +917,7 @@ def test_precipitation_disagreement_does_not_repeat_between_adjacent_runs(
     ]
 
     assert all(
-        current != following
-        for current, following in zip(comments, comments[1:], strict=False)
+        current != following for current, following in zip(comments, comments[1:], strict=False)
     )
     assert all("予報" not in comment for comment in comments)
 

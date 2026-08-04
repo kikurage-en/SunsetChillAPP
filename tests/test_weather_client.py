@@ -18,7 +18,21 @@ def test_parse_forecast_extracts_sunset_and_target_window(sample_summary):
     assert sample_summary.precipitation_probability == 10
     assert sample_summary.precipitation == 0
     assert sample_summary.visibility == 18000
+    assert sample_summary.run_time_snapshot_time.strftime("%H:%M") == "13:00"
     assert sample_summary.temperature_2m_at_run_time == 26.0
+    assert sample_summary.apparent_temperature_at_run_time == 26.0
+    assert sample_summary.relative_humidity_2m_at_run_time == 60.0
+    assert sample_summary.precipitation_probability_at_run_time == 20.0
+    assert sample_summary.precipitation_at_run_time == 0.0
+    assert sample_summary.weather_code_at_run_time == 1
+    assert sample_summary.cloud_cover_at_run_time == 45.0
+    assert sample_summary.cloud_cover_low_at_run_time == 20.0
+    assert sample_summary.cloud_cover_mid_at_run_time == 35.0
+    assert sample_summary.cloud_cover_high_at_run_time == 50.0
+    assert sample_summary.visibility_at_run_time == 20000.0
+    assert sample_summary.wind_speed_10m_at_run_time == 3.0
+    assert sample_summary.wind_direction_10m_at_run_time == 180.0
+    assert sample_summary.wind_gusts_10m_at_run_time == 6.0
     assert sample_summary.temperature_2m_daytime_max == 26.0
     assert sample_summary.sunset_snapshot_time.strftime("%H:%M") == "19:00"
     assert sample_summary.temperature_2m_at_sunset == 22.0
@@ -48,6 +62,9 @@ def test_parse_forecast_daytime_max_ignores_nighttime_temperature(sample_payload
 
 def test_parse_forecast_selects_temperature_nearest_to_run_time(sample_payload):
     sample_payload["hourly"]["temperature_2m"][19] = 18.2
+    sample_payload["hourly"]["apparent_temperature"][19] = 17.4
+    sample_payload["hourly"]["relative_humidity_2m"][19] = 88
+    sample_payload["hourly"]["wind_gusts_10m"][19] = 13.1
 
     summary = parse_forecast(
         sample_payload,
@@ -59,6 +76,9 @@ def test_parse_forecast_selects_temperature_nearest_to_run_time(sample_payload):
     )
 
     assert summary.temperature_2m_at_run_time == 18.2
+    assert summary.apparent_temperature_at_run_time == 17.4
+    assert summary.relative_humidity_2m_at_run_time == 88.0
+    assert summary.wind_gusts_10m_at_run_time == 13.1
 
 
 def test_parse_forecast_selects_hourly_row_nearest_to_sunset(sample_payload):

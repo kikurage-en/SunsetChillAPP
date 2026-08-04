@@ -83,6 +83,23 @@ CSV_COLUMNS = [
     "captured_at",
     "capture_delay_seconds",
     "observation_data_quality",
+    # 74列の旧スキーマをprefixとして維持し、日没後Chill指数の再現入力を末尾追加する。
+    "chill_weather_basis",
+    "run_time_snapshot_time",
+    "temperature_2m_at_run_time",
+    "apparent_temperature_at_run_time",
+    "relative_humidity_2m_at_run_time",
+    "precipitation_probability_at_run_time",
+    "precipitation_at_run_time",
+    "weather_code_at_run_time",
+    "cloud_cover_at_run_time",
+    "cloud_cover_low_at_run_time",
+    "cloud_cover_mid_at_run_time",
+    "cloud_cover_high_at_run_time",
+    "visibility_at_run_time",
+    "wind_speed_10m_at_run_time",
+    "wind_direction_10m_at_run_time",
+    "wind_gusts_10m_at_run_time",
 ]
 
 

@@ -211,13 +211,17 @@ def parse_forecast(
         )
     }
     run_time = datetime.now(tz) if run_time is None else run_time.astimezone(tz)
-    run_time_temperature = _value_for_index(
-        hourly,
-        "temperature_2m",
-        _nearest_time_index(times, run_time),
-        len(times),
-        allow_missing="temperature_2m" in allow_missing_fields,
-    )
+    run_time_snapshot_index = _nearest_time_index(times, run_time)
+    run_time_snapshot = {
+        field: _value_for_index(
+            hourly,
+            field,
+            run_time_snapshot_index,
+            len(times),
+            allow_missing=field in allow_missing_fields,
+        )
+        for field in HOURLY_FIELDS
+    }
     daytime_indexes = [
         index
         for index, item_time in enumerate(times)
@@ -266,11 +270,25 @@ def parse_forecast(
         precipitation_at_sunset=at_sunset["precipitation"],
         weather_code_at_sunset=_optional_int(at_sunset["weather_code"]),
         visibility_at_sunset=at_sunset["visibility"],
-        temperature_2m_at_run_time=(
-            run_time_temperature
-            if run_time_temperature is not None
-            else _mean(values["temperature_2m"])
-        ),
+        run_time_snapshot_time=times[run_time_snapshot_index],
+        temperature_2m_at_run_time=run_time_snapshot["temperature_2m"],
+        apparent_temperature_at_run_time=run_time_snapshot["apparent_temperature"],
+        relative_humidity_2m_at_run_time=run_time_snapshot[
+            "relative_humidity_2m"
+        ],
+        precipitation_probability_at_run_time=run_time_snapshot[
+            "precipitation_probability"
+        ],
+        precipitation_at_run_time=run_time_snapshot["precipitation"],
+        weather_code_at_run_time=_optional_int(run_time_snapshot["weather_code"]),
+        cloud_cover_at_run_time=run_time_snapshot["cloud_cover"],
+        cloud_cover_low_at_run_time=run_time_snapshot["cloud_cover_low"],
+        cloud_cover_mid_at_run_time=run_time_snapshot["cloud_cover_mid"],
+        cloud_cover_high_at_run_time=run_time_snapshot["cloud_cover_high"],
+        visibility_at_run_time=run_time_snapshot["visibility"],
+        wind_speed_10m_at_run_time=run_time_snapshot["wind_speed_10m"],
+        wind_direction_10m_at_run_time=run_time_snapshot["wind_direction_10m"],
+        wind_gusts_10m_at_run_time=run_time_snapshot["wind_gusts_10m"],
         temperature_2m_daytime_max=max(daytime_temperatures),
         sunset_snapshot_time=times[sunset_snapshot_index],
         temperature_2m_at_sunset=sunset_snapshot["temperature_2m"],

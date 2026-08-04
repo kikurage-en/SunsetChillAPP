@@ -74,6 +74,7 @@ def test_dry_run_can_use_fixture_input_json_without_api(tmp_path, monkeypatch, c
     rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
     assert len(rows) == 1
     assert rows[0]["line_sent"] == "False"
+    assert rows[0]["chill_weather_basis"] == "target_window"
 
 
 def test_observation_run_uses_capture_time_metadata_and_line_retry_key(
@@ -109,6 +110,8 @@ def test_observation_run_uses_capture_time_metadata_and_line_retry_key(
     assert fake_storage.has_sent_queries[0]["observation_id"] == "2026-06-01:afterglow"
     record = fake_storage.records[-1]
     assert record.summary.run_time == "19:18"
+    assert record.summary.run_time_snapshot_time.strftime("%H:%M") == "19:00"
+    assert record.scores.chill_weather_basis == "run_time"
     assert record.scheduled_at == datetime(
         2026,
         6,

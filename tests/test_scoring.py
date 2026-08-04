@@ -56,6 +56,18 @@ def test_display_snapshots_do_not_change_sunset_or_chill_scores(sample_summary):
         visibility_at_sunset_snapshot=100,
         wind_speed_10m_at_sunset=20,
         wind_direction_10m_at_sunset=0,
+        apparent_temperature_at_run_time=40,
+        relative_humidity_2m_at_run_time=100,
+        precipitation_probability_at_run_time=100,
+        precipitation_at_run_time=5,
+        weather_code_at_run_time=65,
+        cloud_cover_at_run_time=100,
+        cloud_cover_low_at_run_time=100,
+        cloud_cover_mid_at_run_time=100,
+        cloud_cover_high_at_run_time=100,
+        visibility_at_run_time=100,
+        wind_speed_10m_at_run_time=20,
+        wind_gusts_10m_at_run_time=30,
     )
     cloud_with_snapshot = replace(
         aggregate_cloud,
@@ -68,6 +80,49 @@ def test_display_snapshots_do_not_change_sunset_or_chill_scores(sample_summary):
         snapshot_only_changes,
         cloud_with_snapshot,
     )
+
+
+def test_actual_chill_uses_complete_run_time_weather_snapshot(sample_summary):
+    summary = replace(
+        sample_summary,
+        apparent_temperature=25,
+        relative_humidity_2m=65,
+        precipitation_probability=0,
+        precipitation=0,
+        weather_code=1,
+        cloud_cover=20,
+        cloud_cover_low=10,
+        cloud_cover_mid=10,
+        wind_speed_10m=3,
+        wind_gusts_10m=6,
+        apparent_temperature_at_run_time=27.6,
+        relative_humidity_2m_at_run_time=78,
+        precipitation_probability_at_run_time=0,
+        precipitation_at_run_time=0,
+        weather_code_at_run_time=2,
+        cloud_cover_at_run_time=54,
+        cloud_cover_low_at_run_time=46,
+        cloud_cover_mid_at_run_time=82,
+        cloud_cover_high_at_run_time=0,
+        visibility_at_run_time=26220,
+        wind_speed_10m_at_run_time=4.2,
+        wind_gusts_10m_at_run_time=13.1,
+    )
+
+    forecast = calculate_scores(summary, chill_precipitation_probability=100)
+    actual = calculate_scores(
+        summary,
+        chill_precipitation_probability=100,
+        chill_use_run_time_weather=True,
+    )
+
+    assert forecast.chill_score == 40
+    # 8/3型: 気温・湿度・平均風は快適側でも、直近の突風13.1m/sで上限50。
+    assert actual.chill_score == 50
+    assert actual.chill_label == "C"
+    assert actual.chill_weather_basis == "run_time"
+    # 日没後は6時間予測のJMA値100%ではなく、同じhourly行の0%を使う。
+    assert actual.chill_score > forecast.chill_score
 
 
 def test_scores_are_clamped(sample_summary):
