@@ -547,8 +547,8 @@ def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
 
     assert exit_code == 0
     assert fake_storage.records[-1].vision == vision
-    # 日没(18:51)後の19:20実行は残照評価のラベルになり、撮影/日没時刻が渡される
-    assert "カメラ残照評価" in fake_line_client.sent_messages[0]
+    # 日没(18:51)後の19:20実行は夕焼け評価のラベルになり、撮影/日没時刻が渡される
+    assert "カメラ夕焼け評価" in fake_line_client.sent_messages[0]
     assert captured_kwargs["capture_time"].strftime("%H:%M") == "19:20"
     assert captured_kwargs["sunset_time"].strftime("%H:%M") == "18:51"
 
@@ -580,12 +580,12 @@ def test_after_sunset_message_compares_sent_17_prediction_with_camera_result(mon
     assert exit_code == 0
     message = fake_line_client.sent_messages[0]
     assert "Sunset期待度【 A 】80 / 100" in message
-    assert message.index("📷 ライブカメラ残照評価") < message.index("コメント：")
+    assert message.index("📷 ライブカメラ夕焼け評価") < message.index("コメント：")
     assert "残照：68 / 100" not in message
     comment = message.split("コメント：\n", 1)[1].split("\n\n--\n", 1)[0]
-    assert "17時はかなり期待できそうだったけれど" in comment
-    assert "実際の残照" in comment
-    assert "橙色の残照が見えるっピ" in comment
+    assert any(word in comment for word in ("控えめ", "おとなしい", "伸びなかった"))
+    assert "橙色の光が見えるっピ" in comment
+    assert all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
     assert fake_storage.prediction_queries == [
         {
             "date": "2026-06-01",
