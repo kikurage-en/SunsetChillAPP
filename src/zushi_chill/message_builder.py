@@ -55,6 +55,120 @@ _ACTUAL_SUNSET_VARIANTS = {
     ),
 }
 
+_ACTUAL_COMPARISON_VARIANTS = {
+    ("favorable", "vivid"): (
+        "期待どおりの夕焼けだっピ！",
+        "楽しみにしてたとおり、きれいな夕焼けだっピ！",
+        "期待していたくらい、空がきれいに染まったっピ！",
+        "思い描いていたような夕焼けになったっピ！",
+        "期待にこたえて、空が元気に染まったっピ！",
+        "待ってた甲斐のある夕焼けだっピ！",
+        "うん、楽しみにしてたくらいの夕焼けだっピ！",
+    ),
+    ("favorable", "visible"): (
+        "期待より少し控えめな夕焼けだっピ。",
+        "楽しみにしてたけど、色づきは小さめだったっピ。",
+        "思っていたより、おとなしい夕焼けだっピ。",
+        "期待したほどは色が伸びなかったっピ。",
+        "きれいには染まったけど、期待よりやさしい色だっピ。",
+        "楽しみにしてたぶん、もうひと声ほしかったっピ。",
+        "期待には少し届かなかったけど、夕焼け色は見えたっピ。",
+    ),
+    ("favorable", "absent"): (
+        "楽しみにしてたけど、夕焼けはほとんど見えなかったっピ……。",
+        "期待してたけど、空はほとんど染まらなかったっピ……。",
+        "待ってた夕焼け色は、今日は出てくれなかったっピ……。",
+        "楽しみにしてたぶん、ちょっぴり残念な空だっピ……。",
+        "きれいに染まりそうだったけど、色は出なかったっピ……。",
+        "期待した夕焼けには、届かなかったっピ……。",
+        "わくわくしてたけど、夕焼けはおやすみだったっピ……。",
+    ),
+    ("uncertain", "vivid"): (
+        "思っていたより、ずっときれいな夕焼けだっピ！",
+        "わあっ！予想以上に空がきれいに染まったっピ！",
+        "思いがけず、鮮やかな夕焼けになったっピ！",
+        "迷っていた空が、きれいな色を見せてくれたっピ！",
+        "思った以上に、空いっぱいに色が広がったっピ！",
+        "予想を越えて、見ごたえのある夕焼けになったっピ！",
+        "うれしい方に転んで、きれいな夕焼けになったっピ！",
+    ),
+    ("uncertain", "visible"): (
+        "ほどよく色づいた夕焼けだっピ。",
+        "空がほんのり夕焼け色に染まったっピ。",
+        "やさしい色の夕焼けになったっピ。",
+        "空の一部に、きれいな色が見えたっピ。",
+        "控えめだけど、夕焼け色はちゃんと見えたっピ。",
+        "派手ではないけど、空が少し色づいたっピ。",
+        "小さな夕焼けを見つけたっピ。",
+    ),
+    ("uncertain", "absent"): (
+        "思ったより色づかず、夕焼けはほとんど見えなかったっピ……。",
+        "空の色は、思っていたより静かなままだったっピ……。",
+        "夕焼け色は、ほとんど出てくれなかったっピ……。",
+        "今日は空が染まらないまま終わったっピ……。",
+        "もう少し色づくかと思ったけど、夕焼けは見えなかったっピ……。",
+        "きれいな色は出ず、静かな空のままだったっピ……。",
+        "夕焼けは、思っていたより元気がなかったっピ……。",
+    ),
+    ("pessimistic", "vivid"): (
+        "心配してたけど、きれいな夕焼けになったっピ！",
+        "わあっ！思いがけず空が鮮やかに染まったっピ！",
+        "むずかしいと思ってたのに、夕焼けは大当たりっピ！",
+        "心配を吹き飛ばす、きれいな夕焼けだっピ！",
+        "思った以上に、空が元気な色を見せてくれたっピ！",
+        "あきらめかけてたけど、空がきれいに染まったっピ！",
+        "うれしいびっくりの夕焼けになったっピ！",
+    ),
+    ("pessimistic", "visible"): (
+        "心配したほど悪くなく、空が少し色づいたっピ。",
+        "むずかしいと思ってたけど、夕焼け色が少し見えたっピ。",
+        "思っていたより、やさしい色が出てくれたっピ。",
+        "あきらめかけてたけど、小さな夕焼けを見つけたっピ。",
+        "心配してた空にも、少しだけ色が出たっピ。",
+        "うれしい方に外れて、空がほんのり染まったっピ。",
+        "夕焼けは小さめだけど、思ったより色づいたっピ。",
+    ),
+    ("pessimistic", "absent"): (
+        "やっぱり夕焼けはほとんど見えなかったっピ……。",
+        "心配してたとおり、空はほとんど染まらなかったっピ……。",
+        "きょうの夕焼けは、おやすみだったっピ……。",
+        "やっぱり空の色は静かなままだったっピ……。",
+        "夕焼け色は、最後まで出てくれなかったっピ……。",
+        "うーん……きれいな色は見えなかったっピ……。",
+        "きょうは夕焼けを見つけられなかったっピ……。",
+    ),
+}
+
+_ACTUAL_CAMERA_SUMMARY_VARIANTS = {
+    "vivid": (
+        "きれいな夕焼けになったっピ！",
+        "空が元気に染まったっピ！",
+        "夕焼けは大当たりっピ！",
+        "わあっ！空がきれいに色づいたっピ！",
+        "うれしい夕焼けになったっピ！",
+        "空いっぱいに夕焼け色が広がったっピ！",
+        "見ごたえのある夕焼けだっピ！",
+    ),
+    "visible": (
+        "ほどよく色づいた夕焼けだっピ。",
+        "空に夕焼け色が少し見えたっピ。",
+        "やさしい色の夕焼けになったっピ。",
+        "夕焼けは、もうひと声っピ。",
+        "空がほんのり色づいたっピ。",
+        "控えめだけど、夕焼け色が見えたっピ。",
+        "小さな夕焼けを見つけたっピ。",
+    ),
+    "absent": (
+        "きょうの夕焼けは控えめだったっピ……。",
+        "空の色はおやすみ気分だったっピ……。",
+        "夕焼けはちょっぴり元気がなかったっピ……。",
+        "きれいな色は、ほとんど出なかったっピ……。",
+        "空はほとんど染まらなかったっピ……。",
+        "夕焼け色は小さめだったっピ……。",
+        "きょうの空は静かなままだったっピ……。",
+    ),
+}
+
 
 def build_comment(
     summary: WeatherSummary,
@@ -239,7 +353,6 @@ def build_comment(
         else:
             sunset_comment = _actual_with_camera_comment(
                 summary,
-                weather_score=scores.sunset_score,
                 vision=vision,
                 prior_sunset_prediction=prior_sunset_prediction,
             )
@@ -384,83 +497,40 @@ def _prediction_with_camera_comment(
 def _actual_with_camera_comment(
     summary: WeatherSummary,
     *,
-    weather_score: int,
     vision: VisionResult,
     prior_sunset_prediction: SunsetPredictionReference | None,
 ) -> str:
-    reference_score = (
-        prior_sunset_prediction.score
-        if prior_sunset_prediction is not None
-        else weather_score
+    if prior_sunset_prediction is None:
+        summary_comment = _actual_camera_summary(summary, vision.sunset_score)
+    else:
+        outlook = _prior_outlook_band(prior_sunset_prediction.score)
+        result = _actual_result_band(vision.sunset_score)
+        summary_comment = _comment_variant(
+            summary,
+            f"actual-{outlook}-{result}",
+            _ACTUAL_COMPARISON_VARIANTS[(outlook, result)],
+        )
+    observation = _vision_observation_comment(vision)
+    return f"{summary_comment} {observation}"
+
+
+def _actual_camera_summary(summary: WeatherSummary, sunset_score: int) -> str:
+    band = _actual_result_band(sunset_score)
+    return _comment_variant(
+        summary,
+        f"camera-actual-summary-{band}",
+        _ACTUAL_CAMERA_SUMMARY_VARIANTS[band],
     )
-    reference_band = _comment_band(reference_score)
-    if prior_sunset_prediction is not None:
-        reference_time = _prediction_time_label(prior_sunset_prediction.run_time)
-        reference = {
-            "good": f"{reference_time}はかなり期待できそう",
-            "medium": f"{reference_time}は五分五分くらい",
-            "low": f"{reference_time}は期待控えめ",
-        }[reference_band]
-    else:
-        reference = {
-            "good": "気象条件の評価は高め",
-            "medium": "気象条件の評価は五分五分",
-            "low": "気象条件の評価は控えめ",
-        }[reference_band]
-
-    result_name = {
-        "sunset": "日没時の夕焼け",
-        "afterglow": "残照",
-    }.get(vision.evaluation_phase, "空の色")
-    gap = vision.sunset_score - reference_score
-    if gap <= -10:
-        comparison = _comment_variant(
-            summary,
-            f"actual-below-expectation-{result_name}",
-            (
-                f"{reference}だったけれど、実際の{result_name}は期待より少し控えめだったっピ。",
-                f"{reference}だったけれど、実際の{result_name}は少しおとなしい結果だったっピ。",
-                f"{reference}だったけれど、実際の{result_name}はそこまで伸びなかったっピ。",
-                f"{reference}だったけれど、実際の{result_name}は期待には少し届かなかったっピ。",
-                f"{reference}だったけれど、実際の{result_name}は期待していたほど色が伸びなかったっピ。",
-                f"{reference}だったけれど、実際の{result_name}は思っていたよりおとなしい結果になったっピ。",
-                f"{reference}だったけれど、実際の{result_name}は期待よりひと足ぶん控えめだったっピ。",
-            ),
-        )
-    elif gap >= 10:
-        comparison = _comment_variant(
-            summary,
-            f"actual-above-expectation-{result_name}",
-            (
-                f"{reference}だったけれど、実際の{result_name}は予想以上だったっピ！",
-                f"{reference}だったけれど、実際の{result_name}はうれしい上振れっピ！",
-                f"{reference}だったけれど、実際の{result_name}は思ったより元気だったっピ！",
-                f"{reference}だったけれど、実際の{result_name}は期待を越えてくれたっピ！",
-                f"{reference}だったけれど、実際の{result_name}は思った以上にきれいな結果だったっピ！",
-                f"{reference}だったけれど、実際の{result_name}はうれしい方向に外れたっピ！",
-                f"{reference}だったけれど、実際の{result_name}は期待より元気な色を見せてくれたっピ！",
-            ),
-        )
-    else:
-        comparison = _comment_variant(
-            summary,
-            f"actual-near-expectation-{result_name}",
-            (
-                f"{reference}で、実際の{result_name}もだいたい期待どおりだったっピ！",
-                f"{reference}で、実際の{result_name}も近い結果になったっピ。",
-                f"{reference}で、実際の{result_name}も大きくは外れなかったっピ。",
-                f"{reference}で、実際の{result_name}もほぼ期待に沿う結果だったっピ。",
-                f"{reference}で、実際の{result_name}も期待と同じくらいの色づきだったっピ。",
-                f"{reference}で、実際の{result_name}も予想から大きく離れない結果だったっピ。",
-                f"{reference}で、実際の{result_name}もだいたい思っていた通りだったっピ。",
-            ),
-        )
-    observation = _vision_observation_comment(vision, result_name)
-    return f"{comparison} {observation}"
 
 
-def _vision_observation_comment(vision: VisionResult, result_name: str) -> str:
+def _vision_observation_comment(vision: VisionResult) -> str:
     raw_comment = vision.comment.strip()
+    raw_comment = re.sub(
+        r"((?:橙|赤|紫|ピンク|オレンジ)(?:色)?(?:・(?:橙|赤|紫)(?:色)?)*)の残照",
+        r"\1の光",
+        raw_comment,
+    )
+    raw_comment = raw_comment.replace("残照", "夕焼け色")
     if vision.sunset_score >= 60:
         raw_comment = re.sub(r"^うーん(?:……[。.]?|[、,])?\s*", "", raw_comment)
     elif vision.sunset_score < 40:
@@ -468,12 +538,23 @@ def _vision_observation_comment(vision: VisionResult, result_name: str) -> str:
     voiced = apply_comment_voice(raw_comment)
     if voiced:
         return voiced
-    return f"実際の{result_name}をライブカメラで確認したっピ。"
+    return "ライブカメラで夕焼けを確認したっピ。"
 
 
-def _prediction_time_label(run_time: str) -> str:
-    hour, minute = run_time.split(":", maxsplit=1)
-    return f"{int(hour)}時" if minute == "00" else run_time
+def _prior_outlook_band(score: int) -> str:
+    if score >= 70:
+        return "favorable"
+    if score >= 40:
+        return "uncertain"
+    return "pessimistic"
+
+
+def _actual_result_band(score: int) -> str:
+    if score >= 70:
+        return "vivid"
+    if score >= 40:
+        return "visible"
+    return "absent"
 
 
 def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None:
@@ -518,16 +599,32 @@ def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None
         return _strong_wind_comment(summary, prediction=prediction) if wind_speed >= 8 else None
 
     heat_level = "high" if conditions.apparent_temperature >= 32 else "moderate"
+    humid = humidity >= 75
+    modifier_kind = _comfort_modifier_kind(
+        conditions,
+        wind_speed=wind_speed,
+        wind_gusts=wind_gusts,
+        prediction=prediction,
+    )
+    if heat_level == "moderate" and humid and modifier_kind in {
+        "breeze",
+        "cooling",
+        "cooling-breeze",
+    }:
+        return _moderate_humid_relief_comment(
+            conditions,
+            modifier=modifier_kind,
+            prediction=prediction,
+        )
     heat_comment = _heat_comment(
         conditions,
         heat_level=heat_level,
-        humid=humidity >= 75,
+        humid=humid,
         prediction=prediction,
     )
     modifier = _comfort_modifier(
         conditions,
-        wind_speed=wind_speed,
-        wind_gusts=wind_gusts,
+        modifier=modifier_kind,
         prediction=prediction,
     )
     return f"{heat_comment}{modifier}"
@@ -611,6 +708,22 @@ def _cool_actual_comment(
                 f"海辺は{temperature_band}℃台で、風もあるから涼しいっピ！"
                 "湿気だけ少し残ってるっピ。"
             ),
+            (
+                f"湿度は高めだけど、{temperature_band}℃台と海風で"
+                "かなり涼しいっピ！"
+            ),
+            (
+                f"{temperature_band}℃台の海風が気持ちいいっピ！"
+                "涼しいけど、少し湿気はあるっピ。"
+            ),
+            (
+                f"海辺は{temperature_band}℃台まで下がって涼しいっピ！"
+                "風もあるけど、湿度は高めっピ。"
+            ),
+            (
+                f"湿気は残ってるけど、{temperature_band}℃台と風なら"
+                "かなり涼しいっピ！"
+            ),
         ),
         "humid": (
             f"{temperature_description}、{coolness}っピ！ただ、湿気は少し残ってるっピ。",
@@ -675,21 +788,37 @@ def _heat_comment(
             "気温と湿度が高めで、少しむし暑くなりそうっピ。",
             "湿気と暑さが重なって、海辺は少しむわっとしそうっピ。",
             "気温は高めで湿気もあり、涼しさは控えめになりそうっピ。",
+            "ちょっぴり蒸し暑い夕方になりそうっピ。",
+            "湿気が残って、少し暑く感じそうっピ。",
+            "海辺も、ほんのりむし暑くなりそうっピ。",
+            "夕方でも湿気のある暑さが残りそうっピ。",
         ),
         ("moderate", True, False): (
             "気温と湿度が高めで、少しむし暑い状態っピ。",
             "湿気と暑さが重なって、海辺は少しむわっとしてるっピ。",
             "気温は高めで湿気もあり、涼しさは控えめっピ。",
+            "ちょっぴり蒸し暑い夕方っピ。",
+            "湿気が残って、少し暑く感じるっピ。",
+            "海辺も、ほんのりむし暑いっピ。",
+            "まだ湿気のある暑さが残ってるっピ。",
         ),
         ("moderate", False, True): (
             "気温は少し高めで、海辺でも暑さが残りそうっピ。",
             "夕方も気温が高めで、涼しさは控えめになりそうっピ。",
             "海辺では少し暑く感じそうっピ。",
+            "夕方も、ほんのり暑さが残りそうっピ。",
+            "海辺でも少し暑い空気になりそうっピ。",
+            "涼しくなるには、もうひと声ほしそうっピ。",
+            "気温は高めで、まだ少し暑そうっピ。",
         ),
         ("moderate", False, False): (
             "気温は少し高めで、海辺にも暑さが残ってるっピ。",
             "夕方も気温が高めで、涼しさは控えめっピ。",
             "海辺では少し暑く感じる状態っピ。",
+            "夕方も、ほんのり暑さが残ってるっピ。",
+            "海辺でも少し暑い空気っピ。",
+            "涼しくなるには、もうひと声っピ。",
+            "気温は高めで、まだ少し暑いっピ。",
         ),
     }[(heat_level, humid, prediction)]
     return _comment_variant(
@@ -700,13 +829,82 @@ def _heat_comment(
     )
 
 
-def _comfort_modifier(
+def _moderate_humid_relief_comment(
+    summary: WeatherSummary,
+    *,
+    modifier: str,
+    prediction: bool,
+) -> str:
+    variants = {
+        ("breeze", True): (
+            "少し蒸し暑そうだけど、海風が救いになりそうっピ。",
+            "湿気はあるけど、風のおかげで少し楽そうっピ。",
+            "海風があるから、むわっとした暑さはしのげそうっピ。",
+            "湿度は高めでも、風が暑さをやわらげてくれそうっピ。",
+            "ちょっぴり蒸し暑そうっピ。海風が救いっピ！",
+            "風がありそうで、湿気のある暑さも少し軽くなりそうっピ。",
+            "むし暑さは残りそうだけど、海辺の風は気持ちよさそうっピ。",
+        ),
+        ("breeze", False): (
+            "少し蒸し暑いけど、海風が救いっピ。",
+            "湿気はあるけど、風のおかげで少し楽っピ。",
+            "海風が、むわっとした暑さをやわらげてるっピ。",
+            "湿度は高めでも、風があるぶん過ごしやすいっピ。",
+            "ちょっぴり蒸し暑いっピ。海風が救いっピ！",
+            "風があるから、湿気のある暑さも少し軽いっピ。",
+            "むし暑さは残ってるけど、海辺の風は気持ちいいっピ。",
+        ),
+        ("cooling", True): (
+            "湿気はあるけど、日中より涼しくなりそうっピ。",
+            "むし暑さは残りそうでも、昼間より気温は下がりそうっピ。",
+            "夕方は気温が下がって、湿気のある暑さもやわらぎそうっピ。",
+            "湿度は高めだけど、日中よりはほっとできそうっピ。",
+            "昼間より涼しくなって、むわっと感も少し軽くなりそうっピ。",
+            "湿気は残りそうだけど、夕方の気温低下が救いっピ。",
+            "日中の暑さが引いて、少し蒸し暑いくらいになりそうっピ。",
+        ),
+        ("cooling", False): (
+            "湿気はあるけど、日中より涼しくなってるっピ。",
+            "むし暑さは残っていても、昼間より気温は低いっピ。",
+            "夕方は気温が下がって、湿気のある暑さもやわらいでるっピ。",
+            "湿度は高めだけど、日中よりはほっとできるっピ。",
+            "昼間より涼しくなって、むわっと感も少し軽いっピ。",
+            "湿気は残ってるけど、夕方の気温低下が救いっピ。",
+            "日中の暑さが引いて、少し蒸し暑いくらいっピ。",
+        ),
+        ("cooling-breeze", True): (
+            "湿気はあるけど、日中より低い気温と海風が救いになりそうっピ。",
+            "むし暑さは残りそうでも、昼間との気温差と風で少し楽そうっピ。",
+            "湿気はあるけど、夕方は気温が下がって海風も吹きそうっピ。",
+            "湿度は高めだけど、日中より涼しく、風も心地よさそうっピ。",
+            "昼間より気温が下がり、海風がむわっと感をやわらげそうっピ。",
+            "湿気は残りそうだけど、夕方の気温低下と風が助けてくれそうっピ。",
+            "日中の蒸し暑さが引いて、海辺の風も気持ちよくなりそうっピ。",
+        ),
+        ("cooling-breeze", False): (
+            "湿気はあるけど、日中より低い気温と海風が救いっピ。",
+            "むし暑さは残っていても、昼間との気温差と風で少し楽っピ。",
+            "湿気はあるけど、夕方は気温が下がって海風も吹いてるっピ。",
+            "湿度は高めだけど、日中より涼しく、風も心地いいっピ。",
+            "昼間より気温が下がり、海風がむわっと感をやわらげてるっピ。",
+            "湿気は残ってるけど、夕方の気温低下と風が助けてくれるっピ。",
+            "日中の蒸し暑さが引いて、海辺の風も気持ちいいっピ。",
+        ),
+    }[(modifier, prediction)]
+    return _comment_variant(
+        summary,
+        f"moderate-humid-{modifier}-{'prediction' if prediction else 'actual'}",
+        variants,
+    )
+
+
+def _comfort_modifier_kind(
     summary: WeatherSummary,
     *,
     wind_speed: float,
     wind_gusts: float,
     prediction: bool,
-) -> str:
+) -> str | None:
     temperature = _comfort_temperature(summary, prediction=prediction)
     daytime_max = summary.temperature_2m_daytime_max
     cooling = daytime_max is not None and daytime_max - temperature >= 3
@@ -716,18 +914,27 @@ def _comfort_modifier(
     )
 
     if wind_speed >= 8:
-        modifier = "strong-wind"
-    elif not prediction and wind_gusts >= 12:
-        modifier = "gust"
-    elif rain:
-        modifier = "rain"
-    elif cooling and breeze:
-        modifier = "cooling-breeze"
-    elif cooling:
-        modifier = "cooling"
-    elif breeze:
-        modifier = "breeze"
-    else:
+        return "strong-wind"
+    if not prediction and wind_gusts >= 12:
+        return "gust"
+    if rain:
+        return "rain"
+    if cooling and breeze:
+        return "cooling-breeze"
+    if cooling:
+        return "cooling"
+    if breeze:
+        return "breeze"
+    return None
+
+
+def _comfort_modifier(
+    summary: WeatherSummary,
+    *,
+    modifier: str | None,
+    prediction: bool,
+) -> str:
+    if modifier is None:
         return ""
 
     variants = {
@@ -996,7 +1203,7 @@ def build_line_message(
         elif vision.evaluation_phase == "sunset":
             vision_label = "ライブカメラ日没時評価"
         elif vision.evaluation_phase == "afterglow":
-            vision_label = "ライブカメラ残照評価"
+            vision_label = "ライブカメラ夕焼け評価"
         else:
             vision_label = "ライブカメラ実況評価"
         detail_lines = []

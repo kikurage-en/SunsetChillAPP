@@ -264,10 +264,11 @@ def test_line_message_does_not_repeat_afterglow_score(sample_summary):
 
     message = build_line_message(sample_summary, scores, vision=vision)
 
-    assert "ライブカメラ残照評価" in message
+    assert "ライブカメラ夕焼け評価" in message
     assert "【 B 】55 / 100（partly_cloudy）" in message
     assert "残照：55 / 100" not in message
     assert message.count("55 / 100") == 1
+    assert "残照" not in message
 
 
 def test_actual_message_uses_prior_prediction_and_integrates_camera_comment(sample_summary):
@@ -293,24 +294,25 @@ def test_actual_message_uses_prior_prediction_and_integrates_camera_comment(samp
     assert "Sunset期待度【 A 】80 / 100" in message
     assert (
         "Chill指数【 S 】94 / 100\n\n"
-        "📷 ライブカメラ残照評価\n"
+        "📷 ライブカメラ夕焼け評価\n"
         "【 B 】68 / 100（overcast）\n\n"
         "コメント：\n"
     ) in message
-    assert message.index("📷 ライブカメラ残照評価") < message.index("コメント：")
+    assert message.index("📷 ライブカメラ夕焼け評価") < message.index("コメント：")
     assert "残照：68 / 100" not in message
     camera_section = message.split("📷", 1)[1].split("コメント：", 1)[0]
     assert "橙色" not in camera_section
     comment = message.split("コメント：\n", 1)[1].split("\n\n--\n", 1)[0]
-    assert "17時はかなり期待できそうだったけれど" in comment
-    assert "実際の残照" in comment
     assert any(word in comment for word in ("控えめ", "おとなしい", "伸びなかった"))
-    assert "橙色の残照が見えるっピ" in comment
+    assert "橙色の光が見えるっピ" in comment
+    assert all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
     assert "うーん" not in comment
     assert "\n\n--\n日没：" in message
 
 
-def test_actual_message_falls_back_to_current_weather_comparison(sample_summary):
+def test_actual_message_without_prior_prediction_describes_camera_result_directly(
+    sample_summary,
+):
     scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
     vision = VisionResult(
         sunset_score=55,
@@ -323,8 +325,63 @@ def test_actual_message_falls_back_to_current_weather_comparison(sample_summary)
 
     comment = build_comment(sample_summary, scores, prediction=False, vision=vision)
 
-    assert "気象条件の評価は高めだったけれど" in comment
-    assert "17時" not in comment
+    assert "夕焼け" in comment
+    assert all(
+        word not in comment
+        for word in ("気象条件の評価", "期待", "予想", "17時", "残照")
+    )
+
+
+def test_actual_favorable_outlook_and_vivid_result_is_concise(sample_summary):
+    summary = replace(sample_summary, date="2026-08-05", run_time="19:00")
+    scores = ScoreResult(sunset_score=76, sunset_label="A", chill_score=82, chill_label="A")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="partly_cloudy",
+        comment="富士山と空が燃えるように光ってる",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=82,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=76, label="A")
+
+    comment = build_comment(
+        summary,
+        scores,
+        prediction=False,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    ).splitlines()[0]
+
+    assert comment.startswith("期待どおりの夕焼けだっピ！")
+    assert all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
+
+
+def test_actual_pessimistic_outlook_and_absent_result_does_not_say_expected(
+    sample_summary,
+):
+    summary = replace(sample_summary, date="2026-08-05", run_time="19:00")
+    scores = ScoreResult(sunset_score=30, sunset_label="D", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=30,
+        sky_condition="overcast",
+        comment="雲が多く、空はほとんど染まっていない",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=30,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=30, label="D")
+
+    comment = build_comment(
+        summary,
+        scores,
+        prediction=False,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    ).splitlines()[0]
+
+    assert comment.startswith("心配してたとおり、空はほとんど染まらなかったっピ……。")
+    assert "期待" not in comment
 
 
 def test_prediction_camera_comments_do_not_repeat_across_seven_dates(sample_summary):
@@ -364,9 +421,15 @@ def test_prediction_camera_comments_do_not_repeat_across_seven_dates(sample_summ
 def test_actual_comparison_comments_do_not_repeat_across_seven_dates(sample_summary):
     days = tuple(f"2026-08-{day:02d}" for day in range(5, 12))
     scenarios = (
-        (80, "A", 68),
-        (65, "B", 60),
-        (40, "C", 55),
+        (80, "A", 80),
+        (80, "A", 55),
+        (80, "A", 30),
+        (55, "B", 80),
+        (55, "B", 55),
+        (55, "B", 30),
+        (30, "D", 80),
+        (30, "D", 55),
+        (30, "D", 30),
     )
 
     for prior_score, prior_label, vision_score in scenarios:
@@ -379,7 +442,7 @@ def test_actual_comparison_comments_do_not_repeat_across_seven_dates(sample_summ
         vision = VisionResult(
             sunset_score=vision_score,
             sky_condition="overcast",
-            comment="雲の多い空に橙色の残照が見える",
+            comment="雲の多い空に橙色の光が見える",
             model="test",
             evaluation_phase="afterglow",
             afterglow_score=vision_score,
@@ -401,6 +464,12 @@ def test_actual_comparison_comments_do_not_repeat_across_seven_dates(sample_summ
         }
 
         assert len(comments) == 7, (prior_score, vision_score)
+        assert all(
+            all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
+            for comment in comments
+        )
+        if prior_score < 40:
+            assert all("期待" not in comment for comment in comments)
 
 
 def test_line_message_omits_vision_section_when_absent(sample_summary):
@@ -607,6 +676,54 @@ def test_same_day_comfort_comments_vary_and_keep_multiple_factors(sample_summary
     assert all("海風" in comment or "風" in comment for comment in comments)
 
 
+def test_moderate_humid_relief_comments_stay_short_across_recent_schedule(
+    sample_summary,
+):
+    scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=45, chill_label="C")
+    observations = (
+        ("2026-08-01", "13:00", True),
+        ("2026-08-01", "17:00", True),
+        ("2026-08-01", "19:20", False),
+        ("2026-08-02", "13:00", True),
+        ("2026-08-02", "17:00", True),
+        ("2026-08-02", "19:20", False),
+        ("2026-08-03", "13:00", True),
+    )
+    comments = [
+        build_comment(
+            replace(
+                sample_summary,
+                date=day,
+                run_time=run_time,
+                apparent_temperature=30.0,
+                apparent_temperature_at_run_time=30.0,
+                relative_humidity_2m_at_sunset=84,
+                relative_humidity_2m_at_run_time=84,
+                temperature_2m_daytime_max=34,
+                temperature_2m_at_sunset=29,
+                temperature_2m_at_run_time=29,
+                wind_speed_10m_at_sunset=4.5,
+                wind_speed_10m_at_run_time=4.5,
+            ),
+            scores,
+            prediction=prediction,
+        ).splitlines()[1]
+        for day, run_time, prediction in observations
+    ]
+
+    assert len(set(comments)) == len(comments)
+    assert all(len(comment) <= 35 for comment in comments)
+    assert all(
+        any(word in comment for word in ("湿気", "湿度", "むし", "蒸し", "むわ"))
+        for comment in comments
+    )
+    assert all(
+        any(word in comment for word in ("日中", "昼間", "夕方"))
+        for comment in comments
+    )
+    assert all("海風" in comment or "風" in comment for comment in comments)
+
+
 def test_after_sunset_comment_uses_actual_state_wording(sample_summary):
     summary = replace(
         sample_summary,
@@ -656,6 +773,38 @@ def test_after_sunset_25_degree_comment_prioritizes_current_temperature(
     assert "湿" in comfort_line
     assert "涼しさは控えめ" not in comfort_line
     assert "気温は高め" not in comfort_line
+
+
+def test_after_sunset_25_degree_humid_breeze_comments_rotate_for_seven_days(
+    sample_summary,
+):
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=60, chill_label="B")
+    comments = {
+        build_comment(
+            replace(
+                sample_summary,
+                date=f"2026-08-{day:02d}",
+                run_time="19:20",
+                apparent_temperature=30.2,
+                apparent_temperature_at_run_time=30.2,
+                temperature_2m_daytime_max=33.4,
+                temperature_2m_at_run_time=25.6,
+                temperature_2m_at_sunset=25.8,
+                relative_humidity_2m_at_sunset=84,
+                relative_humidity_2m_at_run_time=84,
+                wind_speed_10m_at_run_time=4.0,
+            ),
+            scores,
+            prediction=False,
+        ).splitlines()[1]
+        for day in range(3, 10)
+    }
+
+    assert len(comments) == 7
+    assert all("25℃台" in comment for comment in comments)
+    assert all("涼し" in comment for comment in comments)
+    assert all("風" in comment for comment in comments)
+    assert all("湿" in comment for comment in comments)
 
 
 def test_after_sunset_cool_comment_and_message_explain_gust_cap(sample_summary):
