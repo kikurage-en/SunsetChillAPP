@@ -318,6 +318,51 @@ def test_csv_storage_detects_sent_record(tmp_path, sample_summary):
         is False
     )
 
+
+def test_csv_storage_finds_sent_sunset_prediction(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    storage = CsvStorage(path)
+    afternoon_summary = replace(sample_summary, run_time="17:00")
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=70, chill_label="A")
+
+    storage.save(
+        PredictionRecord(
+            summary=afternoon_summary,
+            scores=scores,
+            line_sent=True,
+            final_sunset_score=68,
+            final_sunset_label="B",
+        )
+    )
+
+    prediction = storage.find_sent_sunset_prediction(
+        date="2026-06-01",
+        run_time="17:00",
+        location_name="逗子海岸",
+    )
+
+    assert prediction is not None
+    assert prediction.run_time == "17:00"
+    assert prediction.score == 68
+    assert prediction.label == "B"
+
+
+def test_csv_storage_ignores_unsent_sunset_prediction(tmp_path, sample_summary):
+    path = tmp_path / "predictions.csv"
+    storage = CsvStorage(path)
+    afternoon_summary = replace(sample_summary, run_time="17:00")
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=70, chill_label="A")
+    storage.save(PredictionRecord(summary=afternoon_summary, scores=scores, line_sent=False))
+
+    assert (
+        storage.find_sent_sunset_prediction(
+            date="2026-06-01",
+            run_time="17:00",
+            location_name="逗子海岸",
+        )
+        is None
+    )
+
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert (
@@ -357,6 +402,43 @@ def test_google_sheets_storage_appends_with_header(sample_summary):
         "逗子海岸",
     ]
     assert fake_service.batch_updates == []
+
+
+def test_google_sheets_storage_finds_sent_sunset_prediction():
+    row = [""] * len(CSV_COLUMNS)
+    values = {
+        "date": "2026-06-01",
+        "run_time": "17:00",
+        "location_name": "逗子海岸",
+        "sunset_score": 40,
+        "sunset_label": "C",
+        "line_sent": True,
+        "final_sunset_score": 68,
+        "final_sunset_label": "B",
+    }
+    for column, value in values.items():
+        row[CSV_COLUMNS.index(column)] = value
+    fake_service = FakeSheetsService(
+        get_values=[CSV_COLUMNS, row],
+        sheet_titles=["predictions"],
+    )
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet-id",
+        worksheet="predictions",
+        service_account_json="{}",
+    )
+    storage._service = fake_service
+
+    prediction = storage.find_sent_sunset_prediction(
+        date="2026-06-01",
+        run_time="17:00",
+        location_name="逗子海岸",
+    )
+
+    assert prediction is not None
+    assert prediction.score == 68
+    assert prediction.label == "B"
+    assert fake_service.last_get["range"] == "'predictions'!A:AM"
 
 
 @pytest.mark.parametrize("legacy_size", [46, 59])

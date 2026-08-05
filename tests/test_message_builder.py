@@ -13,6 +13,7 @@ from zushi_chill.models import (
     JmaPrecipitationForecast,
     ScoreResult,
     SunsetCloud,
+    SunsetPredictionReference,
     VisionResult,
 )
 
@@ -45,7 +46,7 @@ def test_comment_uses_displayed_final_sunset_score(sample_summary):
     )
 
     assert "夕焼け条件は元気がないっピ" in message
-    comment = message.split("コメント：\n", 1)[1].split("\n\n日没：", 1)[0]
+    comment = message.split("コメント：\n", 1)[1].split("\n\n--\n", 1)[0]
     assert len(comment.splitlines()) == 1
     assert "海辺" not in comment
     assert "大当たり" not in comment
@@ -200,16 +201,15 @@ def test_line_message_includes_vision_section_when_present(sample_summary):
         model="gemini-2.5-flash",
     )
 
-    message = build_line_message(
-        sample_summary,
-        replace(scores, comment=build_comment(sample_summary, scores)),
-        vision=vision,
-    )
+    message = build_line_message(sample_summary, scores, vision=vision)
 
     assert "ライブカメラ実況評価" in message
     # Vision スコアも本文スコアと同じランク基準(score_label)で読めるようラベルを併記する
     assert "【 A 】75 / 100（partly_cloudy）" in message
+    camera_section = message.split("📷", 1)[1].split("コメント：", 1)[0]
+    assert "薄い夕焼け" not in camera_section
     assert "薄い夕焼けっピ。" in message
+    assert message.index("📷") < message.index("コメント：")
 
 
 def test_line_message_labels_vision_as_prediction_in_predict_mode(sample_summary):
@@ -251,7 +251,7 @@ def test_line_message_shows_separate_sunset_image_scores(sample_summary):
     assert "日没時の発色：65 / 100" in message
 
 
-def test_line_message_shows_afterglow_score(sample_summary):
+def test_line_message_does_not_repeat_afterglow_score(sample_summary):
     scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
     vision = VisionResult(
         sunset_score=55,
@@ -265,7 +265,142 @@ def test_line_message_shows_afterglow_score(sample_summary):
     message = build_line_message(sample_summary, scores, vision=vision)
 
     assert "ライブカメラ残照評価" in message
-    assert "残照：55 / 100" in message
+    assert "【 B 】55 / 100（partly_cloudy）" in message
+    assert "残照：55 / 100" not in message
+    assert message.count("55 / 100") == 1
+
+
+def test_actual_message_uses_prior_prediction_and_integrates_camera_comment(sample_summary):
+    summary = replace(sample_summary, run_time="19:01")
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=94, chill_label="S")
+    vision = VisionResult(
+        sunset_score=68,
+        sky_condition="overcast",
+        comment="うーん……雲が多い空でも、橙色の残照が見える",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=68,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=80, label="A")
+
+    message = build_line_message(
+        summary,
+        scores,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    )
+
+    assert "Sunset期待度【 A 】80 / 100" in message
+    assert (
+        "Chill指数【 S 】94 / 100\n\n"
+        "📷 ライブカメラ残照評価\n"
+        "【 B 】68 / 100（overcast）\n\n"
+        "コメント：\n"
+    ) in message
+    assert message.index("📷 ライブカメラ残照評価") < message.index("コメント：")
+    assert "残照：68 / 100" not in message
+    camera_section = message.split("📷", 1)[1].split("コメント：", 1)[0]
+    assert "橙色" not in camera_section
+    comment = message.split("コメント：\n", 1)[1].split("\n\n--\n", 1)[0]
+    assert "17時はかなり期待できそうだったけれど" in comment
+    assert "実際の残照" in comment
+    assert any(word in comment for word in ("控えめ", "おとなしい", "伸びなかった"))
+    assert "橙色の残照が見えるっピ" in comment
+    assert "うーん" not in comment
+    assert "\n\n--\n日没：" in message
+
+
+def test_actual_message_falls_back_to_current_weather_comparison(sample_summary):
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=55,
+        sky_condition="partly_cloudy",
+        comment="雲の間に少し色が見える",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=55,
+    )
+
+    comment = build_comment(sample_summary, scores, prediction=False, vision=vision)
+
+    assert "気象条件の評価は高めだったけれど" in comment
+    assert "17時" not in comment
+
+
+def test_prediction_camera_comments_do_not_repeat_across_seven_dates(sample_summary):
+    days = tuple(f"2026-08-{day:02d}" for day in range(5, 12))
+    scenarios = (
+        (70, 40, 85),
+        (55, 60, 40),
+        (40, 75, 60),
+    )
+
+    for displayed_score, formula_score, vision_score in scenarios:
+        scores = ScoreResult(
+            sunset_score=displayed_score,
+            sunset_label="test",
+            chill_score=75,
+            chill_label="A",
+        )
+        vision = VisionResult(
+            sunset_score=vision_score,
+            sky_condition="partly_cloudy",
+            comment="雲の様子を確認",
+            model="test",
+        )
+        comments = {
+            build_comment(
+                replace(sample_summary, date=day, run_time="17:00"),
+                scores,
+                vision=vision,
+                formula_sunset_score=formula_score,
+            ).splitlines()[0]
+            for day in days
+        }
+
+        assert len(comments) == 7, (formula_score, vision_score, displayed_score)
+
+
+def test_actual_comparison_comments_do_not_repeat_across_seven_dates(sample_summary):
+    days = tuple(f"2026-08-{day:02d}" for day in range(5, 12))
+    scenarios = (
+        (80, "A", 68),
+        (65, "B", 60),
+        (40, "C", 55),
+    )
+
+    for prior_score, prior_label, vision_score in scenarios:
+        scores = ScoreResult(
+            sunset_score=prior_score,
+            sunset_label=prior_label,
+            chill_score=75,
+            chill_label="A",
+        )
+        vision = VisionResult(
+            sunset_score=vision_score,
+            sky_condition="overcast",
+            comment="雲の多い空に橙色の残照が見える",
+            model="test",
+            evaluation_phase="afterglow",
+            afterglow_score=vision_score,
+        )
+        prior = SunsetPredictionReference(
+            run_time="17:00",
+            score=prior_score,
+            label=prior_label,
+        )
+        comments = {
+            build_comment(
+                replace(sample_summary, date=day, run_time="19:01"),
+                scores,
+                prediction=False,
+                vision=vision,
+                prior_sunset_prediction=prior,
+            ).splitlines()[0]
+            for day in days
+        }
+
+        assert len(comments) == 7, (prior_score, vision_score)
 
 
 def test_line_message_omits_vision_section_when_absent(sample_summary):
@@ -650,7 +785,7 @@ def test_13_comment_becomes_hesitant_when_rain_timing_changes(sample_summary):
     assert "数字" not in comment
 
 
-def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
+def test_17_comment_integrates_camera_and_formula_when_they_diverge(sample_summary):
     summary = replace(sample_summary, run_time="17:00")
     scores = ScoreResult(sunset_score=70, sunset_label="A", chill_score=75, chill_label="A")
     vision = VisionResult(
@@ -668,9 +803,31 @@ def test_17_comment_is_hesitant_when_camera_and_formula_diverge(sample_summary):
     )
 
     assert len(comment.splitlines()) == 1
-    assert "夕焼けはかなり楽しみっピ" in comment
-    assert " でも、" in comment
-    assert "目の前の空" in comment
+    assert "天気の条件" in comment or "空の条件" in comment
+    assert "けれど、" in comment
+    assert any(
+        wording in comment
+        for wording in (
+            "今の空",
+            "いま見えている空",
+            "ライブカメラ",
+            "カメラの空",
+            "目の前の空",
+            "目の前の雲",
+        )
+    )
+    assert any(
+        wording in comment
+        for wording in (
+            "総合すると",
+            "合わせて見ると",
+            "いまのところ",
+            "まとめると",
+            "両方を合わせると",
+            "総合判断では",
+            "いまの材料なら",
+        )
+    )
     assert "予報" not in comment
     assert "数字" not in comment
 

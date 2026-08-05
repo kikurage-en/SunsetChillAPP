@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from zushi_chill.comment_variants import select_comment_variant
 from zushi_chill.comment_voice import apply_comment_voice
 from zushi_chill.constants import RAIN_WEATHER_CODES
@@ -7,6 +9,7 @@ from zushi_chill.models import (
     JmaPrecipitationForecast,
     ScoreResult,
     SunsetCloud,
+    SunsetPredictionReference,
     VisionResult,
     WeatherSummary,
 )
@@ -62,6 +65,7 @@ def build_comment(
     vision: VisionResult | None = None,
     formula_sunset_score: int | None = None,
     jma_precipitation: JmaPrecipitationForecast | None = None,
+    prior_sunset_prediction: SunsetPredictionReference | None = None,
 ) -> str:
     # 雲に関する所見は Sunset期待度を駆動する「夕焼け方向(西の空)」の雲で判断する。
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
@@ -83,7 +87,7 @@ def build_comment(
         if prediction
         else None
     )
-    if uncertainty is not None:
+    if uncertainty is not None and vision is None:
         caveat = _uncertain_prediction_comment(uncertainty, summary)
         connector = "でも、" if sunset_band == "good" else "ただ、"
         sunset_comment = f"{sunset_comment} {connector}{caveat}"
@@ -211,6 +215,34 @@ def build_comment(
     # 夕焼け側の補足は改行せず、過ごしやすさに特記事項がなければ1行で終える。
     if sunset_details:
         sunset_comment = f"{sunset_comment} {sunset_details[0]}"
+    if vision is not None:
+        if prediction:
+            sunset_comment = _prediction_with_camera_comment(
+                summary,
+                displayed_score=scores.sunset_score,
+                formula_score=(
+                    formula_sunset_score
+                    if formula_sunset_score is not None
+                    else scores.sunset_score
+                ),
+                vision=vision,
+            )
+            if uncertainty is not None and uncertainty not in {
+                "vision_more_optimistic",
+                "vision_more_pessimistic",
+            }:
+                connector = "でも、" if sunset_band == "good" else "ただ、"
+                sunset_comment = (
+                    f"{sunset_comment} {connector}"
+                    f"{_uncertain_prediction_comment(uncertainty, summary)}"
+                )
+        else:
+            sunset_comment = _actual_with_camera_comment(
+                summary,
+                weather_score=scores.sunset_score,
+                vision=vision,
+                prior_sunset_prediction=prior_sunset_prediction,
+            )
     return "\n".join(
         [sunset_comment, *([comfort_comment] if comfort_comment is not None else [])]
     )
@@ -227,6 +259,221 @@ def _comment_variant(
         category,
         variants,
     )
+
+
+def _prediction_with_camera_comment(
+    summary: WeatherSummary,
+    *,
+    displayed_score: int,
+    formula_score: int,
+    vision: VisionResult,
+) -> str:
+    formula_band = _comment_band(formula_score)
+    vision_band = _comment_band(vision.sunset_score)
+    camera_observation = _comment_variant(
+        summary,
+        f"camera-prediction-{vision_band}",
+        {
+            "good": (
+                "今の空にも色づきそうな雲が見えてるっピ！",
+                "ライブカメラの空も期待できる表情っピ！",
+                "目の前の空にも夕焼けのチャンスが見えるっピ！",
+                "カメラの空には、夕焼けを拾いそうな雲がいるっピ！",
+                "いま見えている空は、色づきに期待できそうっピ！",
+                "ライブカメラには、夕焼け向きの空が広がってるっピ！",
+                "目の前の雲が、きれいな色を見せてくれそうっピ！",
+            ),
+            "medium": (
+                "今の空には色づきのチャンスが少しありそうっピ。",
+                "ライブカメラの空には、まだ夕焼けの余地があるっピ。",
+                "目の前の空は、もう少し様子を見たい感じっピ。",
+                "今の空にも、少しだけ色づきの望みがあるっピ。",
+                "カメラの空は、良くも悪くもこれからっピ。",
+                "目の前の空には、小さな夕焼けチャンスが残ってるっピ。",
+                "いま見える空は、期待半分で見守りたい感じっピ。",
+            ),
+            "low": (
+                "今の空は雲が手ごわくて、少し慎重っピ……。",
+                "ライブカメラの空も、いまは期待控えめっピ……。",
+                "目の前の空はちょっぴり元気がないっピ……。",
+                "カメラの空は雲が多くて、期待は小さめっピ……。",
+                "いま見えている空は、夕焼けには厳しそうっピ……。",
+                "目の前の雲が厚くて、色づきはむずかしそうっピ……。",
+                "ライブカメラの空は、まだ元気を出せてないっピ……。",
+            ),
+        }[vision_band],
+    )
+    if formula_band == vision_band:
+        headline = _comment_headline(
+            _comment_band(displayed_score),
+            prediction=True,
+            day=summary.date,
+            run_time=summary.run_time,
+        )
+        return f"{headline} {camera_observation}"
+
+    weather_condition = _comment_variant(
+        summary,
+        f"weather-camera-contrast-{formula_band}",
+        {
+            "good": (
+                "天気の条件では夕焼けにかなり期待できそうだった",
+                "空の条件だけなら、夕焼けは期待寄りだった",
+                "天気の条件は夕焼けに味方してくれそうだった",
+                "気象条件から見ると、夕焼けはかなり有望だった",
+                "天気の条件だけなら、きれいな色を期待できそうだった",
+                "空の条件は、夕焼けにしっかり味方していた",
+                "気象条件では、夕焼けの期待は大きめだった",
+            ),
+            "medium": (
+                "天気の条件では夕焼けは五分五分だった",
+                "空の条件だけなら、夕焼けはもうひと声だった",
+                "天気の条件では、夕焼けは少し様子見だった",
+                "気象条件から見ると、夕焼けは半々くらいだった",
+                "天気の条件だけなら、色づくかはまだ微妙だった",
+                "空の条件は、夕焼けにあと少し足りない感じだった",
+                "気象条件では、期待と心配が半分ずつだった",
+            ),
+            "low": (
+                "天気の条件だけだと夕焼けはむずかしそうだった",
+                "空の条件だけなら、夕焼けは期待控えめだった",
+                "天気の条件では、夕焼けはちょっと手ごわそうだった",
+                "気象条件から見ると、夕焼けはかなり厳しそうだった",
+                "天気の条件だけなら、色づきは望み薄だった",
+                "空の条件は、夕焼けにはあまり味方していなかった",
+                "気象条件では、夕焼けへの期待は小さめだった",
+            ),
+        }[formula_band],
+    )
+    conclusion = _comment_variant(
+        summary,
+        f"camera-blended-conclusion-{_comment_band(displayed_score)}",
+        {
+            "good": (
+                "総合すると、夕焼けはかなり楽しみっピ！",
+                "合わせて見ると、夕焼けは期待できそうっピ！",
+                "いまのところ、夕焼けは期待寄りっピ！",
+                "まとめると、夕焼けにはしっかり期待できそうっピ！",
+                "両方を合わせると、夕焼けは楽しみな方っピ！",
+                "総合判断では、きれいな色を期待したいっピ！",
+                "いまの材料なら、夕焼けは期待大っピ！",
+            ),
+            "medium": (
+                "総合すると、夕焼けは五分五分っピ。",
+                "合わせて見ると、夕焼けは少し期待できそうっピ。",
+                "いまのところ、夕焼けはもう少し様子見っピ。",
+                "まとめると、夕焼けは半々くらいっピ。",
+                "両方を合わせると、夕焼けは少し期待寄りっピ。",
+                "総合判断では、色づくかはまだ微妙っピ。",
+                "いまの材料なら、夕焼けはそっと期待したいっピ。",
+            ),
+            "low": (
+                "総合すると、夕焼けへの期待は控えめっピ……。",
+                "合わせて見ると、夕焼けはまだ手ごわそうっピ……。",
+                "いまのところ、夕焼けは慎重に見たいっピ……。",
+                "まとめると、夕焼けへの期待は小さめっピ……。",
+                "両方を合わせると、きれいな色はむずかしそうっピ……。",
+                "総合判断では、夕焼けはあまり強く期待できないっピ……。",
+                "いまの材料なら、夕焼けは控えめに待ちたいっピ……。",
+            ),
+        }[_comment_band(displayed_score)],
+    )
+    return f"{weather_condition}けれど、{camera_observation} {conclusion}"
+
+
+def _actual_with_camera_comment(
+    summary: WeatherSummary,
+    *,
+    weather_score: int,
+    vision: VisionResult,
+    prior_sunset_prediction: SunsetPredictionReference | None,
+) -> str:
+    reference_score = (
+        prior_sunset_prediction.score
+        if prior_sunset_prediction is not None
+        else weather_score
+    )
+    reference_band = _comment_band(reference_score)
+    if prior_sunset_prediction is not None:
+        reference_time = _prediction_time_label(prior_sunset_prediction.run_time)
+        reference = {
+            "good": f"{reference_time}はかなり期待できそう",
+            "medium": f"{reference_time}は五分五分くらい",
+            "low": f"{reference_time}は期待控えめ",
+        }[reference_band]
+    else:
+        reference = {
+            "good": "気象条件の評価は高め",
+            "medium": "気象条件の評価は五分五分",
+            "low": "気象条件の評価は控えめ",
+        }[reference_band]
+
+    result_name = {
+        "sunset": "日没時の夕焼け",
+        "afterglow": "残照",
+    }.get(vision.evaluation_phase, "空の色")
+    gap = vision.sunset_score - reference_score
+    if gap <= -10:
+        comparison = _comment_variant(
+            summary,
+            f"actual-below-expectation-{result_name}",
+            (
+                f"{reference}だったけれど、実際の{result_name}は期待より少し控えめだったっピ。",
+                f"{reference}だったけれど、実際の{result_name}は少しおとなしい結果だったっピ。",
+                f"{reference}だったけれど、実際の{result_name}はそこまで伸びなかったっピ。",
+                f"{reference}だったけれど、実際の{result_name}は期待には少し届かなかったっピ。",
+                f"{reference}だったけれど、実際の{result_name}は期待していたほど色が伸びなかったっピ。",
+                f"{reference}だったけれど、実際の{result_name}は思っていたよりおとなしい結果になったっピ。",
+                f"{reference}だったけれど、実際の{result_name}は期待よりひと足ぶん控えめだったっピ。",
+            ),
+        )
+    elif gap >= 10:
+        comparison = _comment_variant(
+            summary,
+            f"actual-above-expectation-{result_name}",
+            (
+                f"{reference}だったけれど、実際の{result_name}は予想以上だったっピ！",
+                f"{reference}だったけれど、実際の{result_name}はうれしい上振れっピ！",
+                f"{reference}だったけれど、実際の{result_name}は思ったより元気だったっピ！",
+                f"{reference}だったけれど、実際の{result_name}は期待を越えてくれたっピ！",
+                f"{reference}だったけれど、実際の{result_name}は思った以上にきれいな結果だったっピ！",
+                f"{reference}だったけれど、実際の{result_name}はうれしい方向に外れたっピ！",
+                f"{reference}だったけれど、実際の{result_name}は期待より元気な色を見せてくれたっピ！",
+            ),
+        )
+    else:
+        comparison = _comment_variant(
+            summary,
+            f"actual-near-expectation-{result_name}",
+            (
+                f"{reference}で、実際の{result_name}もだいたい期待どおりだったっピ！",
+                f"{reference}で、実際の{result_name}も近い結果になったっピ。",
+                f"{reference}で、実際の{result_name}も大きくは外れなかったっピ。",
+                f"{reference}で、実際の{result_name}もほぼ期待に沿う結果だったっピ。",
+                f"{reference}で、実際の{result_name}も期待と同じくらいの色づきだったっピ。",
+                f"{reference}で、実際の{result_name}も予想から大きく離れない結果だったっピ。",
+                f"{reference}で、実際の{result_name}もだいたい思っていた通りだったっピ。",
+            ),
+        )
+    observation = _vision_observation_comment(vision, result_name)
+    return f"{comparison} {observation}"
+
+
+def _vision_observation_comment(vision: VisionResult, result_name: str) -> str:
+    raw_comment = vision.comment.strip()
+    if vision.sunset_score >= 60:
+        raw_comment = re.sub(r"^うーん(?:……[。.]?|[、,])?\s*", "", raw_comment)
+    elif vision.sunset_score < 40:
+        raw_comment = re.sub(r"^(?:わ[ぁあ]っ|やった)[！!]+\s*", "", raw_comment)
+    voiced = apply_comment_voice(raw_comment)
+    if voiced:
+        return voiced
+    return f"実際の{result_name}をライブカメラで確認したっピ。"
+
+
+def _prediction_time_label(run_time: str) -> str:
+    hour, minute = run_time.split(":", maxsplit=1)
+    return f"{int(hour)}時" if minute == "00" else run_time
 
 
 def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None:
@@ -691,6 +938,7 @@ def build_line_message(
     jma_precipitation: JmaPrecipitationForecast | None = None,
     final_sunset_score: int | None = None,
     final_sunset_label: str | None = None,
+    prior_sunset_prediction: SunsetPredictionReference | None = None,
 ) -> str:
     cloud = sunset_cloud or SunsetCloud.from_summary(summary)
     comment_scores = scores
@@ -710,12 +958,16 @@ def build_line_message(
         vision=vision,
         formula_sunset_score=scores.sunset_score,
         jma_precipitation=jma_precipitation,
+        prior_sunset_prediction=prior_sunset_prediction,
     )
     # 表示する Sunset期待度は Vision ブレンド後の値(未指定なら純式スコア)。
     display_sunset_score = (
         final_sunset_score if final_sunset_score is not None else scores.sunset_score
     )
     display_sunset_label = final_sunset_label or scores.sunset_label
+    if vision_mode != "predict" and prior_sunset_prediction is not None:
+        display_sunset_score = prior_sunset_prediction.score
+        display_sunset_label = prior_sunset_prediction.label
     use_run_time_weather = vision_mode != "predict"
     use_sunset_snapshot = vision_mode == "predict" and summary.sunset_snapshot_time is not None
     display_cloud_low = (
@@ -752,14 +1004,11 @@ def build_line_message(
             detail_lines.append(f"太陽ディスク：{vision.sun_disk_visibility} / 100")
         if vision.sunset_color_score is not None:
             detail_lines.append(f"日没時の発色：{vision.sunset_color_score} / 100")
-        if vision.afterglow_score is not None:
-            detail_lines.append(f"残照：{vision.afterglow_score} / 100")
         detail_section = "" if not detail_lines else "\n" + "\n".join(detail_lines)
         vision_section = (
             f"\n\n📷 {vision_label}\n"
             f"【 {score_label(vision.sunset_score)} 】{vision.sunset_score} / 100"
-            f"（{vision.sky_condition}）\n"
-            f"{apply_comment_voice(vision.comment)}{detail_section}"
+            f"（{vision.sky_condition}）{detail_section}"
         )
     precipitation_line = _precipitation_probability_line(
         summary,
@@ -806,10 +1055,12 @@ def build_line_message(
     return f"""{summary.date} {summary.run_time}
 
 Sunset期待度【 {display_sunset_label} 】{display_sunset_score} / 100
-Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
+Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100{vision_section}
+
 コメント：
 {comment}
 
+--
 {sunset_line}
 気温：{display_temperature:.1f}℃
 湿度：{display_humidity:.0f}%
@@ -818,7 +1069,7 @@ Chill指数【 {scores.chill_label} 】{scores.chill_score} / 100
 
 夕焼け方向の雲
 {cloud_line}
-視程：{display_visibility / 1000:.1f}km{vision_section}"""
+視程：{display_visibility / 1000:.1f}km"""
 
 
 def _optional_or_fallback(value: float | None, fallback: float) -> float:
