@@ -20,6 +20,7 @@ from zushi_chill.models import (
     ScoreResult,
     SunsetCloud,
     SunsethueResult,
+    SunsetPredictionReference,
     VisionResult,
     WeatherSummary,
 )
@@ -29,7 +30,7 @@ from zushi_chill.scoring import (
     has_rain_signal,
     score_label,
 )
-from zushi_chill.storage import storage_from_settings
+from zushi_chill.storage import Storage, storage_from_settings
 from zushi_chill.sunset_geometry import sunset_cloud_point
 from zushi_chill.sunsethue_client import fetch_sunset_quality
 from zushi_chill.vision_client import analyze_image, vision_mode
@@ -112,6 +113,12 @@ def main(argv: list[str] | None = None) -> int:
         final_sunset_score, final_sunset_label = _blend_final_sunset(
             scores_without_comment, vision_result, mode, settings, summary
         )
+        prior_sunset_prediction = _find_prior_sunset_prediction(
+            storage,
+            summary,
+            mode=mode,
+            vision=vision_result,
+        )
         comment_scores = replace(
             scores_without_comment,
             sunset_score=final_sunset_score,
@@ -127,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
                 vision=vision_result,
                 formula_sunset_score=scores_without_comment.sunset_score,
                 jma_precipitation=jma_precipitation,
+                prior_sunset_prediction=prior_sunset_prediction,
             ),
         )
         sunsethue_result = _collect_sunsethue(settings, run_time)
@@ -139,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             jma_precipitation=jma_precipitation,
             final_sunset_score=final_sunset_score,
             final_sunset_label=final_sunset_label,
+            prior_sunset_prediction=prior_sunset_prediction,
         )
 
         if dry_run:
@@ -254,6 +263,36 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logging.getLogger(__name__).exception("Run failed: %s", exc)
         return 1
+
+
+def _find_prior_sunset_prediction(
+    storage: Storage,
+    summary: WeatherSummary,
+    *,
+    mode: str,
+    vision: VisionResult | None,
+) -> SunsetPredictionReference | None:
+    """同日に送信済みの日没前予測を、夕方に近い順で取得する。"""
+    if mode != "actual" or vision is None:
+        return None
+    sunset_clock = summary.sunset_time.strftime("%H:%M")
+    try:
+        for prediction_time in ("17:00", "13:00"):
+            if prediction_time >= sunset_clock:
+                continue
+            prediction = storage.find_sent_sunset_prediction(
+                date=summary.date,
+                run_time=prediction_time,
+                location_name=summary.location_name,
+            )
+            if prediction is not None:
+                return prediction
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Prior sunset prediction lookup failed; using current weather comparison: %s",
+            exc,
+        )
+    return None
 
 
 def _collect_sunsethue(settings: Settings, run_time: datetime) -> SunsethueResult | None:

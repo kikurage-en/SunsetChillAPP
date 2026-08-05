@@ -9,7 +9,11 @@ from zoneinfo import ZoneInfo
 from zushi_chill import main as main_module
 from zushi_chill import vision_client
 from zushi_chill.line_client import LineSendError
-from zushi_chill.models import JmaPrecipitationForecast, VisionResult
+from zushi_chill.models import (
+    JmaPrecipitationForecast,
+    SunsetPredictionReference,
+    VisionResult,
+)
 from zushi_chill.weather_client import WeatherDataError
 
 
@@ -465,7 +469,7 @@ def test_vision_analysis_runs_at_target_hour_and_is_recorded(monkeypatch):
     assert "カメラAI予測" in fake_line_client.sent_messages[0]["text"]
 
 
-def test_17_message_becomes_hesitant_when_camera_and_formula_diverge(monkeypatch):
+def test_17_message_integrates_camera_and_formula_when_they_diverge(monkeypatch):
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()
     fake_line_client = FakeLineClient()
@@ -490,12 +494,22 @@ def test_17_message_becomes_hesitant_when_camera_and_formula_diverge(monkeypatch
 
     assert exit_code == 0
     message = fake_line_client.sent_messages[0]["text"]
-    comment = message.split("コメント：\n", 1)[1].split("\n\n日没：", 1)[0]
+    comment = message.split("コメント：\n", 1)[1].split("\n\n--\n", 1)[0]
     assert len(comment.splitlines()) == 1
     assert "海辺" not in comment
     assert "夕焼け" in comment
-    assert " ただ、" in comment
-    assert "目の前の雲" in comment
+    assert "けれど、" in comment
+    assert any(
+        wording in comment
+        for wording in (
+            "今の空",
+            "いま見えている空",
+            "ライブカメラ",
+            "カメラの空",
+            "目の前の空",
+            "目の前の雲",
+        )
+    )
     assert "予報" not in comment
     assert "数字" not in comment
     assert "大当たり" not in message
@@ -537,6 +551,48 @@ def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
     assert "カメラ残照評価" in fake_line_client.sent_messages[0]
     assert captured_kwargs["capture_time"].strftime("%H:%M") == "19:20"
     assert captured_kwargs["sunset_time"].strftime("%H:%M") == "18:51"
+
+
+def test_after_sunset_message_compares_sent_17_prediction_with_camera_result(monkeypatch):
+    prior = SunsetPredictionReference(run_time="17:00", score=80, label="A")
+    fake_storage = MemoryStorage(prior_prediction=prior)
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    vision = VisionResult(
+        sunset_score=68,
+        sky_condition="overcast",
+        comment="うーん……雲が多い空でも、橙色の残照が見える",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=68,
+    )
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: FakeWeatherClient())
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+    monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: vision)
+
+    exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "19:20"])
+
+    assert exit_code == 0
+    message = fake_line_client.sent_messages[0]
+    assert "Sunset期待度【 A 】80 / 100" in message
+    assert message.index("📷 ライブカメラ残照評価") < message.index("コメント：")
+    assert "残照：68 / 100" not in message
+    comment = message.split("コメント：\n", 1)[1].split("\n\n--\n", 1)[0]
+    assert "17時はかなり期待できそうだったけれど" in comment
+    assert "実際の残照" in comment
+    assert "橙色の残照が見えるっピ" in comment
+    assert fake_storage.prediction_queries == [
+        {
+            "date": "2026-06-01",
+            "run_time": "17:00",
+            "location_name": "逗子海岸",
+        }
+    ]
 
 
 def test_vision_analysis_skipped_off_target_hour(monkeypatch):
@@ -589,10 +645,12 @@ def test_vision_failure_does_not_block_line_send(monkeypatch):
 
 
 class MemoryStorage:
-    def __init__(self, *, already_sent=False):
+    def __init__(self, *, already_sent=False, prior_prediction=None):
         self.records = []
         self.already_sent = already_sent
+        self.prior_prediction = prior_prediction
         self.has_sent_queries = []
+        self.prediction_queries = []
 
     def save(self, record):
         self.records.append(record)
@@ -606,6 +664,10 @@ class MemoryStorage:
     def has_sent(self, **kwargs):
         self.has_sent_queries.append(kwargs)
         return self.already_sent
+
+    def find_sent_sunset_prediction(self, **kwargs):
+        self.prediction_queries.append(kwargs)
+        return self.prior_prediction
 
 
 class FailingStorage:

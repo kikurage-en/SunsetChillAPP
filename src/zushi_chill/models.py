@@ -187,6 +187,15 @@ class VisionResult:
 
 
 @dataclass(frozen=True)
+class SunsetPredictionReference:
+    """日没後の振り返りに使う、送信済みの日没前Sunset期待度。"""
+
+    run_time: str
+    score: int
+    label: str
+
+
+@dataclass(frozen=True)
 class SunsethueResult:
     """Sunsethue API(ray-model)の夕焼け品質予測。式・Visionとは独立したベンチマーク。
 

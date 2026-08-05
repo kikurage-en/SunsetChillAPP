@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from zushi_chill.config import ConfigError, Settings
-from zushi_chill.models import PredictionRecord
+from zushi_chill.models import PredictionRecord, SunsetPredictionReference
 
 CSV_COLUMNS = [
     "date",
@@ -120,6 +120,15 @@ class Storage(Protocol):
     ) -> bool:
         pass
 
+    def find_sent_sunset_prediction(
+        self,
+        *,
+        date: str,
+        run_time: str,
+        location_name: str,
+    ) -> SunsetPredictionReference | None:
+        pass
+
 
 class CsvStorage:
     def __init__(self, path: str | Path):
@@ -182,6 +191,30 @@ class CsvStorage:
             ):
                 return _is_truthy(row.get("line_sent", ""))
         return False
+
+    def find_sent_sunset_prediction(
+        self,
+        *,
+        date: str,
+        run_time: str,
+        location_name: str,
+    ) -> SunsetPredictionReference | None:
+        if not self.path.exists():
+            return None
+        self._has_expected_header()
+        with self.path.open(encoding="utf-8", newline="") as file:
+            rows = list(csv.DictReader(file))
+        for row in reversed(rows):
+            if (
+                row.get("date") == date
+                and row.get("run_time") == run_time
+                and row.get("location_name") == location_name
+                and _is_truthy(row.get("line_sent", ""))
+            ):
+                prediction = _prediction_reference_from_mapping(row)
+                if prediction is not None:
+                    return prediction
+        return None
 
     def _has_expected_header(self) -> bool:
         if not self.path.exists() or self.path.stat().st_size == 0:
@@ -259,6 +292,46 @@ class GoogleSheetsStorage:
                     str(row[line_sent_index])
                 )
         return False
+
+    def find_sent_sunset_prediction(
+        self,
+        *,
+        date: str,
+        run_time: str,
+        location_name: str,
+    ) -> SunsetPredictionReference | None:
+        self._ensure_header()
+        last_index = max(
+            CSV_COLUMNS.index("line_sent"),
+            CSV_COLUMNS.index("final_sunset_label"),
+        )
+        result = (
+            self._service_client()
+            .spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.spreadsheet_id,
+                range=_sheet_range(
+                    self.worksheet,
+                    f"A:{_column_letter(last_index + 1)}",
+                ),
+            )
+            .execute()
+        )
+        values = result.get("values", [])
+        for row in reversed(values[1:]):
+            if (
+                _sheet_value(row, "date") == date
+                and _sheet_value(row, "run_time") == run_time
+                and _sheet_value(row, "location_name") == location_name
+                and _is_truthy(_sheet_value(row, "line_sent"))
+            ):
+                prediction = _prediction_reference_from_mapping(
+                    {column: _sheet_value(row, column) for column in CSV_COLUMNS}
+                )
+                if prediction is not None:
+                    return prediction
+        return None
 
     def _service_client(self):
         if self._service is not None:
@@ -446,6 +519,29 @@ def _same_record(
         and row.get("run_time") == str(replacement["run_time"])
         and row.get("location_name") == str(replacement["location_name"])
     )
+
+
+def _prediction_reference_from_mapping(
+    row: dict[str, str],
+) -> SunsetPredictionReference | None:
+    score_value = row.get("final_sunset_score") or row.get("sunset_score")
+    label = row.get("final_sunset_label") or row.get("sunset_label")
+    if not score_value or not label:
+        return None
+    try:
+        score = int(float(score_value))
+    except ValueError:
+        return None
+    return SunsetPredictionReference(
+        run_time=row.get("run_time", ""),
+        score=score,
+        label=label,
+    )
+
+
+def _sheet_value(row: list, column: str) -> str:
+    index = CSV_COLUMNS.index(column)
+    return str(row[index]) if len(row) > index else ""
 
 
 def _column_letter(index: int) -> str:
