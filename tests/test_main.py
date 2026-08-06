@@ -498,7 +498,7 @@ def test_17_message_integrates_camera_and_formula_when_they_diverge(monkeypatch)
     assert len(comment.splitlines()) == 1
     assert "海辺" not in comment
     assert "夕焼け" in comment
-    assert "けれど、" in comment
+    assert "けど" in comment or "でも" in comment
     assert any(
         wording in comment
         for wording in (
@@ -512,6 +512,12 @@ def test_17_message_integrates_camera_and_formula_when_they_diverge(monkeypatch)
     )
     assert "予報" not in comment
     assert "数字" not in comment
+    assert len(comment) <= 40
+    assert comment.count("っピ") == 1
+    assert all(
+        wording not in comment
+        for wording in ("総合すると", "合わせて見ると", "総合判断では")
+    )
     assert "大当たり" not in message
 
 

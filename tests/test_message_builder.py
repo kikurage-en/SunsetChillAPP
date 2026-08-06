@@ -543,9 +543,15 @@ def test_actual_pessimistic_outlook_and_absent_result_does_not_say_expected(
 def test_prediction_camera_comments_do_not_repeat_across_seven_dates(sample_summary):
     days = tuple(f"2026-08-{day:02d}" for day in range(5, 12))
     scenarios = (
+        (80, 80, 85),
+        (60, 60, 60),
+        (40, 40, 40),
+        (70, 90, 60),
+        (65, 80, 60),
+        (45, 70, 40),
         (70, 40, 85),
-        (55, 60, 40),
-        (40, 75, 60),
+        (60, 40, 65),
+        (50, 30, 55),
     )
 
     for displayed_score, formula_score, vision_score in scenarios:
@@ -572,6 +578,21 @@ def test_prediction_camera_comments_do_not_repeat_across_seven_dates(sample_summ
         }
 
         assert len(comments) == 7, (formula_score, vision_score, displayed_score)
+        assert all(len(comment) <= 40 for comment in comments)
+        assert all(comment.count("っピ") == 1 for comment in comments)
+        assert all(
+            all(
+                wording not in comment
+                for wording in (
+                    "総合すると",
+                    "合わせて見ると",
+                    "両方を合わせると",
+                    "総合判断では",
+                    "ライブカメラの空",
+                )
+            )
+            for comment in comments
+        )
 
 
 def test_actual_comparison_comments_do_not_repeat_across_seven_dates(sample_summary):
@@ -1108,33 +1129,51 @@ def test_17_comment_integrates_camera_and_formula_when_they_diverge(sample_summa
     )
 
     assert len(comment.splitlines()) == 1
-    assert "天気の条件" in comment or "空の条件" in comment
-    assert "けれど、" in comment
-    assert any(
-        wording in comment
-        for wording in (
-            "今の空",
-            "いま見えている空",
-            "ライブカメラ",
-            "カメラの空",
-            "目の前の空",
-            "目の前の雲",
-        )
-    )
-    assert any(
-        wording in comment
+    assert "条件" in comment
+    assert "今の空" in comment or "目の前の空" in comment
+    assert "けど" in comment or "でも" in comment
+    assert len(comment) <= 40
+    assert comment.count("っピ") == 1
+    assert all(
+        wording not in comment
         for wording in (
             "総合すると",
             "合わせて見ると",
-            "いまのところ",
-            "まとめると",
             "両方を合わせると",
             "総合判断では",
-            "いまの材料なら",
+            "ライブカメラの空",
         )
     )
     assert "予報" not in comment
     assert "数字" not in comment
+
+
+def test_good_weather_and_medium_camera_uses_one_concise_conclusion(sample_summary):
+    summary = replace(sample_summary, date="2026-08-06", run_time="17:00")
+    scores = ScoreResult(sunset_score=60, sunset_label="B", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=60,
+        sky_condition="partly_cloudy",
+        comment="雲の様子を確認",
+        model="test",
+    )
+
+    comment = build_comment(
+        summary,
+        scores,
+        vision=vision,
+        formula_sunset_score=80,
+    ).splitlines()[0]
+
+    assert "条件" in comment
+    assert "今の空" in comment or "目の前" in comment
+    assert any(
+        word in comment
+        for word in ("五分五分", "様子見", "半々", "慎重", "微妙", "もうひと声")
+    )
+    assert comment.count("夕焼け") <= 1
+    assert comment.count("っピ") == 1
+    assert len(comment) <= 40
 
 
 def test_non_scheduled_prediction_keeps_normal_confident_comment(sample_summary):
