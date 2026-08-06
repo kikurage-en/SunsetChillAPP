@@ -357,6 +357,162 @@ def test_actual_favorable_outlook_and_vivid_result_is_concise(sample_summary):
     assert all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
 
 
+def test_actual_a_camera_result_adds_encouragement_after_blank_line(sample_summary):
+    summary = replace(
+        sample_summary,
+        date="2026-08-05",
+        run_time="19:00",
+        apparent_temperature_at_run_time=30.0,
+        relative_humidity_2m_at_run_time=80,
+        temperature_2m_daytime_max=33,
+        temperature_2m_at_run_time=27.0,
+        wind_speed_10m_at_run_time=3.5,
+    )
+    scores = ScoreResult(sunset_score=76, sunset_label="A", chill_score=82, chill_label="A")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="partly_cloudy",
+        comment="富士山と空が燃えるように光ってる",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=82,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=76, label="A")
+
+    comment = build_comment(
+        summary,
+        scores,
+        prediction=False,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    )
+    result_and_comfort, encouragement = comment.split("\n\n", maxsplit=1)
+
+    assert len(result_and_comfort.splitlines()) == 2
+    assert result_and_comfort.splitlines()[0].startswith("期待どおりの夕焼けだっピ！")
+    assert "風" in result_and_comfort.splitlines()[1]
+    assert encouragement.endswith(("っピ。", "っピ！"))
+    assert all(word not in encouragement for word in ("風", "暑", "湿", "涼"))
+
+    message = build_line_message(
+        summary,
+        scores,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    )
+    assert f"{result_and_comfort}\n\n{encouragement}\n\n--\n" in message
+
+
+def test_encouragement_requires_actual_a_or_better_camera_result(sample_summary):
+    scores = ScoreResult(sunset_score=76, sunset_label="A", chill_score=82, chill_label="A")
+    prior = SunsetPredictionReference(run_time="17:00", score=76, label="A")
+
+    for vision_score, expected in ((69, False), (70, True), (90, True)):
+        vision = VisionResult(
+            sunset_score=vision_score,
+            sky_condition="partly_cloudy",
+            comment="空がきれいに染まってる",
+            model="test",
+            evaluation_phase="afterglow",
+            afterglow_score=vision_score,
+        )
+        comment = build_comment(
+            sample_summary,
+            scores,
+            prediction=False,
+            vision=vision,
+            prior_sunset_prediction=prior,
+        )
+
+        assert ("\n\n" in comment) is expected
+
+
+def test_prediction_a_camera_result_does_not_add_encouragement(sample_summary):
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="partly_cloudy",
+        comment="水平線の近くに良い雲がある",
+        model="test",
+        evaluation_phase="predict",
+    )
+
+    comment = build_comment(sample_summary, scores, prediction=True, vision=vision)
+
+    assert "\n\n" not in comment
+
+
+def test_general_encouragement_does_not_repeat_for_24_days(sample_summary):
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="partly_cloudy",
+        comment="空がきれいに染まってる",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=82,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=80, label="A")
+    encouragements = {
+        build_comment(
+            replace(
+                sample_summary,
+                date=f"2026-09-{day:02d}",
+                run_time="19:00",
+                apparent_temperature_at_run_time=30.0,
+                relative_humidity_2m_at_run_time=80,
+                temperature_2m_daytime_max=33,
+                temperature_2m_at_run_time=27.0,
+                wind_speed_10m_at_run_time=3.5,
+            ),
+            scores,
+            prediction=False,
+            vision=vision,
+            prior_sunset_prediction=prior,
+        ).rsplit("\n\n", maxsplit=1)[1]
+        for day in range(1, 25)
+    }
+
+    assert len(encouragements) == 24
+
+
+def test_weather_encouragement_is_available_without_comfort_line(sample_summary):
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="partly_cloudy",
+        comment="空がきれいに染まってる",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=82,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=80, label="A")
+    comments = [
+        build_comment(
+            replace(
+                sample_summary,
+                date=f"2026-10-{day:02d}",
+                run_time="19:00",
+                apparent_temperature_at_run_time=27.0,
+                relative_humidity_2m_at_run_time=60,
+                temperature_2m_daytime_max=27.5,
+                temperature_2m_at_run_time=27.2,
+                wind_speed_10m_at_run_time=4.0,
+            ),
+            scores,
+            prediction=False,
+            vision=vision,
+            prior_sunset_prediction=prior,
+        )
+        for day in range(1, 13)
+    ]
+
+    assert all(len(comment.split("\n\n", maxsplit=1)[0].splitlines()) == 1 for comment in comments)
+    assert any(
+        "風" in comment.rsplit("\n\n", maxsplit=1)[1] for comment in comments
+    )
+
+
 def test_actual_pessimistic_outlook_and_absent_result_does_not_say_expected(
     sample_summary,
 ):
