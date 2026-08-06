@@ -103,6 +103,12 @@ def test_scheduler_retries_capture_then_marks_expired_window(tmp_path):
     assert failed.status == "planned"
     assert "camera unavailable" in failed.last_error
     assert failed.next_attempt_at == clock[0] + timedelta(minutes=1)
+    store.update(
+        "2026-07-26:afterglow",
+        now=clock[0],
+        status="completed",
+        completed_at=clock[0],
+    )
 
     clock[0] += timedelta(minutes=11)
     scheduler.tick(now=clock[0])
@@ -135,7 +141,7 @@ def test_scheduler_captures_freshest_phase_first_when_both_are_due(tmp_path):
 
 
 def test_scheduler_samples_afterglow_window_and_dispatches_vision_winner(tmp_path):
-    clock = [datetime(2026, 7, 26, 19, 5, tzinfo=JST)]
+    clock = [datetime(2026, 7, 26, 19, 0, tzinfo=JST)]
     github = FakeGitHub()
     store = ObservationJobStore(tmp_path / "jobs.sqlite3")
     sequence_calls = []
@@ -152,7 +158,7 @@ def test_scheduler_samples_afterglow_window_and_dispatches_vision_winner(tmp_pat
             frames.append(
                 LiveCameraFrame(
                     path=path,
-                    captured_at=clock[0] + timedelta(seconds=index * 30),
+                    captured_at=clock[0] + timedelta(seconds=index * 60),
                 )
             )
         return tuple(frames)
@@ -197,10 +203,10 @@ def test_scheduler_samples_afterglow_window_and_dispatches_vision_winner(tmp_pat
 
     job = store.get("2026-07-26:afterglow")
     assert job.scheduled_at == datetime(2026, 7, 26, 19, 10, tzinfo=JST)
-    assert job.captured_at == clock[0] + timedelta(seconds=30)
+    assert job.captured_at == clock[0] + timedelta(seconds=60)
     assert Path(job.capture_path).read_bytes() == b"purple"
-    assert sequence_calls[0]["duration_seconds"] == 300
-    assert sequence_calls[0]["interval_seconds"] == 30
+    assert sequence_calls[0]["duration_seconds"] == 600
+    assert sequence_calls[0]["interval_seconds"] == 60
     assert sequence_calls[0]["fallback_interval_seconds"] == 60
     assert [path.read_bytes() for path in vision_calls[0]["image_paths"]] == [
         b"orange",
@@ -216,7 +222,7 @@ def test_scheduler_samples_afterglow_window_and_dispatches_vision_winner(tmp_pat
 
 
 def test_scheduler_uses_local_afterglow_winner_when_vision_comparison_fails(tmp_path):
-    now = datetime(2026, 7, 26, 19, 5, tzinfo=JST)
+    now = datetime(2026, 7, 26, 19, 0, tzinfo=JST)
     store = ObservationJobStore(tmp_path / "jobs.sqlite3")
 
     def capture_sequence(**kwargs):
@@ -229,7 +235,7 @@ def test_scheduler_uses_local_afterglow_winner_when_vision_comparison_fails(tmp_
             frames.append(
                 LiveCameraFrame(
                     path=path,
-                    captured_at=now + timedelta(seconds=index * 30),
+                    captured_at=now + timedelta(seconds=index * 60),
                 )
             )
         return tuple(frames)
@@ -455,21 +461,18 @@ def test_afterglow_retry_becomes_log_only_before_line_retry_key_expires(tmp_path
 def test_scheduler_settings_parse_afterglow_window(monkeypatch, tmp_path):
     monkeypatch.setenv("OBSERVATION_DB_PATH", str(tmp_path / "jobs.sqlite3"))
     monkeypatch.setenv("OBSERVATION_SPOOL_DIR", str(tmp_path / "spool"))
-    monkeypatch.setenv("AFTERGLOW_OFFSET_MINUTES", "20")
-    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "5")
-    monkeypatch.setenv("AFTERGLOW_CAPTURE_INTERVAL_SECONDS", "30")
-    monkeypatch.setenv("AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS", "60")
     monkeypatch.setenv("AFTERGLOW_PREFILTER_CANDIDATES", "3")
 
     settings = SchedulerSettings.from_env()
 
-    assert settings.afterglow_window_minutes == 5
-    assert settings.afterglow_capture_interval_seconds == 30
+    assert settings.afterglow_offset_minutes == 20
+    assert settings.afterglow_window_minutes == 10
+    assert settings.afterglow_capture_interval_seconds == 60
     assert settings.afterglow_thumbnail_interval_seconds == 60
     assert settings.afterglow_prefilter_candidates == 3
 
-    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "21")
-    with pytest.raises(ValueError, match="cannot exceed"):
+    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "11")
+    with pytest.raises(ValueError, match="cannot exceed 10 minutes"):
         SchedulerSettings.from_env()
 
 
@@ -478,8 +481,8 @@ def _scheduler_settings(tmp_path, *, capture_max_delay_minutes=60):
         database_path=tmp_path / "jobs.sqlite3",
         spool_directory=tmp_path / "spool",
         afterglow_offset_minutes=20,
-        afterglow_window_minutes=5,
-        afterglow_capture_interval_seconds=30,
+        afterglow_window_minutes=10,
+        afterglow_capture_interval_seconds=60,
         afterglow_thumbnail_interval_seconds=60,
         afterglow_prefilter_candidates=3,
         capture_max_delay_minutes=capture_max_delay_minutes,

@@ -55,8 +55,8 @@ GITHUB_WORKFLOW=daily_chill.yml
 GITHUB_REF=main
 GITHUB_TOKEN=
 AFTERGLOW_OFFSET_MINUTES=20
-AFTERGLOW_WINDOW_MINUTES=5
-AFTERGLOW_CAPTURE_INTERVAL_SECONDS=30
+AFTERGLOW_WINDOW_MINUTES=10
+AFTERGLOW_CAPTURE_INTERVAL_SECONDS=60
 AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS=60
 AFTERGLOW_PREFILTER_CANDIDATES=3
 VISION_ENABLED=false
@@ -120,7 +120,7 @@ Open-Meteo API取得は最大3回リトライし、最終失敗時は異常終�
 
 `.github/workflows/daily_chill.yml` は `workflow_dispatch` で実行されます。GitHub UI から手動実行できるほか、Contaboのcronから `zushi-chill-trigger-actions` で起動します。
 
-定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分を終点とする残照撮影窓**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。残照は既定で日没+15〜+20分を30秒間隔（最大11枚）で撮影し、その中のベスト画像を選んで通知します。予定時刻に一時停止していても既定60分以内なら1枚を追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は選定済みの同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、残照撮影窓の終了後は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズは、Chill指数・天気参考欄・コメントを実行時刻に最も近い同じhourly行へ揃えます。突風12m/s以上でChill上限が効く場合だけ突風値も表示します。対象時間帯、体感温度、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
+定期実行では、Contaboのcronが `13:00` / `17:00` を固定の `run_time` として渡します。日没時と**日没+20分を終点とする残照撮影窓**は、Contaboのsystemd timerがローカル計算した日没時刻とSQLiteの永続ジョブに基づいて実行します。残照は既定で日没+10〜+20分を1分間隔（最大11枚）で撮影し、その中のベスト画像を選んで通知します。予定時刻に一時停止していても既定60分以内なら1枚を追いつき撮影し、撮影後のOpen-Meteo・GitHub・Vision・保存失敗は選定済みの同じ画像で再試行します。日没時はLINEを送らず画像評価と保存だけを行い、残照撮影窓の終了後は残照評価とLINE通知を行います。観測固有の `observation_id` とLINEの再送キーで、再実行時のログ上書きと通知重複防止を行います。13:00 / 17:00など日没前の予測メッセージでは、日没時刻に最も近いOpen-Meteoのhourly行から気温・湿度・風・夕焼け方向の層別雲量・視程を表示します。最寄りhourly時刻は本文へ表示せずログへ保存します。日没時・残照フェーズは、Chill指数・天気参考欄・コメントを実行時刻に最も近い同じhourly行へ揃えます。突風12m/s以上でChill上限が効く場合だけ突風値も表示します。対象時間帯、体感温度、降水確率の期間・区域・出典は本文へ表示せず、計算・ログでは維持します。
 
 本文冒頭は装飾やサービス名を付けず、`YYYY-MM-DD HH:MM` だけを表示します。
 表示順は、日時、Sunset期待度・Chill指数、ライブカメラ数値評価、コメント、区切り線
@@ -170,7 +170,7 @@ Sunset期待度見出しは、取得できた場合に送信済み予測値を�
 高評価の見込みに注意点を添える場合は「でも、」でつなぎ、対比を明確にします。
 予報値や判定材料の食い違いをそのままユーザーへ報告する表現は使いません。
 
-13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブはContabo側で `LIVE_CAMERA_URL` のYouTubeライブから撮影します。日没時は1フレーム、残照はストリームURLを1回だけ解決して1本のffmpegプロセスから30秒間隔で撮影します。残照候補はSHA-256で重複除外し、橙・赤・紫の範囲・彩度・露出によるローカル評価の上位3枚を候補にします。Contaboの `.env` でも `VISION_ENABLED=true` と `VISION_API_KEY` を設定し、候補時刻が `VISION_TARGET_HOURS` に含まれる場合は、候補3枚を1回のVisionリクエストで比較します。未設定・対象時刻外・比較失敗時はローカル1位へフォールバックします。
+13:00 / 17:00と手動実行はGitHub Actionsで、日没連動ジョブはContabo側で `LIVE_CAMERA_URL` のYouTubeライブから撮影します。日没時は1フレーム、残照はストリームURLを1回だけ解決して1本のffmpegプロセスから1分間隔で撮影します。残照候補はSHA-256で重複除外し、橙・赤・紫の範囲・彩度・露出によるローカル評価の上位3枚を候補にします。Contaboの `.env` でも `VISION_ENABLED=true` と `VISION_API_KEY` を設定し、候補時刻が `VISION_TARGET_HOURS` に含まれる場合は、候補3枚を1回のVisionリクエストで比較します。未設定・対象時刻外・比較失敗時はローカル1位へフォールバックします。
 
 選定画像は45KB以下のJPEGへ正規化してローカルに固定し、Base64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡します。Actions側はハッシュを照合してから使用するため、再試行時にも選定済みの同一画像を処理します。全ジョブとも選定画像を `pages-images` branchへ累積保存し、GitHub Pagesへ `live-camera/YYYY-MM-DD/HHMM.jpg` としてデプロイします。同じパスへ異なる画像を上書きする実行は失敗させ、過去URLと元画像を保持します。ライブストリームURLを解決できない場合は、`LIVE_CAMERA_VIDEO_ID` からYouTubeのライブサムネイルを取得してフォールバックし、残照窓では既定60秒間隔で繰り返します。同一サムネイルが続いた場合は1候補として扱います。取得に成功した場合のみ、そのPages URLをLINE画像メッセージとして添付します。GitHub Pagesはリポジトリ設定でSourceを「GitHub Actions」にしておきます。Pages URLが標準の `https://<owner>.github.io/<repo>` と異なる場合は、Secret `LIVE_CAMERA_IMAGE_BASE_URL` で上書きします。
 
@@ -195,7 +195,7 @@ GITHUB_REF=main
 GITHUB_TOKEN=...
 ```
 
-13:00 / 17:00は従来どおりContaboのcronから起動します。日没時と日没+15〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
+13:00 / 17:00は従来どおりContaboのcronから起動します。日没時と日没+10〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
 
 ```bash
 # 13:00 / 17:00 は固定時刻で予測を通知
@@ -233,8 +233,8 @@ journalctl -u zushi-chill-observation-scheduler.service
 
 永続状態は既定で `/var/lib/zushi-chill/observation_jobs.sqlite3`、撮影画像は
 `/var/lib/zushi-chill/spool` に置きます。残照窓は `AFTERGLOW_OFFSET_MINUTES`（終点、既定20）、
-`AFTERGLOW_WINDOW_MINUTES`（長さ、既定5・最大5）、`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`
-（ストリーム時、既定30）、`AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS`（サムネイル時、既定60）、
+`AFTERGLOW_WINDOW_MINUTES`（長さ、既定10・最大10）、`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`
+（ストリーム時、既定60）、`AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS`（サムネイル時、既定60）、
 `AFTERGLOW_PREFILTER_CANDIDATES`（Vision比較へ渡すローカル上位数、既定3）で
 変更できます。候補画像と選定根拠は日付別spoolの `afterglow/candidates/` と
 `afterglow/selection.json` に残します。
@@ -288,7 +288,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 1. 13:00 JST に昼時点の見込みを確認
 2. 17:00 JST に夕方直前の見込みを確認（Vision「ライブカメラAI予測」も記録）
 3. 日没時にカメラ画像を保存し、太陽ディスクの見えやすさと日没時の発色を自動記録する（LINE送信なし）
-4. 日没+15〜+20分のベスト画像を保存して残照を自動記録し、LINEにも残照評価を送信する
+4. 日没+10〜+20分のベスト画像を保存して残照を自動記録し、LINEにも残照評価を送信する
 5. 蓄積後に、17:00の各予測と同一日の `vision_sunset_color_score` / `vision_afterglow_score` の乖離を別々に確認する
 
 式の乖離検証には、表示用のブレンド値 `final_sunset_score` ではなく**純式スコア `sunset_score`**（17:00行）を使います。同一 `date` の日没時行にある `vision_sunset_color_score` と、残照行の `vision_afterglow_score` に対する誤差を別集計し、どちらの目的を改善した変更かを明示します。旧+20分単発と残照窓ベストは別期間として扱います。`vision_sun_disk_visibility` は遮蔽判定の診断指標として使います。乖離が大きい日は保存画像を再確認・再採点できます。

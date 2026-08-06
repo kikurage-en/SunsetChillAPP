@@ -9,7 +9,7 @@ User=root
 WorkingDirectory=/opt/SunsetChillAPP
 Environment=PATH=/opt/SunsetChillAPP/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/SunsetChillAPP/.venv/bin/zushi-chill-observation-scheduler
-TimeoutStartSec=10min
+TimeoutStartSec=15min
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
