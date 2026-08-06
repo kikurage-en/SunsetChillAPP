@@ -169,6 +169,56 @@ _ACTUAL_CAMERA_SUMMARY_VARIANTS = {
     ),
 }
 
+_AFTER_SUNSET_ENCOURAGEMENT_VARIANTS = (
+    "モヤモヤは、夕焼けといっしょにそっと流しちゃうっピ。",
+    "深呼吸ひとつぶん、この空を眺めてみるっピ。",
+    "夕焼けを見ながら、肩の力をふわっと抜くっピ。",
+    "今日の疲れは、この空にちょっとだけ預けるっピ。",
+    "空の色が変わる速さに合わせて、気持ちもゆっくりでいいっピ。",
+    "なんにも決めずに、ただきれいだなって眺める時間も大事っピ。",
+    "忙しい日ほど、空を見上げる小さな寄り道をするっピ。",
+    "空を見上げる数秒だけは、自分のための時間っピ。",
+    "今日の終わりに、やさしい色をひとつ持って帰るっピ。",
+    "夕焼けの色を心にしまって、今日をやさしく終えるっピ。",
+    "今日のきれいな空は、ここまでがんばったごほうびっピ！",
+    "きょうも一日、おつかれさまっピ。夕焼けの時間はのんびりするっピ。",
+    "ひと休みしても大丈夫っピ。いまは空の色を楽しむっピ。",
+    "思いどおりじゃない日にも、きれいな空はちゃんとあるっピ。",
+    "空がこんなにきれいなら、今日はそれだけでも悪くないっピ。",
+    "きょうの空から、ちいさな元気を分けてもらうっピ！",
+    "きれいな夕焼けを見つけた日は、ちょっぴり得した気分っピ！",
+    "忙しさのすきまに、空のきれいをひとつ置いておくっピ。",
+    "今日のモヤモヤより、この空の色を少しだけ長く覚えておくっピ。",
+    "あせる気持ちはひと休みっピ。空はゆっくり色づいてるっピ。",
+    "今日はもう十分がんばったっピ。あとは夕焼けに任せるっピ。",
+    "この夕焼けが、今日の気持ちをそっとほどいてくれたらうれしいっピ。",
+    "いい日もそうじゃない日も、夕焼けがおつかれさまって光ってるっピ。",
+    "小さないいことを探すなら、今日の夕焼けは大当たりっピ！",
+)
+
+_WEATHER_ENCOURAGEMENT_VARIANTS = {
+    "hot": (
+        "暑い一日だったから、夕焼けを見ながらゆっくりクールダウンするっピ。",
+        "暑さが残る夕方も、空の色といっしょにひと息つくっピ。",
+        "むし暑さは残ってるけど、きれいな空が気持ちを軽くしてくれるっピ。",
+    ),
+    "breeze": (
+        "海風を感じながら、今日の疲れをそっとほどくっピ。",
+        "風が気持ちいい夕方は、深呼吸をひとつしてみるっピ。",
+        "夕焼けと海風に、今日のモヤモヤを預けるっピ。",
+    ),
+    "cool": (
+        "涼しい風と夕焼けに、今日の疲れを預けるっピ。",
+        "涼しくなった空気のなかで、きれいな色をゆっくり味わうっピ。",
+        "ひんやりした夕方っピ。心ものんびり休ませるっピ。",
+    ),
+    "cooling": (
+        "昼間の暑さがやわらいだら、夕焼けといっしょにひと休みするっピ。",
+        "暑かった一日の終わりに、やさしい空の色が待ってたっピ。",
+        "気温も気持ちも、夕焼けといっしょにゆっくり落ち着けるっピ。",
+    ),
+}
+
 
 def build_comment(
     summary: WeatherSummary,
@@ -356,9 +406,26 @@ def build_comment(
                 vision=vision,
                 prior_sunset_prediction=prior_sunset_prediction,
             )
-    return "\n".join(
-        [sunset_comment, *([comfort_comment] if comfort_comment is not None else [])]
-    )
+    comment_lines = [
+        sunset_comment,
+        *([comfort_comment] if comfort_comment is not None else []),
+    ]
+    if (
+        not prediction
+        and vision is not None
+        and vision.evaluation_phase in {"sunset", "afterglow"}
+        and vision.sunset_score >= 70
+    ):
+        comment_lines.extend(
+            [
+                "",
+                _after_sunset_encouragement_comment(
+                    summary,
+                    weather_eligible=comfort_comment is None,
+                ),
+            ]
+        )
+    return "\n".join(comment_lines)
 
 
 def _comment_variant(
@@ -372,6 +439,63 @@ def _comment_variant(
         category,
         variants,
     )
+
+
+def _after_sunset_encouragement_comment(
+    summary: WeatherSummary,
+    *,
+    weather_eligible: bool,
+) -> str:
+    # 日没時刻の季節変動で同じ日付の選択がずれないよう、励まし文は固定時刻で選ぶ。
+    selection_time = "19:00"
+    weather_contexts = (
+        _encouragement_weather_contexts(summary) if weather_eligible else ()
+    )
+    use_weather = (
+        bool(weather_contexts)
+        and select_comment_variant(
+            summary.date,
+            selection_time,
+            "after-sunset-encouragement-kind",
+            ("general", "general", "general", "weather"),
+        )
+        == "weather"
+    )
+    if use_weather:
+        context = select_comment_variant(
+            summary.date,
+            selection_time,
+            "after-sunset-encouragement-weather-context",
+            weather_contexts,
+        )
+        return select_comment_variant(
+            summary.date,
+            selection_time,
+            f"after-sunset-encouragement-{context}",
+            _WEATHER_ENCOURAGEMENT_VARIANTS[context],
+        )
+    return select_comment_variant(
+        summary.date,
+        selection_time,
+        "after-sunset-encouragement-general",
+        _AFTER_SUNSET_ENCOURAGEMENT_VARIANTS,
+    )
+
+
+def _encouragement_weather_contexts(summary: WeatherSummary) -> tuple[str, ...]:
+    conditions = summary.with_run_time_weather()
+    temperature = _comfort_temperature(summary, prediction=False)
+    daytime_max = summary.temperature_2m_daytime_max
+    contexts: list[str] = []
+    if daytime_max is not None and daytime_max >= 30:
+        contexts.append("hot")
+    if 3 <= conditions.wind_speed_10m < 8:
+        contexts.append("breeze")
+    if temperature < 27:
+        contexts.append("cool")
+    if daytime_max is not None and daytime_max - temperature >= 3:
+        contexts.append("cooling")
+    return tuple(contexts)
 
 
 def _prediction_with_camera_comment(
