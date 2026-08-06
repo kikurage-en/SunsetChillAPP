@@ -90,7 +90,7 @@ def test_capture_live_camera_image_falls_back_to_youtube_thumbnail(tmp_path, mon
     assert output_path.read_bytes() == b"thumbnail"
 
 
-def test_capture_live_camera_sequence_samples_one_stream_every_thirty_seconds(
+def test_capture_live_camera_sequence_samples_one_stream_every_minute(
     tmp_path,
     monkeypatch,
 ):
@@ -120,17 +120,17 @@ def test_capture_live_camera_sequence_samples_one_stream_every_thirty_seconds(
         live_camera_video_id="video-id",
         output_directory=tmp_path / "candidates",
         capture_started_at=started_at,
-        duration_seconds=300,
-        interval_seconds=30,
+        duration_seconds=600,
+        interval_seconds=60,
     )
 
     assert len(frames) == 11
     assert frames[0].captured_at == started_at
-    assert frames[-1].captured_at == started_at + timedelta(minutes=5)
+    assert frames[-1].captured_at == started_at + timedelta(minutes=10)
     ffmpeg_command, ffmpeg_kwargs = calls[1]
-    assert ffmpeg_command[ffmpeg_command.index("-vf") + 1] == "fps=1/30"
+    assert ffmpeg_command[ffmpeg_command.index("-vf") + 1] == "fps=1/60"
     assert ffmpeg_command[ffmpeg_command.index("-frames:v") + 1] == "11"
-    assert ffmpeg_kwargs["timeout"] > 300
+    assert ffmpeg_kwargs["timeout"] > 600
 
 
 def test_capture_live_camera_sequence_falls_back_to_cache_busted_thumbnails(

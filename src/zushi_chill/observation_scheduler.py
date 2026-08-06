@@ -68,11 +68,11 @@ class SchedulerSettings:
         )
         afterglow_window_minutes = _positive_int(
             "AFTERGLOW_WINDOW_MINUTES",
-            default=5,
+            default=10,
         )
         afterglow_capture_interval_seconds = _positive_int(
             "AFTERGLOW_CAPTURE_INTERVAL_SECONDS",
-            default=30,
+            default=60,
         )
         afterglow_thumbnail_interval_seconds = _positive_int(
             "AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS",
@@ -82,8 +82,8 @@ class SchedulerSettings:
             raise ConfigError(
                 "AFTERGLOW_WINDOW_MINUTES cannot exceed AFTERGLOW_OFFSET_MINUTES"
             )
-        if afterglow_window_minutes > 5:
-            raise ConfigError("AFTERGLOW_WINDOW_MINUTES cannot exceed 5 minutes")
+        if afterglow_window_minutes > 10:
+            raise ConfigError("AFTERGLOW_WINDOW_MINUTES cannot exceed 10 minutes")
         if afterglow_capture_interval_seconds > afterglow_window_minutes * 60:
             raise ConfigError(
                 "AFTERGLOW_CAPTURE_INTERVAL_SECONDS cannot exceed the afterglow window"

@@ -12,7 +12,7 @@ Sunset期待度は次の4層で算出・記録している（Chill指数は影�
 - **層2**: 厚い中層雲キャップ（中層雲 55%→上限60、70%→上限40）。2026-07-17 に天井の再校正を追加（好条件でも通常上限80、超快晴＝Sunset用雲の total<15% かつ low<5% のみ90）。2026-07-21型の「高降水確率・雨量0・晴天コード・西空の薄い雲」が揃う場合だけ、降水減点を暫定-25とする。2026-07-25から**雨シグナル**（評価時間帯の代表天気コードが雨・雷雨系 or 窓内予想雨量合計≥1.0mm）では純式を上限40に制限する（`SUNSET_RAIN_CAP`。減点は雨量に比例させない）。
 - **層3**: 日没前（予測モード）で Vision 解析成功時、表示する `Sunset期待度` を式とVisionカメラAI予測のブレンドにする（`final = round((1-w)*sunset_score + w*vision_sunset_score)`、`w=SUNSET_VISION_BLEND_WEIGHT` 既定0.8）。**上方キャップ `final ≤ 式+30`**（2026-07-18導入: カメラは西から来る雲の壁を見えないため。下方修正は無制限）。2026-07-25から雨シグナル時は上方修正自体を無効化し `final ≤ 純式` とする（下方修正は維持）。**純式 `sunset_score` 列は上書きせず温存**し、表示値は別列 `final_sunset_score`。日没時・残照フェーズ、欠測、13:00はブレンドせず式。
 - **層4**: Sunsethue API（ray-model）の夕焼け品質予測を **log-only** 収集（列 `sunsethue_quality` 0-100 / `sunsethue_cloud_cover` % / `sunsethue_quality_text`）。スコアには影響しない独立ベンチマーク。`SUNSETHUE_ENABLED=true` で稼働。
-- **評価層**: ライブカメラ画像を日没時と日没+15〜+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、残照窓は30秒間隔の候補から選んだベスト画像の `vision_afterglow_score` をVisionで別評価する。残照候補はローカル色評価の上位3枚をVisionで一括比較し、Vision未設定・失敗時はローカル1位を使う。選定画像は `pages-images` branchへ累積保存し、Actions Artifactにも90日指定で保存する。全候補と選定manifestはContaboのspoolに保持する（専用の一括再採点CLIは未実装）。
+- **評価層**: ライブカメラ画像を日没時と日没+10〜+20分に自動取得。日没時は `vision_sun_disk_visibility` と `vision_sunset_color_score`、残照窓は1分間隔の候補から選んだベスト画像の `vision_afterglow_score` をVisionで別評価する。残照候補はローカル色評価の上位3枚をVisionで一括比較し、Vision未設定・失敗時はローカル1位を使う。選定画像は `pages-images` branchへ累積保存し、Actions Artifactにも90日指定で保存する。全候補と選定manifestはContaboのspoolに保持する（専用の一括再採点CLIは未実装）。
 - **降水確率の用途分離**: 13:00 / 17:00のLINE天気参考値と予想Chill指数は気象庁・神奈川県東部の6時間降水確率を優先し、欠測時はOpen-Meteoへフォールバックする。日没時・残照時のChill指数と表示は、他の気象値と時刻を揃えたOpen-Meteo hourly値を使う。Sunset期待度は地点・時刻粒度を優先してOpen-Meteoを維持する。
 - **LINE天気参考欄**: 13:00 / 17:00など日没前の予測では、日没時刻に最も近いhourly行の気温・湿度・風・夕焼け方向の層別雲量・視程を表示し、Chill指数は対象時間帯集計を維持する。日没時・残照時はChill指数・気温・湿度・風・降水・コメントを実行時刻に最も近い同じhourly行へ揃える。突風12m/s以上で上限50が効く場合は突風値も本文に表示する。
 - **LINE冒頭**: サービス名や括弧を付けず、`YYYY-MM-DD HH:MM` だけを表示する。
@@ -49,6 +49,12 @@ PR #16（merge commit `7022e03`）をmainとContaboへ反映し、2026-08-02は�
 18:59の候補を選び、Actions run `30743008254` とLINE送信が成功した。
 旧+20分単発の画像代理値とベストショット代理値は対象が変わるため、前向き検証では
 2026-08-01実装の本番導入日を境に別期間として扱う。
+
+**2026-08-06 残照撮影窓の拡張**: 残照の変化をより長く比較しつつリクエスト頻度を
+抑えるため、撮影窓を日没+15〜+20分・30秒間隔から日没+10〜+20分・1分間隔へ変更する。
+両端を含む最大11枚と、ローカル上位3枚のVision比較、日没+20分の通知時刻は維持する。
+10分間の撮影後に正規化・Gemini比較・dispatchを行えるよう、systemd unitは
+`TimeoutStartSec=15min` とする。
 
 **2026-07-26 日没連動ジョブ欠測と対策**: 朝8時の旧スケジューラが日没時刻取得中に
 Open-MeteoのHTTP 503で停止し、後続の `at` 予約が1件も作られなかった。このため日没時と

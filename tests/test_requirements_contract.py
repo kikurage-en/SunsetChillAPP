@@ -113,8 +113,8 @@ def test_requirements_document_current_automated_image_evaluation():
         "日没時と日没後の画像を自動取得",
         "vision_sunset_color_score",
         "vision_afterglow_score",
-        "日没+15〜+20分",
-        "30秒間隔で最大11枚",
+        "日没+10〜+20分",
+        "1分間隔で最大11枚",
         "サムネイルを60秒間隔",
         "`YOUTUBE_COOKIES_PATH`",
         "SHA-256で重複除外",
@@ -250,7 +250,7 @@ def test_systemd_observation_scheduler_runs_and_audits_persistent_jobs():
     assert "OnCalendar=*-*-* *:*:00" in scheduler_timer
     assert "Persistent=true" in scheduler_timer
     assert "zushi-chill-observation-scheduler" in scheduler_service
-    assert "TimeoutStartSec=10min" in scheduler_service
+    assert "TimeoutStartSec=15min" in scheduler_service
     assert "ReadWritePaths=/var/lib/zushi-chill" in scheduler_service
     assert "OnCalendar=*-*-* 21:30:00 Asia/Tokyo" in audit_timer
     assert "zushi-chill-observation-scheduler --audit" in audit_service
