@@ -235,7 +235,7 @@ journalctl -u zushi-chill-observation-scheduler.service
 
 永続状態は既定で `/var/lib/zushi-chill/observation_jobs.sqlite3`、撮影画像は
 `/var/lib/zushi-chill/spool` に置きます。残照窓は `AFTERGLOW_OFFSET_MINUTES`（終点、既定20）、
-`AFTERGLOW_WINDOW_MINUTES`（長さ、既定10・最大10）、`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`
+`AFTERGLOW_WINDOW_MINUTES`（長さ、既定10。`AFTERGLOW_OFFSET_MINUTES`以下）、`AFTERGLOW_CAPTURE_INTERVAL_SECONDS`
 （ストリーム時、既定60）、`AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS`（サムネイル時、既定60）、
 `AFTERGLOW_PREFILTER_CANDIDATES`（Vision比較へ渡すローカル上位数、既定3）で
 変更できます。候補画像と選定根拠は日付別spoolの `afterglow/candidates/` と

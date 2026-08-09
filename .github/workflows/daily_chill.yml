@@ -40,6 +40,10 @@ on:
         description: "実撮影時刻 ISO-8601"
         required: false
         default: ""
+      capture_window_minutes:
+        description: "予定時刻より前に許容する撮影窓（分）"
+        required: false
+        default: "10"
       capture_ref:
         description: "保存画像のGit ref"
         required: false
@@ -110,6 +114,7 @@ jobs:
           INPUT_OBSERVATION_PHASE: ${{ github.event.inputs.observation_phase || '' }}
           INPUT_SCHEDULED_AT: ${{ github.event.inputs.scheduled_at || '' }}
           INPUT_CAPTURED_AT: ${{ github.event.inputs.captured_at || '' }}
+          INPUT_CAPTURE_WINDOW_MINUTES: ${{ github.event.inputs.capture_window_minutes || '10' }}
           INPUT_CAPTURE_REF: ${{ github.event.inputs.capture_ref || '' }}
           INPUT_CAPTURE_PATH: ${{ github.event.inputs.capture_path || '' }}
           INPUT_CAPTURE_SHA256: ${{ github.event.inputs.capture_sha256 || '' }}
@@ -132,6 +137,7 @@ jobs:
           echo "OBSERVATION_PHASE=$INPUT_OBSERVATION_PHASE" >> "$GITHUB_ENV"
           echo "SCHEDULED_AT=$INPUT_SCHEDULED_AT" >> "$GITHUB_ENV"
           echo "CAPTURED_AT=$INPUT_CAPTURED_AT" >> "$GITHUB_ENV"
+          echo "CAPTURE_WINDOW_MINUTES=$INPUT_CAPTURE_WINDOW_MINUTES" >> "$GITHUB_ENV"
           echo "CAPTURE_REF=$INPUT_CAPTURE_REF" >> "$GITHUB_ENV"
           echo "CAPTURE_PATH=$INPUT_CAPTURE_PATH" >> "$GITHUB_ENV"
           echo "CAPTURE_SHA256=$INPUT_CAPTURE_SHA256" >> "$GITHUB_ENV"
@@ -309,6 +315,7 @@ jobs:
               --observation-phase "$OBSERVATION_PHASE"
               --scheduled-at "$SCHEDULED_AT"
               --captured-at "$CAPTURED_AT"
+              --capture-window-minutes "$CAPTURE_WINDOW_MINUTES"
             )
           fi
           python -m zushi_chill.main "${args[@]}"

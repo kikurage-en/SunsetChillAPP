@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from zushi_chill import main as main_module
 from zushi_chill import vision_client
 from zushi_chill.line_client import LineSendError
@@ -133,6 +135,39 @@ def test_observation_run_uses_capture_time_metadata_and_line_retry_key(
         tzinfo=ZoneInfo("Asia/Tokyo"),
     )
     assert fake_line_client.retry_keys[0]
+
+
+def test_afterglow_capture_window_is_configurable():
+    args = main_module._parse_args(
+        [
+            "--observation-id",
+            "2026-06-01:afterglow",
+            "--observation-phase",
+            "afterglow",
+            "--scheduled-at",
+            "2026-06-01T19:00:00+09:00",
+            "--captured-at",
+            "2026-06-01T18:40:00+09:00",
+            "--capture-window-minutes",
+            "20",
+        ]
+    )
+
+    main_module._validate_observation_args(
+        args,
+        datetime(2026, 6, 1, 19, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+        datetime(2026, 6, 1, 18, 40, tzinfo=ZoneInfo("Asia/Tokyo")),
+        capture_window_minutes=args.capture_window_minutes,
+    )
+
+    args.capture_window_minutes = 10
+    with pytest.raises(ValueError, match="cannot be more than 10 minutes"):
+        main_module._validate_observation_args(
+            args,
+            datetime(2026, 6, 1, 19, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+            datetime(2026, 6, 1, 18, 40, tzinfo=ZoneInfo("Asia/Tokyo")),
+            capture_window_minutes=args.capture_window_minutes,
+        )
 
 
 def test_dry_run_environment_value_prevents_line_send(monkeypatch, capsys):

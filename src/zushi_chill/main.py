@@ -57,7 +57,12 @@ def main(argv: list[str] | None = None) -> int:
             "--captured-at",
         )
         run_time = captured_at or _resolve_run_time(args.date, args.run_time, tz)
-        _validate_observation_args(args, scheduled_at, captured_at)
+        _validate_observation_args(
+            args,
+            scheduled_at,
+            captured_at,
+            capture_window_minutes=args.capture_window_minutes,
+        )
         dry_run = args.dry_run or settings.dry_run
         storage = storage_from_settings(settings)
 
@@ -512,6 +517,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="Actual image capture timestamp as a timezone-aware ISO-8601 value.",
     )
     parser.add_argument(
+        "--capture-window-minutes",
+        type=int,
+        default=10,
+        help="How many minutes before scheduled_at an afterglow capture may occur.",
+    )
+    parser.add_argument(
         "--input-json",
         help="Read an Open-Meteo response JSON file instead of calling the API.",
     )
@@ -573,6 +584,8 @@ def _validate_observation_args(
     args: argparse.Namespace,
     scheduled_at: datetime | None,
     captured_at: datetime | None,
+    *,
+    capture_window_minutes: int = 10,
 ) -> None:
     values = (
         args.observation_id,
@@ -585,8 +598,18 @@ def _validate_observation_args(
             "--observation-id, --observation-phase, --scheduled-at, and --captured-at "
             "must be provided together"
         )
-    if scheduled_at and captured_at and captured_at < scheduled_at - timedelta(minutes=5):
-        raise ConfigError("--captured-at cannot be more than 5 minutes before --scheduled-at")
+    if capture_window_minutes < 0:
+        raise ConfigError("--capture-window-minutes cannot be negative")
+    if (
+        args.observation_phase == "afterglow"
+        and scheduled_at
+        and captured_at
+        and captured_at < scheduled_at - timedelta(minutes=capture_window_minutes)
+    ):
+        raise ConfigError(
+            "--captured-at cannot be more than "
+            f"{capture_window_minutes} minutes before --scheduled-at"
+        )
     if args.observation_id and args.observation_id != (
         f"{scheduled_at.date().isoformat()}:{args.observation_phase}"
     ):

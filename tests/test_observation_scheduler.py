@@ -64,6 +64,7 @@ def test_scheduler_captures_dispatches_exact_image_and_reconciles(tmp_path):
     assert inputs["observation_id"] == "2026-07-26:sunset"
     assert inputs["scheduled_at"] == "2026-07-26T18:50:00+09:00"
     assert inputs["captured_at"] == "2026-07-26T18:50:00+09:00"
+    assert inputs["capture_window_minutes"] == "10"
     assert inputs["capture_sha256"] == job.capture_sha256
     assert base64.b64decode(inputs["capture_base64"]) == b"sunset-image"
 
@@ -471,8 +472,8 @@ def test_scheduler_settings_parse_afterglow_window(monkeypatch, tmp_path):
     assert settings.afterglow_thumbnail_interval_seconds == 60
     assert settings.afterglow_prefilter_candidates == 3
 
-    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "11")
-    with pytest.raises(ValueError, match="cannot exceed 10 minutes"):
+    monkeypatch.setenv("AFTERGLOW_WINDOW_MINUTES", "21")
+    with pytest.raises(ValueError, match="cannot exceed AFTERGLOW_OFFSET_MINUTES"):
         SchedulerSettings.from_env()
 
 

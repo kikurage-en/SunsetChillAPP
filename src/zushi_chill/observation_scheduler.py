@@ -82,8 +82,6 @@ class SchedulerSettings:
             raise ConfigError(
                 "AFTERGLOW_WINDOW_MINUTES cannot exceed AFTERGLOW_OFFSET_MINUTES"
             )
-        if afterglow_window_minutes > 10:
-            raise ConfigError("AFTERGLOW_WINDOW_MINUTES cannot exceed 10 minutes")
         if afterglow_capture_interval_seconds > afterglow_window_minutes * 60:
             raise ConfigError(
                 "AFTERGLOW_CAPTURE_INTERVAL_SECONDS cannot exceed the afterglow window"
@@ -622,6 +620,9 @@ class ObservationScheduler:
                 "observation_phase": job.phase,
                 "scheduled_at": job.scheduled_at.isoformat(timespec="seconds"),
                 "captured_at": job.captured_at.isoformat(timespec="seconds"),
+                "capture_window_minutes": str(
+                    self.scheduler_settings.afterglow_window_minutes
+                ),
                 "capture_base64": encoded_capture,
                 "capture_sha256": job.capture_sha256,
             },

@@ -141,6 +141,7 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "observation_id:" in workflow
     assert "scheduled_at:" in workflow
     assert "captured_at:" in workflow
+    assert "capture_window_minutes:" in workflow
     assert "capture_ref:" in workflow
     assert "capture_path:" in workflow
     assert "capture_base64:" in workflow
