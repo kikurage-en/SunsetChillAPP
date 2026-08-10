@@ -3,7 +3,10 @@ from __future__ import annotations
 import re
 
 from zushi_chill.comment_variants import select_comment_variant
-from zushi_chill.comment_voice import apply_comment_voice
+from zushi_chill.comment_voice import (
+    apply_comment_voice,
+    place_interjection_at_comment_start,
+)
 from zushi_chill.constants import RAIN_WEATHER_CODES
 from zushi_chill.models import (
     JmaPrecipitationForecast,
@@ -56,15 +59,6 @@ _ACTUAL_SUNSET_VARIANTS = {
 }
 
 _ACTUAL_COMPARISON_VARIANTS = {
-    ("favorable", "vivid"): (
-        "期待どおりの夕焼けだっピ！",
-        "楽しみにしてたとおり、きれいな夕焼けだっピ！",
-        "期待していたくらい、空がきれいに染まったっピ！",
-        "思い描いていたような夕焼けになったっピ！",
-        "期待にこたえて、空が元気に染まったっピ！",
-        "待ってた甲斐のある夕焼けだっピ！",
-        "うん、楽しみにしてたくらいの夕焼けだっピ！",
-    ),
     ("favorable", "visible"): (
         "期待より少し控えめな夕焼けだっピ。",
         "楽しみにしてたけど、色づきは小さめだったっピ。",
@@ -92,15 +86,6 @@ _ACTUAL_COMPARISON_VARIANTS = {
         "予想を越えて、見ごたえのある夕焼けになったっピ！",
         "うれしい方に転んで、きれいな夕焼けになったっピ！",
     ),
-    ("uncertain", "visible"): (
-        "ほどよく色づいた夕焼けだっピ。",
-        "空がほんのり夕焼け色に染まったっピ。",
-        "やさしい色の夕焼けになったっピ。",
-        "空の一部に、きれいな色が見えたっピ。",
-        "控えめだけど、夕焼け色はちゃんと見えたっピ。",
-        "派手ではないけど、空が少し色づいたっピ。",
-        "小さな夕焼けを見つけたっピ。",
-    ),
     ("uncertain", "absent"): (
         "思ったより色づかず、夕焼けはほとんど見えなかったっピ……。",
         "空の色は、思っていたより静かなままだったっピ……。",
@@ -127,15 +112,6 @@ _ACTUAL_COMPARISON_VARIANTS = {
         "心配してた空にも、少しだけ色が出たっピ。",
         "うれしい方に外れて、空がほんのり染まったっピ。",
         "夕焼けは小さめだけど、思ったより色づいたっピ。",
-    ),
-    ("pessimistic", "absent"): (
-        "やっぱり夕焼けはほとんど見えなかったっピ……。",
-        "心配してたとおり、空はほとんど染まらなかったっピ……。",
-        "きょうの夕焼けは、おやすみだったっピ……。",
-        "やっぱり空の色は静かなままだったっピ……。",
-        "夕焼け色は、最後まで出てくれなかったっピ……。",
-        "うーん……きれいな色は見えなかったっピ……。",
-        "きょうは夕焼けを見つけられなかったっピ……。",
     ),
 }
 
@@ -490,6 +466,7 @@ def build_comment(
                 vision=vision,
                 prior_sunset_prediction=prior_sunset_prediction,
             )
+    sunset_comment = place_interjection_at_comment_start(sunset_comment)
     comment_lines = [
         sunset_comment,
         *([comfort_comment] if comfort_comment is not None else []),
@@ -612,18 +589,28 @@ def _actual_with_camera_comment(
     vision: VisionResult,
     prior_sunset_prediction: SunsetPredictionReference | None,
 ) -> str:
-    if prior_sunset_prediction is None:
-        summary_comment = _actual_camera_summary(summary, vision.sunset_score)
-    else:
-        outlook = _prior_outlook_band(prior_sunset_prediction.score)
-        result = _actual_result_band(vision.sunset_score)
-        summary_comment = _comment_variant(
-            summary,
-            f"actual-{outlook}-{result}",
-            _ACTUAL_COMPARISON_VARIANTS[(outlook, result)],
-        )
     observation = _vision_observation_comment(vision)
-    return f"{summary_comment} {observation}"
+    if not vision.comment.strip():
+        return _actual_camera_summary(summary, vision.sunset_score)
+    if prior_sunset_prediction is None:
+        return observation
+
+    outlook = _prior_outlook_band(prior_sunset_prediction.score)
+    result = _actual_result_band(vision.sunset_score)
+    expected_result = {
+        "favorable": "vivid",
+        "uncertain": "visible",
+        "pessimistic": "absent",
+    }[outlook]
+    if result == expected_result:
+        return observation
+
+    comparison = _comment_variant(
+        summary,
+        f"actual-{outlook}-{result}",
+        _ACTUAL_COMPARISON_VARIANTS[(outlook, result)],
+    )
+    return place_interjection_at_comment_start(f"{comparison} {observation}")
 
 
 def _actual_camera_summary(summary: WeatherSummary, sunset_score: int) -> str:

@@ -325,14 +325,14 @@ def test_actual_message_without_prior_prediction_describes_camera_result_directl
 
     comment = build_comment(sample_summary, scores, prediction=False, vision=vision)
 
-    assert "夕焼け" in comment
+    assert comment.splitlines()[0] == "雲の間に少し色が見えるっピ。"
     assert all(
         word not in comment
         for word in ("気象条件の評価", "期待", "予想", "17時", "残照")
     )
 
 
-def test_actual_favorable_outlook_and_vivid_result_is_concise(sample_summary):
+def test_actual_matching_outlook_uses_only_camera_observation(sample_summary):
     summary = replace(sample_summary, date="2026-08-05", run_time="19:00")
     scores = ScoreResult(sunset_score=76, sunset_label="A", chill_score=82, chill_label="A")
     vision = VisionResult(
@@ -353,7 +353,7 @@ def test_actual_favorable_outlook_and_vivid_result_is_concise(sample_summary):
         prior_sunset_prediction=prior,
     ).splitlines()[0]
 
-    assert comment.startswith("期待どおりの夕焼けだっピ！")
+    assert comment == "富士山と空が燃えるように光ってるっピ。"
     assert all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
 
 
@@ -389,7 +389,7 @@ def test_actual_a_camera_result_adds_encouragement_after_blank_line(sample_summa
     result_and_comfort, encouragement = comment.split("\n\n", maxsplit=1)
 
     assert len(result_and_comfort.splitlines()) == 2
-    assert result_and_comfort.splitlines()[0].startswith("期待どおりの夕焼けだっピ！")
+    assert result_and_comfort.splitlines()[0] == "富士山と空が燃えるように光ってるっピ。"
     assert "風" in result_and_comfort.splitlines()[1]
     assert encouragement.endswith(("っピ。", "っピ！"))
     assert all(word not in encouragement for word in ("風", "暑", "湿", "涼"))
@@ -536,8 +536,96 @@ def test_actual_pessimistic_outlook_and_absent_result_does_not_say_expected(
         prior_sunset_prediction=prior,
     ).splitlines()[0]
 
-    assert comment.startswith("心配してたとおり、空はほとんど染まらなかったっピ……。")
+    assert comment == "雲が多く、空はほとんど染まっていないっピ。"
     assert "期待" not in comment
+
+
+def test_actual_uncertain_visible_result_does_not_repeat_camera_observation(
+    sample_summary,
+):
+    summary = replace(sample_summary, date="2026-08-06", run_time="19:01")
+    scores = ScoreResult(sunset_score=55, sunset_label="B", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=55,
+        sky_condition="partly_cloudy",
+        comment=(
+            "わあっ！空にまだ薄い夕焼け色が残ってる。"
+            "富士山もはっきり見えて、なんだか嬉しい"
+        ),
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=55,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=55, label="B")
+
+    comment = build_comment(
+        summary,
+        scores,
+        prediction=False,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    ).splitlines()[0]
+
+    assert comment == (
+        "わあっ！空にまだ薄い夕焼け色が残ってるっピ。"
+        "富士山もはっきり見えて、なんだか嬉しいっピ。"
+    )
+    assert "派手ではないけど" not in comment
+
+
+def test_actual_mismatch_moves_camera_interjection_before_comparison(sample_summary):
+    summary = replace(sample_summary, date="2026-08-06", run_time="19:01")
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
+    vision = VisionResult(
+        sunset_score=55,
+        sky_condition="partly_cloudy",
+        comment="空に薄い夕焼け色が残ってる。わあっ！富士山も見える",
+        model="gemini-2.5-flash",
+        evaluation_phase="afterglow",
+        afterglow_score=55,
+    )
+    prior = SunsetPredictionReference(run_time="17:00", score=80, label="A")
+
+    comment = build_comment(
+        summary,
+        scores,
+        prediction=False,
+        vision=vision,
+        prior_sunset_prediction=prior,
+    ).splitlines()[0]
+
+    assert comment.startswith("わあっ！")
+    assert comment.count("わあっ！") == 1
+    assert any(word in comment for word in ("期待", "楽しみ", "思って"))
+
+
+def test_sunset_detail_interjection_is_moved_to_comment_start(sample_summary):
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=75, chill_label="A")
+    cloud = SunsetCloud(
+        cloud_cover=40,
+        cloud_cover_low=10,
+        cloud_cover_mid=20,
+        cloud_cover_high=40,
+    )
+    comments = [
+        build_comment(
+            replace(sample_summary, date=f"2026-08-{day:02d}"),
+            scores,
+            sunset_cloud=cloud,
+        ).splitlines()[0]
+        for day in range(1, 15)
+    ]
+
+    comments_with_interjection = [
+        comment
+        for comment in comments
+        if any(word in comment for word in ("わあっ、", "わくわく！"))
+    ]
+    assert comments_with_interjection
+    assert all(
+        comment.startswith(("わあっ、", "わくわく！"))
+        for comment in comments_with_interjection
+    )
 
 
 def test_prediction_camera_comments_do_not_repeat_across_seven_dates(sample_summary):
@@ -640,7 +728,9 @@ def test_actual_comparison_comments_do_not_repeat_across_seven_dates(sample_summ
             for day in days
         }
 
-        assert len(comments) == 7, (prior_score, vision_score)
+        expected_result = {80: 80, 55: 55, 30: 30}[prior_score]
+        expected_count = 1 if vision_score == expected_result else 7
+        assert len(comments) == expected_count, (prior_score, vision_score)
         assert all(
             all(word not in comment for word in ("17時", "期待度", "残照", "実際の"))
             for comment in comments
