@@ -49,6 +49,27 @@ def test_apply_comment_voice_only_suffixes_explanation_after_interjection():
     )
 
 
+def test_apply_comment_voice_moves_mid_comment_interjection_to_start():
+    assert (
+        apply_comment_voice("空が薄く染まっています。わぁっ！富士山も見えます。")
+        == "わあっ！空が薄く染まっていますっピ。富士山も見えますっピ。"
+    )
+
+
+def test_apply_comment_voice_moves_comma_interjection_to_start():
+    assert (
+        apply_comment_voice("夕焼けは楽しみです。わぁっ、高い雲が見えます。")
+        == "わあっ、夕焼けは楽しみですっピ。高い雲が見えますっピ。"
+    )
+
+
+def test_apply_comment_voice_keeps_only_one_interjection_at_start():
+    assert (
+        apply_comment_voice("やった！空が染まっています。わあっ！富士山も見えます。")
+        == "やった！空が染まっていますっピ。富士山も見えますっピ。"
+    )
+
+
 def test_apply_comment_voice_normalizes_pi_nee_to_single_bright_suffix():
     assert (
         apply_comment_voice("わあっ！空がまだ、きれいなピンク色に染まってるっピねぇ……。")

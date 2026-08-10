@@ -6,9 +6,28 @@ _STANDALONE_INTERJECTION = re.compile(
     r"(?:^|(?<=[。！？!?]))(?P<space>\s*)"
     r"(?P<word>わ[ぁあ]っ|あ+っ|やった|うわっ|ひええ|あれれ|えっ|おおっ|うーん|わくわく)"
     r"(?:っ?ピ)?"
-    r"(?P<punct>[！!？?]+|…{2,}[。.]?)"
+    r"(?P<punct>[！!？?、,]+|…{2,}[。.]?)"
 )
 _BARE_A_INTERJECTION = re.compile(r"^(?P<word>あ+っ)(?:っ?ピ)?$")
+
+
+def place_interjection_at_comment_start(text: str) -> str:
+    """独立した感嘆詞をコメントの冒頭に1回だけ置く。"""
+    matches = list(_STANDALONE_INTERJECTION.finditer(text))
+    if not matches:
+        return text
+
+    first = matches[0]
+    word = (
+        "わあっ"
+        if first.group("word") in {"わぁっ", "わあっ"}
+        else first.group("word")
+    )
+    interjection = f"{word}{first.group('punct')}"
+    body = text
+    for match in reversed(matches):
+        body = f"{body[: match.start()]}{body[match.end() :]}"
+    return f"{interjection}{body.strip()}"
 
 
 def apply_comment_voice(text: str) -> str:
@@ -47,4 +66,4 @@ def apply_comment_voice(text: str) -> str:
 
     for index, interjection in enumerate(protected):
         comment = comment.replace(f"\ue000{index}\ue001", interjection)
-    return comment
+    return place_interjection_at_comment_start(comment)

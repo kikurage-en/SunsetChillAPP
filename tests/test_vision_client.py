@@ -273,6 +273,7 @@ def test_build_prompt_predicts_sunset_from_pre_sunset_sky():
     assert "現在の夕焼け色の有無ではなく" in prompt
     assert "説明する文の文末を「っピ」にする" in prompt
     assert "独立した感嘆詞には「っピ」を付けない" in prompt
+    assert "commentの冒頭に1回だけ置き" in prompt
     assert "今回の話し方は" in prompt
 
 
@@ -286,6 +287,7 @@ def test_build_prompt_evaluates_actual_sky_after_sunset():
     assert "予測して採点" not in prompt
     assert "説明する文の文末を「っピ」にする" in prompt
     assert "独立した感嘆詞には「っピ」を付けない" in prompt
+    assert "commentの冒頭に1回だけ置き" in prompt
 
 
 def test_build_prompt_separates_disk_and_color_at_sunset():
