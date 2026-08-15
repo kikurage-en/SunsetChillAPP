@@ -385,7 +385,6 @@ class GoogleSheetsStorage:
         self._service = build(
             "sheets",
             "v4",
-            credentials=credentials,
             http=http,
             cache_discovery=False,
         )
