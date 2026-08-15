@@ -610,10 +610,12 @@ def _validate_observation_args(
             "--captured-at cannot be more than "
             f"{capture_window_minutes} minutes before --scheduled-at"
         )
-    if args.observation_id and args.observation_id != (
-        f"{scheduled_at.date().isoformat()}:{args.observation_phase}"
-    ):
-        raise ConfigError("--observation-id must match scheduled date and observation phase")
+    if args.observation_id:
+        expected_observation_id = f"{scheduled_at.date().isoformat()}:{args.observation_phase}"
+        if args.observation_phase == "forecast":
+            expected_observation_id += f":{scheduled_at.strftime('%H%M')}"
+        if args.observation_id != expected_observation_id:
+            raise ConfigError("--observation-id must match scheduled date, phase, and time")
 
 
 def _save_initial_record(storage, record: PredictionRecord) -> None:

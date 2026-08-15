@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
             "manual_mode": args.manual_mode,
             "date": run_date,
             "run_time": args.run_time,
-            "observation_id": f"{run_date}:forecast",
+            "observation_id": f"{run_date}:forecast:{args.run_time.replace(':', '')}",
             "observation_phase": "forecast",
             "scheduled_at": scheduled_at,
             "captured_at": scheduled_at,
