@@ -170,6 +170,35 @@ def test_afterglow_capture_window_is_configurable():
         )
 
 
+def test_forecast_observation_id_includes_run_time():
+    args = main_module._parse_args(
+        [
+            "--observation-id",
+            "2026-06-01:forecast:1700",
+            "--observation-phase",
+            "forecast",
+            "--scheduled-at",
+            "2026-06-01T17:00:00+09:00",
+            "--captured-at",
+            "2026-06-01T17:00:00+09:00",
+        ]
+    )
+
+    main_module._validate_observation_args(
+        args,
+        datetime(2026, 6, 1, 17, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+        datetime(2026, 6, 1, 17, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+    )
+
+    args.observation_id = "2026-06-01:forecast:1300"
+    with pytest.raises(ValueError, match="match scheduled date"):
+        main_module._validate_observation_args(
+            args,
+            datetime(2026, 6, 1, 17, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+            datetime(2026, 6, 1, 17, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+        )
+
+
 def test_dry_run_environment_value_prevents_line_send(monkeypatch, capsys):
     fake_weather_client = FakeWeatherClient()
     fake_storage = MemoryStorage()

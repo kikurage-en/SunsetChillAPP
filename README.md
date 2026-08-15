@@ -197,7 +197,7 @@ GITHUB_REF=main
 GITHUB_TOKEN=...
 ```
 
-13:00 / 17:00は従来どおりContaboのcronから起動します。固定時刻ジョブには `YYYY-MM-DD:forecast` の観測IDを付けるため、同じ実行を再試行してもLINEの二重送信を防止できます。日没時と日没+10〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
+13:00 / 17:00は従来どおりContaboのcronから起動します。固定時刻ジョブには `YYYY-MM-DD:forecast:HHMM` の観測IDを付けるため、13時と17時を別観測として扱いながら、同じ実行を再試行してもLINEの二重送信を防止できます。日没時と日没+10〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
 
 ```bash
 # 13:00 / 17:00 は固定時刻で予測を通知

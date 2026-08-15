@@ -87,7 +87,7 @@ def test_main_dry_run_prints_dispatch_payload(monkeypatch, capsys):
             "manual_mode": "send_line",
             "date": "2026-06-01",
             "run_time": "13:00",
-            "observation_id": "2026-06-01:forecast",
+            "observation_id": "2026-06-01:forecast:1300",
             "observation_phase": "forecast",
             "scheduled_at": "2026-06-01T13:00:00+09:00",
             "captured_at": "2026-06-01T13:00:00+09:00",
