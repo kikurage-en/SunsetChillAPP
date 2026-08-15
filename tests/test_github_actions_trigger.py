@@ -83,7 +83,15 @@ def test_main_dry_run_prints_dispatch_payload(monkeypatch, capsys):
         "repository": "owner/repo",
         "workflow": "daily_chill.yml",
         "ref": "main",
-        "inputs": {"manual_mode": "send_line", "date": "2026-06-01", "run_time": "13:00"},
+        "inputs": {
+            "manual_mode": "send_line",
+            "date": "2026-06-01",
+            "run_time": "13:00",
+            "observation_id": "2026-06-01:forecast",
+            "observation_phase": "forecast",
+            "scheduled_at": "2026-06-01T13:00:00+09:00",
+            "captured_at": "2026-06-01T13:00:00+09:00",
+        },
     }
 
 

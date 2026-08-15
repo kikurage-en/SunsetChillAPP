@@ -35,10 +35,17 @@ def main(argv: list[str] | None = None) -> int:
         repository = _required_value(args.repository or os.getenv("GITHUB_REPOSITORY", ""))
         workflow = args.workflow or os.getenv("GITHUB_WORKFLOW", "daily_chill.yml")
         ref = args.ref or os.getenv("GITHUB_REF", "main")
+        scheduled_at = datetime.fromisoformat(
+            f"{run_date}T{args.run_time}"
+        ).replace(tzinfo=ZoneInfo(settings.timezone)).isoformat()
         inputs = {
             "manual_mode": args.manual_mode,
             "date": run_date,
             "run_time": args.run_time,
+            "observation_id": f"{run_date}:forecast",
+            "observation_phase": "forecast",
+            "scheduled_at": scheduled_at,
+            "captured_at": scheduled_at,
         }
         if args.dry_run:
             print(

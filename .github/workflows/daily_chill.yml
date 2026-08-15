@@ -30,6 +30,7 @@ on:
         type: choice
         default: "sunset"
         options:
+          - forecast
           - sunset
           - afterglow
       scheduled_at:
@@ -318,7 +319,30 @@ jobs:
               --capture-window-minutes "$CAPTURE_WINDOW_MINUTES"
             )
           fi
-          python -m zushi_chill.main "${args[@]}"
+          for attempt in 1 2 3; do
+            if python -m zushi_chill.main "${args[@]}"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 5))
+              echo "::warning::Run chill index failed (attempt $attempt/3); retrying in ${delay}s"
+              sleep "$delay"
+            fi
+          done
+          echo "::error::Run chill index failed after 3 attempts"
+          exit 1
+
+      - name: Write failure summary
+        if: ${{ failure() }}
+        run: |
+          {
+            echo "## SunsetChill failure"
+            echo "- date: ${RUN_DATE:-unknown}"
+            echo "- run_time: ${RUN_TIME:-unknown}"
+            echo "- storage_backend: ${STORAGE_BACKEND:-unknown}"
+            echo "- workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- The application step was retried up to 3 times. Inspect the failed step log for the root exception."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload CSV log
         if: always() && env.STORAGE_BACKEND == 'csv'

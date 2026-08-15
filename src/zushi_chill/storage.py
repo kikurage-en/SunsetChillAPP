@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
+import time
 from pathlib import Path
 from typing import Protocol
 
 from zushi_chill.config import ConfigError, Settings
 from zushi_chill.models import PredictionRecord, SunsetPredictionReference
+
+LOGGER = logging.getLogger(__name__)
 
 CSV_COLUMNS = [
     "date",
@@ -228,11 +232,22 @@ class CsvStorage:
 
 
 class GoogleSheetsStorage:
-    def __init__(self, *, spreadsheet_id: str, worksheet: str, service_account_json: str):
+    def __init__(
+        self,
+        *,
+        spreadsheet_id: str,
+        worksheet: str,
+        service_account_json: str,
+        request_timeout_seconds: int = 20,
+        request_retries: int = 3,
+    ):
         self.spreadsheet_id = spreadsheet_id
         self.worksheet = worksheet
         self.service_account_json = service_account_json
+        self.request_timeout_seconds = request_timeout_seconds
+        self.request_retries = request_retries
         self._service = None
+        self._header_ready = False
 
     def save(self, record: PredictionRecord) -> None:
         self._ensure_header()
@@ -247,12 +262,13 @@ class GoogleSheetsStorage:
 
         end_column = _column_letter(len(CSV_COLUMNS))
         range_name = _sheet_range(self.worksheet, f"A{existing_row}:{end_column}{existing_row}")
-        self._service_client().spreadsheets().values().update(
+        request = self._service_client().spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id,
             range=range_name,
             valueInputOption="RAW",
             body={"values": [_record_values(record)]},
-        ).execute()
+        )
+        self._execute(request)
 
     def has_sent(
         self,
@@ -263,7 +279,7 @@ class GoogleSheetsStorage:
         observation_id: str = "",
     ) -> bool:
         self._ensure_header()
-        result = (
+        request = (
             self._service_client()
             .spreadsheets()
             .values()
@@ -271,8 +287,8 @@ class GoogleSheetsStorage:
                 spreadsheetId=self.spreadsheet_id,
                 range=_sheet_range(self.worksheet, f"A:{_column_letter(len(CSV_COLUMNS))}"),
             )
-            .execute()
         )
+        result = self._execute(request)
         values = result.get("values", [])
         line_sent_index = CSV_COLUMNS.index("line_sent")
         observation_id_index = CSV_COLUMNS.index("observation_id")
@@ -305,7 +321,7 @@ class GoogleSheetsStorage:
             CSV_COLUMNS.index("line_sent"),
             CSV_COLUMNS.index("final_sunset_label"),
         )
-        result = (
+        request = (
             self._service_client()
             .spreadsheets()
             .values()
@@ -316,8 +332,8 @@ class GoogleSheetsStorage:
                     f"A:{_column_letter(last_index + 1)}",
                 ),
             )
-            .execute()
         )
+        result = self._execute(request)
         values = result.get("values", [])
         for row in reversed(values[1:]):
             if (
@@ -349,7 +365,9 @@ class GoogleSheetsStorage:
             raise ConfigError("GOOGLE_SERVICE_ACCOUNT_JSON must be a JSON object string")
 
         try:
+            import httplib2
             from google.oauth2 import service_account
+            from google_auth_httplib2 import AuthorizedHttp
             from googleapiclient.discovery import build
         except ImportError as exc:
             raise ConfigError(
@@ -360,22 +378,61 @@ class GoogleSheetsStorage:
             service_account_info,
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
-        self._service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
+        http = AuthorizedHttp(
+            credentials,
+            http=httplib2.Http(timeout=self.request_timeout_seconds),
+        )
+        self._service = build(
+            "sheets",
+            "v4",
+            credentials=credentials,
+            http=http,
+            cache_discovery=False,
+        )
         return self._service
 
+    def _execute(self, request):
+        """Execute a Sheets request with bounded retries for transient transport failures."""
+        from googleapiclient.errors import HttpError
+
+        for attempt in range(1, self.request_retries + 1):
+            try:
+                return request.execute()
+            except OSError as exc:
+                transient = True
+                error = exc
+            except HttpError as exc:
+                status = getattr(exc.resp, "status", None)
+                transient = status == 429 or status is not None and status >= 500
+                error = exc
+            if not transient or attempt == self.request_retries:
+                raise
+            delay = min(2 ** (attempt - 1), 4)
+            LOGGER.warning(
+                "Google Sheets request failed transiently; retrying in %ss (%s/%s): %s",
+                delay,
+                attempt,
+                self.request_retries - 1,
+                error,
+            )
+            time.sleep(delay)
+
     def _ensure_header(self) -> None:
+        if self._header_ready:
+            return
         service = self._service_client()
         self._ensure_worksheet()
         self._ensure_column_capacity(len(CSV_COLUMNS))
         range_name = _sheet_range(self.worksheet, f"A1:{_column_letter(len(CSV_COLUMNS))}1")
-        result = (
+        request = (
             service.spreadsheets()
             .values()
             .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-            .execute()
         )
+        result = self._execute(request)
         values = result.get("values", [])
         if values and values[0] == CSV_COLUMNS:
+            self._header_ready = True
             return
         if values and values[0] != CSV_COLUMNS[: len(values[0])]:
             raise ConfigError(
@@ -383,16 +440,19 @@ class GoogleSheetsStorage:
             )
         # ヘッダが無い、または旧カラム（新構成の prefix）の場合は、ヘッダ行のみ新構成へ更新して
         # 移行する。既存データ行は末尾が空欄のまま保持され、既存カラムの位置も変わらない。
-        service.spreadsheets().values().update(
+        request = service.spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id,
             range=range_name,
             valueInputOption="RAW",
             body={"values": [CSV_COLUMNS]},
-        ).execute()
+        )
+        self._execute(request)
+        self._header_ready = True
 
     def _ensure_column_capacity(self, required_columns: int) -> None:
         service = self._service_client()
-        result = service.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute()
+        request = service.spreadsheets().get(spreadsheetId=self.spreadsheet_id)
+        result = self._execute(request)
         for sheet in result.get("sheets", []):
             properties = sheet.get("properties", {})
             if properties.get("title") != self.worksheet:
@@ -403,7 +463,7 @@ class GoogleSheetsStorage:
                 return
             if column_count >= required_columns:
                 return
-            service.spreadsheets().batchUpdate(
+            request = service.spreadsheets().batchUpdate(
                 spreadsheetId=self.spreadsheet_id,
                 body={
                     "requests": [
@@ -416,12 +476,14 @@ class GoogleSheetsStorage:
                         }
                     ]
                 },
-            ).execute()
+            )
+            self._execute(request)
             return
 
     def _ensure_worksheet(self) -> None:
         service = self._service_client()
-        result = service.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute()
+        request = service.spreadsheets().get(spreadsheetId=self.spreadsheet_id)
+        result = self._execute(request)
         sheets = result.get("sheets", [])
         titles = {
             sheet.get("properties", {}).get("title")
@@ -431,7 +493,7 @@ class GoogleSheetsStorage:
         if self.worksheet in titles:
             return
 
-        service.spreadsheets().batchUpdate(
+        request = service.spreadsheets().batchUpdate(
             spreadsheetId=self.spreadsheet_id,
             body={
                 "requests": [
@@ -444,16 +506,18 @@ class GoogleSheetsStorage:
                     }
                 ]
             },
-        ).execute()
+        )
+        self._execute(request)
 
     def _append_row(self, record: PredictionRecord) -> None:
-        self._service_client().spreadsheets().values().append(
+        request = self._service_client().spreadsheets().values().append(
             spreadsheetId=self.spreadsheet_id,
             range=_sheet_range(self.worksheet, f"A:{_column_letter(len(CSV_COLUMNS))}"),
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [_record_values(record)]},
-        ).execute()
+        )
+        self._execute(request)
 
     def _find_existing_row(self, record: PredictionRecord) -> int | None:
         replacement = record.to_row()
@@ -463,7 +527,7 @@ class GoogleSheetsStorage:
             if observation_id
             else "A:C"
         )
-        result = (
+        request = (
             self._service_client()
             .spreadsheets()
             .values()
@@ -471,8 +535,8 @@ class GoogleSheetsStorage:
                 spreadsheetId=self.spreadsheet_id,
                 range=_sheet_range(self.worksheet, columns),
             )
-            .execute()
         )
+        result = self._execute(request)
         values = result.get("values", [])
         observation_id_index = CSV_COLUMNS.index("observation_id")
         for index in range(len(values) - 1, 0, -1):

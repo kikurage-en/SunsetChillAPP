@@ -182,7 +182,7 @@ ContaboのIPがYouTubeからbot確認を要求された場合は、専用アカ�
 
 手動実行では `manual_mode`、`date`、`run_time` を指定できます。`manual_mode=dry_run` では通常通知・失敗通知のどちらもLINE送信せず保存処理まで確認し、`manual_mode=send_line` ではLINE送信と送信後の保存更新まで確認します。`date` は `YYYY-MM-DD`、`run_time` は `HH:MM` 形式です。
 
-`STORAGE_BACKEND=csv` の場合、CSV は `CSV_PATH`（未指定時は `logs/chill_predictions.csv`）に保存され、Actions Artifact としてアップロードされます。`STORAGE_BACKEND=google_sheets` の場合は Google Sheets へ保存し、CSV Artifact は作成しません。
+`STORAGE_BACKEND=csv` の場合、CSV は `CSV_PATH`（未指定時は `logs/chill_predictions.csv`）に保存され、Actions Artifact としてアップロードされます。`STORAGE_BACKEND=google_sheets` の場合は Google Sheets へ保存し、CSV Artifact は作成しません。Google Sheets保存は通信タイムアウトを20秒に制限し、タイムアウト・HTTP 429・5xxを最大3回、指数バックオフ付きで再試行します。
 
 ## Contabo + GitHub Actions運用
 
@@ -197,7 +197,7 @@ GITHUB_REF=main
 GITHUB_TOKEN=...
 ```
 
-13:00 / 17:00は従来どおりContaboのcronから起動します。日没時と日没+10〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
+13:00 / 17:00は従来どおりContaboのcronから起動します。固定時刻ジョブには `YYYY-MM-DD:forecast` の観測IDを付けるため、同じ実行を再試行してもLINEの二重送信を防止できます。日没時と日没+10〜+20分の残照窓は永続観測スケジューラが起動し、日没時だけ `manual_mode=dry_run`、残照窓のベスト画像は `manual_mode=send_line` です。
 
 ```bash
 # 13:00 / 17:00 は固定時刻で予測を通知
