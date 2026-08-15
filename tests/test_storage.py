@@ -247,6 +247,28 @@ def test_storage_from_settings_selects_csv_backend(tmp_path):
     assert storage.path == tmp_path / "predictions.csv"
 
 
+def test_google_sheets_execute_retries_transient_timeout(monkeypatch):
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet",
+        worksheet="predictions",
+        service_account_json="{}",
+        request_retries=3,
+    )
+    attempts = []
+
+    class Request:
+        def execute(self):
+            attempts.append(True)
+            if len(attempts) < 3:
+                raise TimeoutError("temporary timeout")
+            return {"ok": True}
+
+    monkeypatch.setattr("zushi_chill.storage.time.sleep", lambda _: None)
+
+    assert storage._execute(Request()) == {"ok": True}
+    assert attempts == [True, True, True]
+
+
 def test_csv_storage_replaces_latest_prediction_result(tmp_path, sample_summary):
     path = tmp_path / "predictions.csv"
     storage = CsvStorage(path)

@@ -502,7 +502,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--observation-phase",
-        choices=["sunset", "afterglow"],
+        choices=["forecast", "sunset", "afterglow"],
         default="",
         help="Logical observation phase.",
     )
