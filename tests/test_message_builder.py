@@ -390,7 +390,8 @@ def test_actual_a_camera_result_adds_encouragement_after_blank_line(sample_summa
 
     assert len(result_and_comfort.splitlines()) == 2
     assert result_and_comfort.splitlines()[0] == "富士山と空が燃えるように光ってるっピ。"
-    assert "風" in result_and_comfort.splitlines()[1]
+    assert "暑" in result_and_comfort.splitlines()[1]
+    assert len(result_and_comfort.splitlines()[1]) <= 25
     assert encouragement.endswith(("っピ。", "っピ！"))
     assert all(word not in encouragement for word in ("風", "暑", "湿", "涼"))
 
@@ -401,6 +402,151 @@ def test_actual_a_camera_result_adds_encouragement_after_blank_line(sample_summa
         prior_sunset_prediction=prior,
     )
     assert f"{result_and_comfort}\n\n{encouragement}\n\n--\n" in message
+
+
+def test_vivid_afterglow_keeps_chill_warning_short_and_prioritizes_gust(
+    sample_summary,
+):
+    summary = replace(
+        sample_summary,
+        date="2026-08-25",
+        run_time="18:29",
+        temperature_2m_at_run_time=28.9,
+        apparent_temperature_at_run_time=33.8,
+        relative_humidity_2m_at_run_time=82,
+        precipitation_at_run_time=0,
+        weather_code_at_run_time=0,
+        wind_speed_10m_at_run_time=5.1,
+        wind_gusts_10m_at_run_time=13.5,
+    )
+    scores = ScoreResult(sunset_score=78, sunset_label="A", chill_score=50, chill_label="C")
+    vision = VisionResult(
+        sunset_score=85,
+        sky_condition="partly_cloudy",
+        comment="わあっ！空の雲がきれいな夕焼け色に輝いてるっピ！",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=85,
+    )
+
+    comment = build_comment(
+        summary,
+        scores,
+        prediction=False,
+        vision=vision,
+        prior_sunset_prediction=SunsetPredictionReference(
+            run_time="17:00",
+            score=78,
+            label="A",
+        ),
+    )
+    result_and_comfort, encouragement = comment.split("\n\n", maxsplit=1)
+    lines = result_and_comfort.splitlines()
+
+    assert lines[0] == "わあっ！空の雲がきれいな夕焼け色に輝いてるっピ！"
+    assert len(lines) == 2
+    assert "風" in lines[1]
+    assert len(lines[1]) <= 25
+    assert all(word not in lines[1] for word in ("さらに", "状態", "暑", "湿"))
+    assert encouragement.endswith(("っピ。", "っピ！"))
+
+
+def test_vivid_afterglow_chill_note_uses_one_highest_priority_condition(
+    sample_summary,
+):
+    scores = ScoreResult(sunset_score=78, sunset_label="A", chill_score=50, chill_label="C")
+    vision = VisionResult(
+        sunset_score=85,
+        sky_condition="partly_cloudy",
+        comment="空がきれいな夕焼け色に輝いてる",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=85,
+    )
+    cases = (
+        (
+            "thunder",
+            {
+                "apparent_temperature_at_run_time": 34,
+                "precipitation_at_run_time": 1,
+                "weather_code_at_run_time": 95,
+                "wind_speed_10m_at_run_time": 9,
+                "wind_gusts_10m_at_run_time": 14,
+            },
+            "雷",
+        ),
+        (
+            "rain",
+            {
+                "apparent_temperature_at_run_time": 34,
+                "precipitation_at_run_time": 1,
+                "weather_code_at_run_time": 61,
+                "wind_speed_10m_at_run_time": 9,
+                "wind_gusts_10m_at_run_time": 14,
+            },
+            "雨",
+        ),
+        (
+            "wind",
+            {
+                "apparent_temperature_at_run_time": 34,
+                "precipitation_at_run_time": 0,
+                "weather_code_at_run_time": 0,
+                "wind_speed_10m_at_run_time": 5,
+                "wind_gusts_10m_at_run_time": 14,
+            },
+            "風",
+        ),
+        (
+            "heat",
+            {
+                "apparent_temperature_at_run_time": 34,
+                "precipitation_at_run_time": 0,
+                "weather_code_at_run_time": 0,
+                "wind_speed_10m_at_run_time": 4,
+                "wind_gusts_10m_at_run_time": 6,
+            },
+            "暑",
+        ),
+    )
+
+    for index, (name, updates, expected_word) in enumerate(cases, start=1):
+        summary = replace(
+            sample_summary,
+            date=f"2026-09-{index:02d}",
+            run_time="19:00",
+            **updates,
+        )
+        main_comment = build_comment(
+            summary,
+            scores,
+            prediction=False,
+            vision=vision,
+        ).split("\n\n", maxsplit=1)[0]
+        lines = main_comment.splitlines()
+
+        assert len(lines) == 2, name
+        assert expected_word in lines[1], name
+        assert len(lines[1]) <= 25, name
+        assert lines[1].count("っピ") == 1, name
+
+    comfortable = replace(
+        sample_summary,
+        date="2026-09-05",
+        run_time="19:00",
+        apparent_temperature_at_run_time=27,
+        precipitation_at_run_time=0,
+        weather_code_at_run_time=0,
+        wind_speed_10m_at_run_time=4,
+        wind_gusts_10m_at_run_time=6,
+    )
+    main_comment = build_comment(
+        comfortable,
+        scores,
+        prediction=False,
+        vision=vision,
+    ).split("\n\n", maxsplit=1)[0]
+    assert len(main_comment.splitlines()) == 1
 
 
 def test_encouragement_requires_actual_a_or_better_camera_result(sample_summary):

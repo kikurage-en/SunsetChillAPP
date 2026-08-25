@@ -447,7 +447,17 @@ def build_comment(
             ),
         )
 
-    comfort_comment = _comfort_comment(summary, prediction=prediction)
+    highlight_after_sunset = (
+        not prediction
+        and vision is not None
+        and vision.evaluation_phase in {"sunset", "afterglow"}
+        and vision.sunset_score >= 70
+    )
+    comfort_comment = (
+        _concise_after_sunset_comfort_comment(summary)
+        if highlight_after_sunset
+        else _comfort_comment(summary, prediction=prediction)
+    )
 
     # 1行目は夕焼けだけ、2行目は過ごしやすさの特記事項だけに分ける。
     # 夕焼け側の補足は改行せず、過ごしやすさに特記事項がなければ1行で終える。
@@ -486,12 +496,7 @@ def build_comment(
         sunset_comment,
         *([comfort_comment] if comfort_comment is not None else []),
     ]
-    if (
-        not prediction
-        and vision is not None
-        and vision.evaluation_phase in {"sunset", "afterglow"}
-        and vision.sunset_score >= 70
-    ):
+    if highlight_after_sunset:
         comment_lines.extend(
             [
                 "",
@@ -755,6 +760,66 @@ def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None
         prediction=prediction,
     )
     return f"{heat_comment}{modifier}"
+
+
+def _concise_after_sunset_comfort_comment(summary: WeatherSummary) -> str | None:
+    """Keep an A-or-better sunset visually dominant while retaining one safety note.
+
+    The score and weather details already carry the full comfort context. For a vivid
+    post-sunset result, repeat only the highest-priority condition in one short line:
+    thunder/rain, strong wind, then heat. Comfortable conditions need no extra line.
+    """
+    conditions = summary.with_run_time_weather()
+    if conditions.weather_code in {95, 96, 99}:
+        category = "thunder"
+        variants = (
+            "雷や急な雨には気をつけてっピ。",
+            "雷が近づいたら、海辺を離れてほしいっピ。",
+            "急な雷雨がありそうだから、無理はしないでっピ。",
+            "空が急に荒れそうだから、安全な場所で見てっピ。",
+        )
+    elif (
+        conditions.weather_code in RAIN_WEATHER_CODES
+        or conditions.precipitation >= 1.0
+    ):
+        category = "rain"
+        variants = (
+            "雨には気をつけてっピ。",
+            "雨があるから、足元に気をつけてっピ。",
+            "海辺では雨に気をつけてっピ。",
+            "雨が続いてるから、無理はしないでっピ。",
+        )
+    elif conditions.wind_speed_10m >= 8 or conditions.wind_gusts_10m >= 12:
+        category = "wind"
+        variants = (
+            "風が強めだから、海辺では気をつけてっピ。",
+            "急な強い風に気をつけてっピ。",
+            "海風が強めだから、無理はしないでっピ。",
+            "風が急に強まることがあるから、気をつけてっピ。",
+        )
+    elif conditions.apparent_temperature >= 32:
+        category = "high-heat"
+        variants = (
+            "海辺はまだかなり暑いっピ。",
+            "夕方も暑さがしっかり残ってるっピ。",
+            "まだ暑いから、無理はしないでっピ。",
+            "海辺にも暑さが残ってるっピ。",
+        )
+    elif conditions.apparent_temperature >= 28:
+        category = "heat"
+        variants = (
+            "海辺はまだ少し暑いっピ。",
+            "夕方も少し暑さが残ってるっピ。",
+            "海辺はほんのり暑いっピ。",
+            "まだ少し暑く感じるっピ。",
+        )
+    else:
+        return None
+    return _comment_variant(
+        summary,
+        f"concise-after-sunset-comfort-{category}",
+        variants,
+    )
 
 
 def _comfort_temperature(summary: WeatherSummary, *, prediction: bool) -> float:
