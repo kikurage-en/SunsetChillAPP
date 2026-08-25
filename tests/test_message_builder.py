@@ -1266,6 +1266,63 @@ def test_good_weather_and_medium_camera_uses_one_concise_conclusion(sample_summa
     assert len(comment) <= 40
 
 
+def test_clear_camera_with_independently_clear_western_sky_uses_clear_comment(
+    sample_summary,
+):
+    summary = replace(
+        sample_summary,
+        date="2026-08-25",
+        run_time="17:00",
+        visibility=26_300,
+        precipitation=0,
+        weather_code=0,
+    )
+    cloud = SunsetCloud(
+        cloud_cover=2.7,
+        cloud_cover_low=1.7,
+        cloud_cover_mid=3,
+        cloud_cover_high=0,
+    )
+    scores = ScoreResult(
+        sunset_score=66,
+        sunset_label="B",
+        chill_score=75,
+        chill_label="A",
+    )
+    vision = VisionResult(
+        sunset_score=30,
+        sky_condition="clear",
+        comment="雲が少なく、夕焼け色は薄いかもしれない",
+        model="test",
+    )
+
+    sunset_comment = build_comment(
+        summary,
+        scores,
+        cloud,
+        vision=vision,
+        formula_sunset_score=90,
+    ).splitlines()[0]
+
+    assert "夕日" in sunset_comment or "太陽" in sunset_comment
+    assert "でも、" in sunset_comment
+    assert "今の雲だと" not in sunset_comment
+    assert "夕焼けはむずかしそう" not in sunset_comment
+
+    message = build_line_message(
+        summary,
+        replace(scores, comment=sunset_comment),
+        vision=vision,
+        vision_mode="predict",
+        sunset_cloud=cloud,
+        final_sunset_score=66,
+        final_sunset_label="B",
+    )
+    assert "Sunset期待度【 B 】66 / 100" in message
+    assert "【 B 】60 / 100（clear）" in message
+    assert "【 D 】30 / 100（clear）" not in message
+
+
 def test_non_scheduled_prediction_keeps_normal_confident_comment(sample_summary):
     summary = replace(
         sample_summary,

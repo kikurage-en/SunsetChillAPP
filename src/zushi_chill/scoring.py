@@ -117,6 +117,43 @@ DRY_HIGH_PRECIPITATION_PENALTY = -25
 # 根拠と覆り条件は STATUS.md「局地雷雨の見逃し — 2026-07-25 乖離検証」参照。
 SUNSET_RAIN_CAP = 40
 
+# 2026-08-25 17:00型: 西空の予報値とカメラ分類がともに快晴なのに、Visionが
+# 「雲が少ない=発色しにくい」だけを強く評価して30点を返すと、夕日そのものが
+# 見える可能性まで低いように読める。快晴・低雲量・雨なし・良視程がすべて
+# そろう場合だけ、予測ブレンド用のVision値をB下限の60へ補正する。生のVision値は
+# PredictionRecordへそのまま保存し、モデル精度の検証可能性を残す。
+CLEAR_SKY_VISION_FLOOR = 60
+CLEAR_SKY_MAX_CLOUD_COVER = 15
+CLEAR_SKY_MAX_LOW_CLOUD_COVER = 5
+CLEAR_SKY_MIN_VISIBILITY = 15_000
+
+
+def normalize_prediction_vision_score(
+    summary: WeatherSummary,
+    sunset_cloud: SunsetCloud | None,
+    *,
+    vision_sunset_score: int,
+    sky_condition: str,
+) -> int:
+    """Return the Vision score used for a pre-sunset prediction blend.
+
+    A ``clear`` camera classification is inconsistent with a very low sunset outlook
+    when the independent weather fields also describe an unobstructed, dry western
+    sky. Only that narrow contradiction gets a floor; cloudy, rainy, hazy, or merely
+    ambiguous cases retain the raw Vision score.
+    """
+    cloud = sunset_cloud or SunsetCloud.from_summary(summary)
+    if (
+        sky_condition.strip().lower() == "clear"
+        and vision_sunset_score < CLEAR_SKY_VISION_FLOOR
+        and cloud.cloud_cover < CLEAR_SKY_MAX_CLOUD_COVER
+        and cloud.cloud_cover_low < CLEAR_SKY_MAX_LOW_CLOUD_COVER
+        and summary.visibility >= CLEAR_SKY_MIN_VISIBILITY
+        and not has_rain_signal(summary)
+    ):
+        return CLEAR_SKY_VISION_FLOOR
+    return vision_sunset_score
+
 
 def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weight: float) -> int:
     """式スコアと Vision カメラAI予測スコアを ``vision_weight`` でブレンドする。

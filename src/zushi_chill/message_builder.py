@@ -20,7 +20,11 @@ from zushi_chill.prediction_uncertainty import (
     PredictionUncertainty,
     detect_prediction_uncertainty,
 )
-from zushi_chill.scoring import has_dry_high_precipitation_conflict, score_label
+from zushi_chill.scoring import (
+    has_dry_high_precipitation_conflict,
+    normalize_prediction_vision_score,
+    score_label,
+)
 
 _PREDICTION_SUNSET_VARIANTS = {
     "good": (
@@ -279,6 +283,16 @@ _PREDICTION_CAMERA_COMMENT_VARIANTS = {
     ),
 }
 
+_CLEAR_SKY_PREDICTION_VARIANTS = (
+    "快晴で、夕日はよく見えそうっピ！でも、色づきは控えめかもしれないっピ。",
+    "太陽はしっかり見えそうっピ！でも、雲が少なくて、空の色はおだやかになりそうっピ。",
+    "夕日はくっきり見えそうっピ！でも、派手な色づきは少しむずかしそうっピ。",
+    "晴れた空で、夕日はよく見えそうっピ！でも、焼け方はやさしめになりそうっピ。",
+    "夕日を見るにはよさそうな空っピ！でも、鮮やかさは控えめかもしれないっピ。",
+    "太陽を見送れそうな快晴っピ！でも、空の色は淡くなりそうっピ。",
+    "夕日は見つけやすそうっピ！でも、雲が少ないぶん、色づきは穏やかそうっピ。",
+)
+
 
 def build_comment(
     summary: WeatherSummary,
@@ -443,6 +457,7 @@ def build_comment(
         if prediction:
             sunset_comment = _prediction_with_camera_comment(
                 summary,
+                sunset_cloud=cloud,
                 displayed_score=scores.sunset_score,
                 formula_score=(
                     formula_sunset_score
@@ -562,10 +577,23 @@ def _encouragement_weather_contexts(summary: WeatherSummary) -> tuple[str, ...]:
 def _prediction_with_camera_comment(
     summary: WeatherSummary,
     *,
+    sunset_cloud: SunsetCloud,
     displayed_score: int,
     formula_score: int,
     vision: VisionResult,
 ) -> str:
+    normalized_vision_score = normalize_prediction_vision_score(
+        summary,
+        sunset_cloud,
+        vision_sunset_score=vision.sunset_score,
+        sky_condition=vision.sky_condition,
+    )
+    if normalized_vision_score > vision.sunset_score:
+        return _comment_variant(
+            summary,
+            "camera-prediction-clear-sky-consistency",
+            _CLEAR_SKY_PREDICTION_VARIANTS,
+        )
     formula_band = _comment_band(formula_score)
     vision_band = _comment_band(vision.sunset_score)
     displayed_band = _comment_band(displayed_score)
@@ -1297,8 +1325,15 @@ def build_line_message(
     )
     vision_section = ""
     if vision is not None:
+        display_vision_score = vision.sunset_score
         if vision_mode == "predict":
             vision_label = "ライブカメラAI予測"
+            display_vision_score = normalize_prediction_vision_score(
+                summary,
+                cloud,
+                vision_sunset_score=vision.sunset_score,
+                sky_condition=vision.sky_condition,
+            )
         elif vision.evaluation_phase == "sunset":
             vision_label = "ライブカメラ日没時評価"
         elif vision.evaluation_phase == "afterglow":
@@ -1313,7 +1348,7 @@ def build_line_message(
         detail_section = "" if not detail_lines else "\n" + "\n".join(detail_lines)
         vision_section = (
             f"\n\n📷 {vision_label}\n"
-            f"【 {score_label(vision.sunset_score)} 】{vision.sunset_score} / 100"
+            f"【 {score_label(display_vision_score)} 】{display_vision_score} / 100"
             f"（{vision.sky_condition}）{detail_section}"
         )
     precipitation_line = _precipitation_probability_line(

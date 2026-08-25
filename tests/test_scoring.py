@@ -12,6 +12,7 @@ from zushi_chill.scoring import (
     has_dry_high_precipitation_conflict,
     has_rain_signal,
     humidity_score,
+    normalize_prediction_vision_score,
     precipitation_risk_score,
     score_label,
     wind_score,
@@ -40,6 +41,79 @@ def test_blend_uplift_is_capped_but_downgrade_is_not():
     assert blend_sunset_score(10, 70, 0.8) == 40
     # 下方修正は自由(0.2*80 + 0.8*15 = 28)
     assert blend_sunset_score(80, 15, 0.8) == 28
+
+
+def test_clear_sky_vision_contradiction_is_floored_for_prediction_blend(sample_summary):
+    """8/25 17時型は生のVision値を残しつつ、ブレンド時だけB下限へ補正する。"""
+    summary = replace(
+        sample_summary,
+        visibility=26_300,
+        precipitation=0,
+        weather_code=0,
+    )
+    cloud = SunsetCloud(
+        cloud_cover=2.7,
+        cloud_cover_low=1.7,
+        cloud_cover_mid=3,
+        cloud_cover_high=0,
+    )
+
+    normalized = normalize_prediction_vision_score(
+        summary,
+        cloud,
+        vision_sunset_score=30,
+        sky_condition="clear",
+    )
+
+    assert normalized == 60
+    assert blend_sunset_score(90, normalized, 0.8) == 66
+    # 既存のclear実績(6/29, 6/30, 7/9, 8/6)はいずれも60以上で変化しない。
+    for historical_score in (75, 75, 65, 60):
+        assert (
+            normalize_prediction_vision_score(
+                summary,
+                cloud,
+                vision_sunset_score=historical_score,
+                sky_condition="clear",
+            )
+            == historical_score
+        )
+
+
+def test_clear_sky_vision_floor_does_not_hide_adverse_or_ambiguous_conditions(
+    sample_summary,
+):
+    base_summary = replace(
+        sample_summary,
+        visibility=26_300,
+        precipitation=0,
+        weather_code=0,
+    )
+    clear_cloud = SunsetCloud(
+        cloud_cover=2.7,
+        cloud_cover_low=1.7,
+        cloud_cover_mid=3,
+        cloud_cover_high=0,
+    )
+    cases = (
+        (base_summary, clear_cloud, "overcast"),
+        (base_summary, replace(clear_cloud, cloud_cover=15), "clear"),
+        (base_summary, replace(clear_cloud, cloud_cover_low=5), "clear"),
+        (replace(base_summary, visibility=14_999), clear_cloud, "clear"),
+        (replace(base_summary, precipitation=1), clear_cloud, "clear"),
+        (replace(base_summary, weather_code=61), clear_cloud, "clear"),
+    )
+
+    for summary, cloud, sky_condition in cases:
+        assert (
+            normalize_prediction_vision_score(
+                summary,
+                cloud,
+                vision_sunset_score=30,
+                sky_condition=sky_condition,
+            )
+            == 30
+        )
 
 
 def test_display_snapshots_do_not_change_sunset_or_chill_scores(sample_summary):

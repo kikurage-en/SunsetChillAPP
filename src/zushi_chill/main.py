@@ -28,6 +28,7 @@ from zushi_chill.scoring import (
     blend_sunset_score,
     calculate_scores,
     has_rain_signal,
+    normalize_prediction_vision_score,
     score_label,
 )
 from zushi_chill.storage import Storage, storage_from_settings
@@ -73,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         if args.observation_id:
             sent_query["observation_id"] = args.observation_id
-        if not dry_run and storage.has_sent(**sent_query):
+        if not dry_run and not args.resend_token and storage.has_sent(**sent_query):
             logging.getLogger(__name__).info(
                 "LINE already sent for %s %s %s (%s); skipping duplicate run",
                 run_time.date().isoformat(),
@@ -116,7 +117,12 @@ def main(argv: list[str] | None = None) -> int:
             settings, run_time, live_camera_image_url, summary.sunset_time
         )
         final_sunset_score, final_sunset_label = _blend_final_sunset(
-            scores_without_comment, vision_result, mode, settings, summary
+            scores_without_comment,
+            vision_result,
+            mode,
+            settings,
+            summary,
+            sunset_cloud,
         )
         prior_sunset_prediction = _find_prior_sunset_prediction(
             storage,
@@ -197,12 +203,17 @@ def main(argv: list[str] | None = None) -> int:
                 channel_access_token=settings.line_channel_access_token,
                 target_id=settings.line_target_id,
             )
+            retry_observation_id = args.observation_id
+            if args.resend_token:
+                retry_observation_id = (
+                    f"{retry_observation_id}:resend:{args.resend_token}"
+                )
             line_retry_key = (
                 observation_retry_key(
-                    observation_id=args.observation_id,
+                    observation_id=retry_observation_id,
                     target_id=settings.line_target_id,
                 )
-                if args.observation_id
+                if retry_observation_id
                 else None
             )
             if live_camera_image_url:
@@ -357,6 +368,7 @@ def _blend_final_sunset(
     mode: str,
     settings: Settings,
     summary: WeatherSummary,
+    sunset_cloud: SunsetCloud,
 ) -> tuple[int, str]:
     """表示用 Sunset期待度(式とVisionカメラAI予測のブレンド)とラベルを返す。
 
@@ -366,11 +378,19 @@ def _blend_final_sunset(
     雨シグナル時はVisionによる上方修正を無効化する(下方修正は維持)。カメラは
     「これから来る雨」を見えない(2026-07-25: 窓内4.7mm・コード61の予報下でVision65が
     表示を45→61へ持ち上げ、実際の日没時発色は0だった)。
+    ただし、独立した気象値とカメラ分類がともに快晴のときだけ、過度な下方修正を
+    ``normalize_prediction_vision_score`` で抑える。
     """
     if vision is not None and mode == "predict" and settings.sunset_vision_blend_weight > 0:
+        vision_score = normalize_prediction_vision_score(
+            summary,
+            sunset_cloud,
+            vision_sunset_score=vision.sunset_score,
+            sky_condition=vision.sky_condition,
+        )
         blended = blend_sunset_score(
             scores.sunset_score,
-            vision.sunset_score,
+            vision_score,
             settings.sunset_vision_blend_weight,
         )
         if has_rain_signal(summary):
@@ -523,6 +543,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="How many minutes before scheduled_at an afterglow capture may occur.",
     )
     parser.add_argument(
+        "--resend-token",
+        default="",
+        help=(
+            "Explicitly resend an existing observation. Reusing the same token keeps "
+            "the LINE retry key idempotent."
+        ),
+    )
+    parser.add_argument(
         "--input-json",
         help="Read an Open-Meteo response JSON file instead of calling the API.",
     )
@@ -587,6 +615,16 @@ def _validate_observation_args(
     *,
     capture_window_minutes: int = 10,
 ) -> None:
+    if args.resend_token:
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        if not args.observation_id:
+            raise ConfigError("--resend-token requires --observation-id")
+        if len(args.resend_token) > 64 or any(
+            character not in allowed for character in args.resend_token
+        ):
+            raise ConfigError(
+                "--resend-token must be 1-64 ASCII letters, digits, '.', '_', or '-'"
+            )
     values = (
         args.observation_id,
         args.observation_phase,
