@@ -10,7 +10,7 @@ import pytest
 
 from zushi_chill import main as main_module
 from zushi_chill import vision_client
-from zushi_chill.line_client import LineSendError
+from zushi_chill.line_client import LineSendError, observation_retry_key
 from zushi_chill.models import (
     JmaPrecipitationForecast,
     SunsetPredictionReference,
@@ -458,6 +458,55 @@ def test_duplicate_sent_record_skips_weather_storage_and_line(monkeypatch):
     ]
     assert fake_storage.records == []
     assert fake_line_client.sent_messages == []
+
+
+def test_resend_token_bypasses_duplicate_with_stable_distinct_retry_key(monkeypatch):
+    fake_storage = MemoryStorage(already_sent=True)
+    fake_line_client = FakeLineClient()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("LINE_TARGET_ID", "group-id")
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: FakeWeatherClient())
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
+
+    exit_code = main_module.main(
+        [
+            "--date",
+            "2026-06-01",
+            "--run-time",
+            "17:00",
+            "--observation-id",
+            "2026-06-01:forecast:1700",
+            "--observation-phase",
+            "forecast",
+            "--scheduled-at",
+            "2026-06-01T17:00:00+09:00",
+            "--captured-at",
+            "2026-06-01T17:00:00+09:00",
+            "--resend-token",
+            "clear-sky-fix-v1",
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake_storage.has_sent_queries == []
+    assert len(fake_line_client.sent_messages) == 1
+    assert fake_line_client.retry_keys == [
+        observation_retry_key(
+            observation_id=(
+                "2026-06-01:forecast:1700:resend:clear-sky-fix-v1"
+            ),
+            target_id="group-id",
+        )
+    ]
+
+
+def test_resend_token_requires_observation_id():
+    args = main_module._parse_args(["--resend-token", "fix-v1"])
+
+    with pytest.raises(ValueError, match="requires --observation-id"):
+        main_module._validate_observation_args(args, None, None)
 
 
 def test_line_success_can_attach_live_camera_image_from_base_url(monkeypatch):

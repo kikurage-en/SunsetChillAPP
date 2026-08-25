@@ -146,6 +146,7 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "capture_path:" in workflow
     assert "capture_base64:" in workflow
     assert "capture_sha256:" in workflow
+    assert "resend_token:" in workflow
     assert "manual_mode:" in workflow
     assert "type: choice" in workflow
     assert "default: \"dry_run\"" in workflow
@@ -216,6 +217,7 @@ def test_github_actions_manual_dispatch_is_configured():
     assert "LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}" in workflow
     assert 'RUN_TIME="$(TZ=Asia/Tokyo date +%H:%M)"' in workflow
     assert "python -m zushi_chill.main" in workflow
+    assert 'args+=(--resend-token "$RESEND_TOKEN")' in workflow
     assert (
         "if: ${{ failure() && (github.event_name != 'workflow_dispatch' || "
         "github.event.inputs.manual_mode != 'dry_run') }}"

@@ -61,6 +61,10 @@ on:
         description: "保存画像のSHA-256"
         required: false
         default: ""
+      resend_token:
+        description: "送信済み観測を明示的に再送する一意トークン"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -119,6 +123,7 @@ jobs:
           INPUT_CAPTURE_REF: ${{ github.event.inputs.capture_ref || '' }}
           INPUT_CAPTURE_PATH: ${{ github.event.inputs.capture_path || '' }}
           INPUT_CAPTURE_SHA256: ${{ github.event.inputs.capture_sha256 || '' }}
+          INPUT_RESEND_TOKEN: ${{ github.event.inputs.resend_token || '' }}
           SCHEDULE: ${{ github.event.schedule || '' }}
         run: |
           RUN_DATE="$INPUT_RUN_DATE"
@@ -142,6 +147,7 @@ jobs:
           echo "CAPTURE_REF=$INPUT_CAPTURE_REF" >> "$GITHUB_ENV"
           echo "CAPTURE_PATH=$INPUT_CAPTURE_PATH" >> "$GITHUB_ENV"
           echo "CAPTURE_SHA256=$INPUT_CAPTURE_SHA256" >> "$GITHUB_ENV"
+          echo "RESEND_TOKEN=$INPUT_RESEND_TOKEN" >> "$GITHUB_ENV"
 
       - name: Capture live camera image
         env:
@@ -318,6 +324,9 @@ jobs:
               --captured-at "$CAPTURED_AT"
               --capture-window-minutes "$CAPTURE_WINDOW_MINUTES"
             )
+          fi
+          if [ -n "$RESEND_TOKEN" ]; then
+            args+=(--resend-token "$RESEND_TOKEN")
           fi
           for attempt in 1 2 3; do
             if python -m zushi_chill.main "${args[@]}"; then
