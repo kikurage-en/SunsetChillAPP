@@ -27,6 +27,7 @@ zushi-chill-trigger-actions = "zushi_chill.github_actions_trigger:main"
 zushi-chill-sunset-eta = "zushi_chill.sunset_eta:main"
 zushi-chill-observation-scheduler = "zushi_chill.observation_scheduler:main"
 zushi-chill-webhook = "zushi_chill.webhook_server:main"
+zushi-chill-shadow = "zushi_chill.shadow:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
