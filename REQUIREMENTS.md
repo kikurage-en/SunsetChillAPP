@@ -121,9 +121,12 @@ VisionブレンドはChill指数へ影響させない。
 
 日没前にVision解析が成功した場合のみ、純式 `sunset_score` と
 `vision_sunset_score` を `SUNSET_VISION_BLEND_WEIGHT` で合成し、
-`final_sunset_score` として表示する。既定のVision重みは0.8とし、Visionによる上方修正は
-純式+30までに制限する。雨シグナル(3.3)の実行では上方修正を無効化し、
-`final_sunset_score ≤ sunset_score` とする。下方修正は制限しない。
+`final_sunset_score` として表示する。既定のVision重みは1.0とし、Visionによる上方修正は
+行わない(`final_sunset_score ≤ sunset_score`、既定重みでは `min(vision, sunset_score)`)。
+2026-07-18〜10-09は重み0.8・上方修正は純式+30までだったが、10-09の再評価で
+上方修正なしの方が日没時発色・残照とも誤差が小さかった(STATUS.md参照)。
+雨シグナル(3.3)の実行でも同じく `final_sunset_score ≤ sunset_score` とする。
+下方修正は制限しない。
 
 純式 `sunset_score` は上書きしない。日没時・残照フェーズ、Vision欠測、重み0では、
 `final_sunset_score = sunset_score` とする。
@@ -132,7 +135,11 @@ VisionブレンドはChill指数へ影響させない。
 
 ### 4.1 評価フェーズ
 
-要求された `run_time` と当日の日没時刻から次のフェーズを決める。
+永続スケジューラが `--observation-phase sunset|afterglow` を渡した実行は、そのフェーズで
+評価する。それ以外(13:00/17:00の固定時刻・手動実行)は、要求された `run_time` と
+当日の日没時刻から次のフェーズを決める。スケジューラはAstralの日没時刻を分単位で
+切り捨てて撮影し、Open-Meteoの `daily.sunset` は分単位に丸めるため、時刻比較だけでは
+日没時の撮影が「日没前」と判定され得る(2026-07-28〜10-09で日没時観測75件中34件)。
 
 | フェーズ | 時刻 | 用途 |
 |---|---|---|

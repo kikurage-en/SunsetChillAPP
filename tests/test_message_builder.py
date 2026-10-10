@@ -500,6 +500,7 @@ def test_vivid_afterglow_chill_note_uses_one_highest_priority_condition(
         (
             "heat",
             {
+                "temperature_2m_at_run_time": 31,
                 "apparent_temperature_at_run_time": 34,
                 "precipitation_at_run_time": 0,
                 "weather_code_at_run_time": 0,
@@ -1725,3 +1726,175 @@ def test_wind_direction_label_boundaries():
     assert wind_direction_label(90) == "東"
     assert wind_direction_label(180) == "南"
     assert wind_direction_label(270) == "西"
+
+
+# --- 2026-10-09 コメント整合性監査(08-26〜10-09の配信コメント再生成で検出)の回帰 ---
+
+
+def test_comparison_drops_interjection_opposite_to_its_direction(sample_summary):
+    """09-17 18:04型: 期待外れの比較文の前に所見の「わあっ！」を置かない。"""
+    summary = replace(sample_summary, date="2026-09-17", run_time="18:04")
+    scores = ScoreResult(sunset_score=74, sunset_label="A", chill_score=60, chill_label="B")
+    prior = SunsetPredictionReference(run_time="17:00", score=74, label="A")
+    for score in (45, 55, 68):
+        vision = VisionResult(
+            sunset_score=score,
+            sky_condition="partly_cloudy",
+            comment="わあっ！空にきれいな夕焼け色が残ってるっピ！",
+            model="test",
+            evaluation_phase="afterglow",
+            afterglow_score=score,
+        )
+
+        comment = build_comment(
+            summary, scores, prediction=False, vision=vision, prior_sunset_prediction=prior
+        ).splitlines()[0]
+
+        assert not comment.startswith("わあっ"), comment
+        assert "夕焼け色が残ってるっピ！" in comment
+
+    # 好転の比較文には、所見の「うーん……」を付けない(09-19 17:53型)。
+    pessimistic = SunsetPredictionReference(run_time="17:00", score=13, label="D")
+    vision = VisionResult(
+        sunset_score=45,
+        sky_condition="partly_cloudy",
+        comment="うーん……。空全体に雲が多いっピ。ほんのり薄い夕焼け色っピ。",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=45,
+    )
+    comment = build_comment(
+        summary, scores, prediction=False, vision=vision, prior_sunset_prediction=pessimistic
+    ).splitlines()[0]
+    assert not comment.startswith("うーん"), comment
+
+
+def test_low_prediction_headline_does_not_get_optimistic_high_cloud_note(sample_summary):
+    """09-28 13:00型: 低い見出し・雨シグナルに高層雲の楽観補足を付けない。"""
+    cloud = SunsetCloud(
+        cloud_cover=60, cloud_cover_low=4, cloud_cover_mid=40, cloud_cover_high=68
+    )
+    for sunset_score in (40, 65):
+        summary = replace(sample_summary, date="2026-09-28", run_time="13:00")
+        scores = ScoreResult(
+            sunset_score=sunset_score, sunset_label="C", chill_score=60, chill_label="B"
+        )
+        first_line = build_comment(summary, scores, cloud).splitlines()[0]
+        assert "高い雲" not in first_line, first_line
+        assert not first_line.startswith("わあっ"), first_line
+
+    good = ScoreResult(sunset_score=80, sunset_label="A", chill_score=80, chill_label="A")
+    dry = replace(sample_summary, precipitation=0, weather_code=1)
+    assert "高い雲" in build_comment(dry, good, cloud).splitlines()[0]
+    rainy = replace(sample_summary, precipitation=3.3, weather_code=61)
+    assert "高い雲" not in build_comment(rainy, good, cloud).splitlines()[0]
+
+
+def test_vivid_afterglow_does_not_call_cool_evening_hot(sample_summary):
+    """09-24 17:48型: 24.6℃・体感29℃でも「暑い」と書かない(27℃規則を全経路で統一)。"""
+    summary = replace(
+        sample_summary,
+        date="2026-09-24",
+        run_time="17:48",
+        temperature_2m_at_run_time=24.6,
+        apparent_temperature_at_run_time=29.0,
+        relative_humidity_2m_at_run_time=87,
+        precipitation_at_run_time=0,
+        weather_code_at_run_time=1,
+        wind_speed_10m_at_run_time=3,
+        wind_gusts_10m_at_run_time=6,
+    )
+    scores = ScoreResult(sunset_score=80, sunset_label="A", chill_score=70, chill_label="A")
+    vision = VisionResult(
+        sunset_score=90,
+        sky_condition="golden_hour",
+        comment="わあっ！日没後もこんなに鮮やかな夕焼け色だっピ！",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=90,
+    )
+
+    main_comment = build_comment(
+        summary, scores, prediction=False, vision=vision
+    ).split("\n\n", maxsplit=1)[0]
+
+    assert "暑" not in main_comment
+
+
+def test_rainy_cool_day_mentions_rain_in_comfort_line(sample_summary):
+    """09-06 17:00型: 雨でChillがDなのに、雨に一言も触れない通知を出さない。"""
+    scores = ScoreResult(sunset_score=10, sunset_label="D", chill_score=40, chill_label="D")
+    rainy = replace(
+        sample_summary,
+        date="2026-09-06",
+        run_time="17:00",
+        apparent_temperature=24,
+        precipitation=39.1,
+        weather_code=65,
+        wind_speed_10m=3,
+        wind_speed_10m_at_sunset=3,
+    )
+    lines = build_comment(rainy, scores).splitlines()
+    assert len(lines) == 2
+    assert "雨" in lines[1]
+
+    # 09-21型: 雨と強風が重なる日は、Chillの上限が低い雨を優先して伝える。
+    windy_rain = replace(rainy, wind_speed_10m=9, wind_speed_10m_at_sunset=9)
+    assert "雨" in build_comment(windy_rain, scores).splitlines()[1]
+
+    # 雨コード・雨量がなくても、Chillを抑える降水確率70%以上なら触れる。
+    chance = replace(rainy, precipitation=0, weather_code=3)
+    jma = JmaPrecipitationForecast(
+        probability=80,
+        period_start=rainy.sunset_time - timedelta(hours=1),
+        period_end=rainy.sunset_time + timedelta(hours=5),
+        area_name="東部",
+        report_time=rainy.sunset_time - timedelta(hours=6),
+    )
+    lines = build_comment(chance, scores, jma_precipitation=jma).splitlines()
+    assert len(lines) == 2
+    assert "雨" in lines[1]
+
+    dry = replace(rainy, precipitation=0, weather_code=1, precipitation_probability=10)
+    assert len(build_comment(dry, scores).splitlines()) == 1
+
+
+def test_prior_low_outlook_is_not_treated_as_uncertain(sample_summary):
+    """10-02型: 表示50(「むずかしそう」)の翌報で「思っていたより静か」と書かない。"""
+    summary = replace(sample_summary, date="2026-08-02", run_time="18:59")
+    scores = ScoreResult(sunset_score=50, sunset_label="C", chill_score=60, chill_label="B")
+    prior = SunsetPredictionReference(run_time="17:00", score=50, label="C")
+    vision = VisionResult(
+        sunset_score=15,
+        sky_condition="overcast",
+        comment="うーん……。空は厚い雲に覆われてるっピ……。",
+        model="test",
+        evaluation_phase="afterglow",
+        afterglow_score=15,
+    )
+
+    first_line = build_comment(
+        summary, scores, prediction=False, vision=vision, prior_sunset_prediction=prior
+    ).splitlines()[0]
+
+    assert "思っ" not in first_line
+    assert first_line == "うーん……。空は厚い雲に覆われてるっピ……。"
+
+
+def test_clear_western_sky_camera_comment_does_not_mention_clouds(sample_summary):
+    """10-08 17:00型: 西の雲量5%で「色づきそうな雲がいて」と書かない。"""
+    cloud = SunsetCloud(cloud_cover=5, cloud_cover_low=3, cloud_cover_mid=0, cloud_cover_high=0)
+    scores = ScoreResult(sunset_score=78, sunset_label="A", chill_score=95, chill_label="S")
+    vision = VisionResult(
+        sunset_score=75,
+        sky_condition="partly_cloudy",
+        comment="水平線は少しクリアに見えるっピ。",
+        model="test",
+        evaluation_phase="predict",
+    )
+    for day in range(1, 29):
+        summary = replace(sample_summary, date=f"2026-10-{day:02d}", run_time="17:00")
+        comment = build_comment(
+            summary, scores, cloud, vision=vision, formula_sunset_score=90
+        ).splitlines()[0]
+        assert "雲" not in comment, comment

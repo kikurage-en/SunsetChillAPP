@@ -672,6 +672,60 @@ def test_vision_analysis_after_sunset_uses_actual_label(monkeypatch):
     assert captured_kwargs["sunset_time"].strftime("%H:%M") == "18:51"
 
 
+def test_sunset_observation_captured_before_open_meteo_sunset_is_actual(monkeypatch):
+    # スケジューラはAstral日没を分単位で切り捨てて撮影するため、Open-Meteoの
+    # daily.sunset(フィクスチャでは18:51)より数十秒早い撮影になり得る。
+    fake_storage = MemoryStorage()
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("VISION_ENABLED", "true")
+    monkeypatch.setenv("VISION_API_KEY", "key")
+    vision = VisionResult(
+        sunset_score=82,
+        sky_condition="golden_hour",
+        comment="わあっ！空がオレンジ色に染まってる",
+        model="gemini-2.5-flash",
+        evaluation_phase="sunset",
+        sun_disk_visibility=70,
+        sunset_color_score=82,
+    )
+    captured_kwargs: dict = {}
+
+    def capture_analyze(**kwargs):
+        captured_kwargs.update(kwargs)
+        return vision
+
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: FakeWeatherClient())
+    monkeypatch.setattr(main_module, "storage_from_settings", lambda settings: fake_storage)
+    monkeypatch.setattr(main_module, "analyze_image", capture_analyze)
+
+    exit_code = main_module.main(
+        [
+            "--dry-run",
+            "--date",
+            "2026-06-01",
+            "--run-time",
+            "18:50",
+            "--observation-id",
+            "2026-06-01:sunset",
+            "--observation-phase",
+            "sunset",
+            "--scheduled-at",
+            "2026-06-01T18:50:00+09:00",
+            "--captured-at",
+            "2026-06-01T18:50:02+09:00",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_kwargs["evaluation_phase"] == "sunset"
+    record = fake_storage.records[-1]
+    assert record.summary.sunset_time.strftime("%H:%M") == "18:51"
+    # 予測扱いならVisionとブレンドされるが、日没時観測は純式のまま保存する。
+    assert record.final_sunset_score == record.scores.sunset_score
+    assert record.scores.chill_weather_basis == "run_time"
+    assert "楽しみ" not in record.scores.comment
+
+
 def test_after_sunset_message_compares_sent_17_prediction_with_camera_result(monkeypatch):
     prior = SunsetPredictionReference(run_time="17:00", score=80, label="A")
     fake_storage = MemoryStorage(prior_prediction=prior)
@@ -946,13 +1000,14 @@ def test_vision_prediction_blends_into_displayed_sunset_score(monkeypatch):
     monkeypatch.setattr(main_module, "LineClient", lambda **kwargs: fake_line_client)
     monkeypatch.setattr(main_module, "analyze_image", lambda **kwargs: vision)
 
-    # 日没(18:51)前の17:00=予測モード → ブレンド適用(既定 weight 0.8)
+    # 日没(18:51)前の17:00=予測モード → ブレンド適用(既定 weight 1.0)
     exit_code = main_module.main(["--date", "2026-06-01", "--run-time", "17:00"])
     assert exit_code == 0
 
     record = fake_storage.records[-1]
     formula = record.scores.sunset_score
-    expected = blend_sunset_score(formula, 20, 0.8)
+    expected = blend_sunset_score(formula, 20, 1.0)
+    assert expected == min(formula, 20)
     # 純式スコアは上書きされず、ブレンド結果は別値として保持
     assert record.final_sunset_score == expected
     assert expected != formula  # Vision(20)が式を引き下げている
