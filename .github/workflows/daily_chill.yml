@@ -300,7 +300,7 @@ jobs:
           VISION_API_KEY: ${{ secrets.VISION_API_KEY }}
           VISION_MODEL: ${{ secrets.VISION_MODEL || 'gemini-2.5-flash' }}
           VISION_TIMEOUT_SECONDS: ${{ secrets.VISION_TIMEOUT_SECONDS || '30' }}
-          VISION_TARGET_HOURS: ${{ secrets.VISION_TARGET_HOURS || secrets.VISION_TARGET_HOUR || '16,17,18,19' }}
+          VISION_TARGET_HOURS: ${{ secrets.VISION_TARGET_HOURS || secrets.VISION_TARGET_HOUR || '15,16,17,18,19' }}
           SUNSET_CLOUD_OFFSET_KM: ${{ secrets.SUNSET_CLOUD_OFFSET_KM || '40' }}
           SUNSET_CLOUD_NEAR_OFFSET_KM: ${{ secrets.SUNSET_CLOUD_NEAR_OFFSET_KM || '20' }}
           SUNSET_VISION_BLEND_WEIGHT: ${{ secrets.SUNSET_VISION_BLEND_WEIGHT || '1.0' }}

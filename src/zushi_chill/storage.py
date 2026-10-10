@@ -4,6 +4,7 @@ import csv
 import json
 import logging
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol
 
@@ -124,12 +125,12 @@ class Storage(Protocol):
     ) -> bool:
         pass
 
-    def find_sent_sunset_prediction(
+    def find_latest_sent_sunset_prediction(
         self,
         *,
         date: str,
-        run_time: str,
         location_name: str,
+        before_time: str,
     ) -> SunsetPredictionReference | None:
         pass
 
@@ -196,29 +197,24 @@ class CsvStorage:
                 return _is_truthy(row.get("line_sent", ""))
         return False
 
-    def find_sent_sunset_prediction(
+    def find_latest_sent_sunset_prediction(
         self,
         *,
         date: str,
-        run_time: str,
         location_name: str,
+        before_time: str,
     ) -> SunsetPredictionReference | None:
         if not self.path.exists():
             return None
         self._has_expected_header()
         with self.path.open(encoding="utf-8", newline="") as file:
             rows = list(csv.DictReader(file))
-        for row in reversed(rows):
-            if (
-                row.get("date") == date
-                and row.get("run_time") == run_time
-                and row.get("location_name") == location_name
-                and _is_truthy(row.get("line_sent", ""))
-            ):
-                prediction = _prediction_reference_from_mapping(row)
-                if prediction is not None:
-                    return prediction
-        return None
+        return _latest_sent_prediction(
+            rows,
+            date=date,
+            location_name=location_name,
+            before_time=before_time,
+        )
 
     def _has_expected_header(self) -> bool:
         if not self.path.exists() or self.path.stat().st_size == 0:
@@ -309,12 +305,12 @@ class GoogleSheetsStorage:
                 )
         return False
 
-    def find_sent_sunset_prediction(
+    def find_latest_sent_sunset_prediction(
         self,
         *,
         date: str,
-        run_time: str,
         location_name: str,
+        before_time: str,
     ) -> SunsetPredictionReference | None:
         self._ensure_header()
         last_index = max(
@@ -335,19 +331,15 @@ class GoogleSheetsStorage:
         )
         result = self._execute(request)
         values = result.get("values", [])
-        for row in reversed(values[1:]):
-            if (
-                _sheet_value(row, "date") == date
-                and _sheet_value(row, "run_time") == run_time
-                and _sheet_value(row, "location_name") == location_name
-                and _is_truthy(_sheet_value(row, "line_sent"))
-            ):
-                prediction = _prediction_reference_from_mapping(
-                    {column: _sheet_value(row, column) for column in CSV_COLUMNS}
-                )
-                if prediction is not None:
-                    return prediction
-        return None
+        return _latest_sent_prediction(
+            (
+                {column: _sheet_value(row, column) for column in CSV_COLUMNS}
+                for row in values[1:]
+            ),
+            date=date,
+            location_name=location_name,
+            before_time=before_time,
+        )
 
     def _service_client(self):
         if self._service is not None:
@@ -582,6 +574,35 @@ def _same_record(
         and row.get("run_time") == str(replacement["run_time"])
         and row.get("location_name") == str(replacement["location_name"])
     )
+
+
+def _latest_sent_prediction(
+    rows: Iterable[dict[str, str]],
+    *,
+    date: str,
+    location_name: str,
+    before_time: str,
+) -> SunsetPredictionReference | None:
+    """同日に送信済みで、``before_time``(日没時刻 HH:MM)より前の最新の予測を返す。
+
+    夕方予測は日没連動で実行時刻が日ごとに変わるため、固定の「17:00」ではなく
+    日没前に送った最後の通知を事前予測として扱う。同時刻の再送は後の行を優先する。
+    """
+    latest: SunsetPredictionReference | None = None
+    for row in rows:
+        run_time = row.get("run_time", "")
+        if (
+            row.get("date") != date
+            or row.get("location_name") != location_name
+            or not run_time
+            or run_time >= before_time
+            or not _is_truthy(row.get("line_sent", ""))
+        ):
+            continue
+        prediction = _prediction_reference_from_mapping(row)
+        if prediction is not None and (latest is None or run_time >= latest.run_time):
+            latest = prediction
+    return latest
 
 
 def _prediction_reference_from_mapping(

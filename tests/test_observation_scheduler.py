@@ -459,6 +459,145 @@ def test_afterglow_retry_becomes_log_only_before_line_retry_key_expires(tmp_path
     assert github.dispatched[-1]["inputs"]["manual_mode"] == "dry_run"
 
 
+def test_scheduler_dispatches_evening_forecast_an_hour_before_sunset(tmp_path):
+    # 2026-07-26の日没は18:50(Astral切り捨て)。夕方予測は17:50に撮影してLINE送信する。
+    clock = [datetime(2026, 7, 26, 17, 50, tzinfo=JST)]
+    github = FakeGitHub()
+    store = ObservationJobStore(tmp_path / "jobs.sqlite3")
+
+    def capture(**kwargs):
+        Path(kwargs["output_path"]).write_bytes(b"forecast-image")
+
+    scheduler = ObservationScheduler(
+        app_settings=_app_settings(),
+        scheduler_settings=_scheduler_settings(tmp_path, evening_forecast_lead_minutes=60),
+        store=store,
+        github=github,
+        now=lambda: clock[0],
+        capture=capture,
+    )
+
+    scheduler.tick(now=clock[0])
+
+    job = store.get("2026-07-26:forecast:1750")
+    assert job.status == "dispatched"
+    assert job.manual_mode == "send_line"
+    assert len(github.dispatched) == 1
+    inputs = github.dispatched[0]["inputs"]
+    assert inputs["observation_id"] == "2026-07-26:forecast:1750"
+    assert inputs["observation_phase"] == "forecast"
+    assert inputs["manual_mode"] == "send_line"
+    assert inputs["run_time"] == "17:50"
+    assert inputs["scheduled_at"] == "2026-07-26T17:50:00+09:00"
+    assert base64.b64decode(inputs["capture_base64"]) == b"forecast-image"
+    # 日没時・残照はまだ予定時刻前なので撮影しない。
+    assert store.get("2026-07-26:sunset").status == "planned"
+
+
+def test_evening_forecast_is_skipped_when_capture_would_reach_sunset(tmp_path):
+    # 停止明けが日没10分前を過ぎたら、予測としては撮影せず capture_missed にする。
+    now = datetime(2026, 7, 26, 18, 41, tzinfo=JST)
+    store = ObservationJobStore(tmp_path / "jobs.sqlite3")
+    captured = []
+    scheduler = ObservationScheduler(
+        app_settings=_app_settings(),
+        scheduler_settings=_scheduler_settings(tmp_path, evening_forecast_lead_minutes=60),
+        store=store,
+        github=FakeGitHub(),
+        now=lambda: now,
+        capture=lambda **kwargs: captured.append(kwargs),
+    )
+
+    scheduler.tick(now=now)
+
+    job = store.get("2026-07-26:forecast:1750")
+    assert job.status == "capture_missed"
+    assert captured == []
+
+
+def test_evening_forecast_retry_after_sunset_is_log_only(tmp_path):
+    clock = [datetime(2026, 7, 26, 17, 50, tzinfo=JST)]
+    github = FakeGitHub()
+    store = ObservationJobStore(tmp_path / "jobs.sqlite3")
+
+    def capture(**kwargs):
+        Path(kwargs["output_path"]).write_bytes(b"forecast-image")
+
+    scheduler = ObservationScheduler(
+        app_settings=_app_settings(),
+        scheduler_settings=_scheduler_settings(tmp_path, evening_forecast_lead_minutes=60),
+        store=store,
+        github=github,
+        now=lambda: clock[0],
+        capture=capture,
+    )
+    scheduler.tick(now=clock[0])
+    for phase in ("sunset", "afterglow"):
+        store.update(
+            store.get_by_phase(clock[0].date(), phase).observation_id,
+            now=clock[0],
+            status="completed",
+            completed_at=clock[0],
+        )
+
+    clock[0] = datetime(2026, 7, 26, 18, 55, tzinfo=JST)
+    github.run = WorkflowRun(
+        run_id=321,
+        status="completed",
+        conclusion="failure",
+        created_at=datetime(2026, 7, 26, 8, 51, tzinfo=ZoneInfo("UTC")),
+        url="https://github.example/runs/321",
+    )
+    scheduler.tick(now=clock[0])
+    github.run = None
+    clock[0] += timedelta(minutes=5)
+    scheduler.tick(now=clock[0])
+
+    assert github.dispatched[0]["inputs"]["manual_mode"] == "send_line"
+    assert github.dispatched[-1]["inputs"]["manual_mode"] == "dry_run"
+
+
+def test_forecast_job_follows_changed_schedule_before_capture(tmp_path):
+    store = ObservationJobStore(tmp_path / "jobs.sqlite3")
+    now = datetime(2026, 10, 10, 9, 0, tzinfo=JST)
+    for scheduled in (
+        datetime(2026, 10, 10, 16, 12, tzinfo=JST),
+        datetime(2026, 10, 10, 15, 42, tzinfo=JST),
+    ):
+        store.ensure_job(
+            target_date=now.date(),
+            phase="forecast",
+            scheduled_at=scheduled,
+            manual_mode="send_line",
+            now=now,
+        )
+
+    job = store.get_by_phase(now.date(), "forecast")
+    assert job.observation_id == "2026-10-10:forecast:1542"
+    assert job.scheduled_at == datetime(2026, 10, 10, 15, 42, tzinfo=JST)
+    with pytest.raises(KeyError):
+        store.get("2026-10-10:forecast:1612")
+
+
+def test_scheduler_settings_parse_evening_forecast(monkeypatch, tmp_path):
+    monkeypatch.setenv("OBSERVATION_DB_PATH", str(tmp_path / "jobs.sqlite3"))
+    monkeypatch.setenv("OBSERVATION_SPOOL_DIR", str(tmp_path / "spool"))
+
+    settings = SchedulerSettings.from_env()
+    assert settings.evening_forecast_lead_minutes == 60
+    assert settings.evening_forecast_latest is None
+
+    monkeypatch.setenv("EVENING_FORECAST_LATEST_TIME", "17:00")
+    assert SchedulerSettings.from_env().evening_forecast_latest.strftime("%H:%M") == "17:00"
+
+    monkeypatch.setenv("EVENING_FORECAST_LEAD_MINUTES", "0")
+    assert SchedulerSettings.from_env().evening_forecast_lead_minutes is None
+
+    monkeypatch.setenv("EVENING_FORECAST_LEAD_MINUTES", "-5")
+    with pytest.raises(ValueError, match="EVENING_FORECAST_LEAD_MINUTES"):
+        SchedulerSettings.from_env()
+
+
 def test_scheduler_settings_parse_afterglow_window(monkeypatch, tmp_path):
     monkeypatch.setenv("OBSERVATION_DB_PATH", str(tmp_path / "jobs.sqlite3"))
     monkeypatch.setenv("OBSERVATION_SPOOL_DIR", str(tmp_path / "spool"))
@@ -477,7 +616,9 @@ def test_scheduler_settings_parse_afterglow_window(monkeypatch, tmp_path):
         SchedulerSettings.from_env()
 
 
-def _scheduler_settings(tmp_path, *, capture_max_delay_minutes=60):
+def _scheduler_settings(
+    tmp_path, *, capture_max_delay_minutes=60, evening_forecast_lead_minutes=None
+):
     return SchedulerSettings(
         database_path=tmp_path / "jobs.sqlite3",
         spool_directory=tmp_path / "spool",
@@ -489,6 +630,7 @@ def _scheduler_settings(tmp_path, *, capture_max_delay_minutes=60):
         capture_max_delay_minutes=capture_max_delay_minutes,
         run_visibility_grace_seconds=120,
         retry_max_seconds=1800,
+        evening_forecast_lead_minutes=evening_forecast_lead_minutes,
     )
 
 
