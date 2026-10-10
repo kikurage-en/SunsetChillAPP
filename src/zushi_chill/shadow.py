@@ -9,6 +9,10 @@
   GFS・ICONの決定論予報を本番と同じ地点(逗子、日没方位の20/40km、50〜100km)で取得し、
   JSONで保存する。Open-Meteoの過去予報APIは各ランの初期時刻付近をつないだ値で、
   アンサンブルは過去日を取得できないため、予測時点に実際に使えた値はこの記録でしか残らない。
+- ``satellite``: ひまわり赤外(B13、t17系列はB15も)の輝度温度を日没方位の格子で保存する。
+  AWSに保存され続けるので、過去の期間をまとめて作れる。
+- ``evaluate``: 衛星の雲特徴で作った事前登録の候補を、既存の予測(ログ)とラベルに対して比べ、
+  Markdownのレポートを書く。
 """
 
 from __future__ import annotations
@@ -21,7 +25,9 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from datetime import date, datetime
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -31,7 +37,22 @@ from zoneinfo import ZoneInfo
 
 from zushi_chill.config import Settings
 from zushi_chill.main import SUNSET_CLOUD_PATH_DISTANCES_KM
-from zushi_chill.shadow_eval import build_labels, load_rows, write_csv
+from zushi_chill.shadow_eval import (
+    build_labels,
+    forecast_rows,
+    load_label_csv,
+    load_rows,
+    satellite_report,
+    write_csv,
+    write_days_csv,
+)
+from zushi_chill.shadow_satellite import (
+    SERIES,
+    CloudRule,
+    build_features,
+    load_records,
+    record_satellite,
+)
 from zushi_chill.solar_schedule import local_sunset_time
 from zushi_chill.sunset_geometry import sunset_azimuth_deg, sunset_cloud_point
 
@@ -175,6 +196,70 @@ def log_forecasts(
     return written
 
 
+def record_satellite_range(
+    settings: Settings,
+    *,
+    start: date,
+    end: date,
+    series: tuple[str, ...],
+    cirrus_series: tuple[str, ...],
+    shadow_dir: Path,
+    workers: int,
+) -> int:
+    """期間内の各日・各系列の衛星格子を保存し、保存できた件数を返す。"""
+    tasks = [
+        (start + timedelta(days=offset), name)
+        for offset in range((end - start).days + 1)
+        for name in series
+    ]
+
+    def run(task: tuple[date, str]) -> bool:
+        target_date, name = task
+        try:
+            path = record_satellite(
+                settings,
+                target_date=target_date,
+                series=name,
+                shadow_dir=shadow_dir,
+                cirrus=name in cirrus_series,
+            )
+        except Exception as exc:
+            LOGGER.warning("Satellite %s %s failed: %s", target_date, name, exc)
+            return False
+        return path is not None
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        saved = sum(executor.map(run, tasks))
+    LOGGER.info("Saved %d/%d satellite grids under %s", saved, len(tasks), shadow_dir)
+    return saved
+
+
+def evaluate(args: argparse.Namespace) -> int:
+    settings = Settings.from_env()
+    shadow_dir = Path(args.shadow_dir)
+    rows = forecast_rows(load_rows(Path(args.predictions)))
+    labels = load_label_csv(Path(args.labels))
+    records = {series: load_records(shadow_dir, series) for series in SERIES}
+    rule = CloudRule()
+    features = {series: build_features(records[series], settings, rule) for series in SERIES}
+    # 感度分析は事前登録した変化幅だけ。候補の選択には使わない。
+    sensitivity = {
+        name: build_features(records["t17"], settings, variant)
+        for name, variant in (
+            ("ΔT=3K", replace(rule, clear_margin_k=3.0)),
+            ("ΔT=7K", replace(rule, clear_margin_k=7.0)),
+            ("箱±0.03°", replace(rule, box_deg=0.03)),
+            ("箱±0.08°", replace(rule, box_deg=0.08)),
+        )
+    }
+    report = satellite_report(rows, labels, features, sensitivity, split_date=args.split_date)
+    Path(args.out).write_text(report + "\n", encoding="utf-8")
+    if args.days_out:
+        write_days_csv(Path(args.days_out), rows, labels, features["t17"])
+    LOGGER.info("Wrote satellite shadow report to %s", args.out)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Shadow-validation logging (log-only).")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -195,8 +280,43 @@ def main(argv: list[str] | None = None) -> int:
         help="Checkout of the pages-images branch (contains live-camera/).",
     )
     labels_parser.add_argument("--out", required=True, help="Output CSV path.")
+    satellite_parser = subcommands.add_parser(
+        "satellite", help="Save Himawari infrared grids along the sunset path."
+    )
+    satellite_parser.add_argument("--start", help="First date YYYY-MM-DD (default: today).")
+    satellite_parser.add_argument("--end", help="Last date YYYY-MM-DD (default: --start).")
+    satellite_parser.add_argument(
+        "--series", default=",".join(SERIES), help="Comma-separated: t17,t60,t0."
+    )
+    satellite_parser.add_argument(
+        "--cirrus-series", default="t17", help="Series that also save band 15."
+    )
+    satellite_parser.add_argument("--workers", type=int, default=6)
+    satellite_parser.add_argument(
+        "--shadow-dir",
+        default=os.getenv("SHADOW_DIR", DEFAULT_SHADOW_DIR),
+        help="Directory for shadow logs.",
+    )
+    evaluate_parser = subcommands.add_parser(
+        "evaluate", help="Compare satellite-based candidates with the logged predictions."
+    )
+    evaluate_parser.add_argument("--predictions", required=True, help="Prediction log CSV.")
+    evaluate_parser.add_argument("--labels", required=True, help="CSV from the labels command.")
+    evaluate_parser.add_argument(
+        "--shadow-dir",
+        default=os.getenv("SHADOW_DIR", DEFAULT_SHADOW_DIR),
+        help="Directory for shadow logs.",
+    )
+    evaluate_parser.add_argument("--out", required=True, help="Markdown report path.")
+    evaluate_parser.add_argument("--days-out", help="Optional per-day CSV (t17 series).")
+    evaluate_parser.add_argument(
+        "--split-date", default="2026-09-01", help="First date of the second half."
+    )
     args = parser.parse_args(argv)
 
+    if args.command == "evaluate":
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+        return evaluate(args)
     if args.command == "labels":
         logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
         labels = build_labels(load_rows(Path(args.predictions)), Path(args.images_dir))
@@ -211,6 +331,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
+    if args.command == "satellite":
+        start = date.fromisoformat(args.start) if args.start else now.date()
+        end = date.fromisoformat(args.end) if args.end else start
+        series = tuple(name for name in args.series.split(",") if name)
+        unknown = set(series) - set(SERIES)
+        if unknown:
+            parser.error(f"Unknown series: {', '.join(sorted(unknown))}")
+        saved = record_satellite_range(
+            settings,
+            start=start,
+            end=end,
+            series=series,
+            cirrus_series=tuple(args.cirrus_series.split(",")),
+            shadow_dir=Path(args.shadow_dir),
+            workers=args.workers,
+        )
+        return 0 if saved else 1
     target_date = date.fromisoformat(args.date) if args.date else now.date()
     written = log_forecasts(
         settings,

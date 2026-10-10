@@ -293,6 +293,9 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 - `log`: 当日の日没窓について、ECMWF（51メンバー）・GFS・ICONのアンサンブル予報と、気象庁・ECMWF・GFS・ICONの決定論予報の層別雲量を、本番と同じ地点（逗子、日没方位の20/40km、50/60/80/100km）で取得し、取得時刻つきで `SHADOW_DIR`（既定 `/var/lib/zushi-chill/shadow`）の `YYYY-MM-DD/{ensemble,deterministic}-HHMM.json.gz` に保存します。アンサンブルは過去日を取得できず、過去予報APIも「その時点に使えた予報」とは一致しないため、比較用の入力はこの記録でしか残りません。1日2リクエスト・約50KBです。データは [Open-Meteo](https://open-meteo.com/)（CC BY 4.0、無料枠は非商用）です。
 - `labels`: Pagesに保存した日没時・残照の画像から、空の領域だけの夕焼け色スコア（`sky_color_score`、0〜100）を計算し、Geminiの採点と並べたCSVを作ります。Geminiとは独立の第2の真値で、空の領域に限ると順位相関は日没時0.90・残照0.92でした（2026-10-10、N=46/72）。
 
+- `satellite`: ひまわり9号の赤外画像（B13、16:50の系列はB15も）から、日没方位の緯度経度格子（0.02°）の輝度温度を `SHADOW_DIR/satellite/{t17,t60,t0}/YYYY-MM-DD.json.gz` に保存します。系列は16:50（本番17:00予測と同じ情報時点）、日没65分前までの最新、日没に最も近い時刻の3つです。画像はAWS上に保存され続けるので、cronは不要で、過去の期間をまとめて作れます（1日3系列で約4MBをダウンロードし、保存は約25KB）。
+- `evaluate`: 衛星から求めた雲量で作る事前登録の3候補（本番式の雲量の置換・経路max・遮蔽キャップ）を、ログに残る既存の予測とラベルに対して比べ、Markdownのレポートを書きます。
+
 ```cron
 30 14 * * * cd /opt/SunsetChillAPP && /opt/SunsetChillAPP/.venv/bin/python -m zushi_chill.shadow log >> /var/log/zushi-chill-shadow.log 2>&1
 ```
@@ -301,7 +304,13 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 # ラベル作成（pages-images ブランチを別ディレクトリに展開し、予測ログをCSVで書き出しておく）
 git worktree add ../pages-images origin/pages-images
 zushi-chill-shadow labels --predictions predictions.csv --images-dir ../pages-images --out labels.csv
+
+# 衛星格子（晴天参照に前15日を使うため、評価期間の15日前から）と比較レポート
+zushi-chill-shadow satellite --start 2026-07-05 --end 2026-10-09 --shadow-dir ./shadow
+zushi-chill-shadow evaluate --predictions predictions.csv --labels labels.csv --shadow-dir ./shadow --out satellite.md
 ```
+
+ひまわりのデータは気象庁が作成・管理し、NOAAがAWSで公開しているものです（[NOAA Himawari on AWS](https://registry.opendata.aws/noaa-himawari/)。利用時は気象庁とNOAAのクレジット表記が求められています）。
 
 ## 前向き検証運用
 
