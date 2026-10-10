@@ -357,16 +357,55 @@ def test_csv_storage_finds_sent_sunset_prediction(tmp_path, sample_summary):
         )
     )
 
-    prediction = storage.find_sent_sunset_prediction(
+    prediction = storage.find_latest_sent_sunset_prediction(
         date="2026-06-01",
-        run_time="17:00",
         location_name="逗子海岸",
+        before_time="18:51",
     )
 
     assert prediction is not None
     assert prediction.run_time == "17:00"
     assert prediction.score == 68
     assert prediction.label == "B"
+
+
+def test_csv_storage_finds_latest_sent_prediction_before_sunset(tmp_path, sample_summary):
+    """夕方予測は日没連動で時刻が変わるため、日没前に送った最後の通知を使う。"""
+    storage = CsvStorage(tmp_path / "predictions.csv")
+    scores = ScoreResult(sunset_score=40, sunset_label="C", chill_score=70, chill_label="A")
+    for run_time, final_score, sent in (
+        ("13:00", 50, True),
+        ("15:51", 72, True),
+        ("16:30", 90, False),
+        ("19:11", 30, True),
+    ):
+        storage.save(
+            PredictionRecord(
+                summary=replace(sample_summary, run_time=run_time),
+                scores=scores,
+                line_sent=sent,
+                final_sunset_score=final_score,
+                final_sunset_label="A",
+            )
+        )
+
+    prediction = storage.find_latest_sent_sunset_prediction(
+        date="2026-06-01",
+        location_name="逗子海岸",
+        before_time="18:51",
+    )
+
+    assert prediction is not None
+    assert prediction.run_time == "15:51"
+    assert prediction.score == 72
+    assert (
+        storage.find_latest_sent_sunset_prediction(
+            date="2026-06-01",
+            location_name="逗子海岸",
+            before_time="15:00",
+        ).run_time
+        == "13:00"
+    )
 
 
 def test_csv_storage_ignores_unsent_sunset_prediction(tmp_path, sample_summary):
@@ -377,10 +416,10 @@ def test_csv_storage_ignores_unsent_sunset_prediction(tmp_path, sample_summary):
     storage.save(PredictionRecord(summary=afternoon_summary, scores=scores, line_sent=False))
 
     assert (
-        storage.find_sent_sunset_prediction(
+        storage.find_latest_sent_sunset_prediction(
             date="2026-06-01",
-            run_time="17:00",
             location_name="逗子海岸",
+            before_time="18:51",
         )
         is None
     )
@@ -451,10 +490,10 @@ def test_google_sheets_storage_finds_sent_sunset_prediction():
     )
     storage._service = fake_service
 
-    prediction = storage.find_sent_sunset_prediction(
+    prediction = storage.find_latest_sent_sunset_prediction(
         date="2026-06-01",
-        run_time="17:00",
         location_name="逗子海岸",
+        before_time="18:51",
     )
 
     assert prediction is not None

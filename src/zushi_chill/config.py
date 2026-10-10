@@ -62,7 +62,7 @@ class Settings:
     vision_api_key: str = ""
     vision_model: str = "gemini-2.5-flash"
     vision_timeout_seconds: int = 30
-    vision_target_hours: frozenset[int] = frozenset({16, 17, 18, 19})
+    vision_target_hours: frozenset[int] = frozenset({15, 16, 17, 18, 19})
     sunset_cloud_offset_km: float = 40.0
     sunset_cloud_near_offset_km: float = 20.0
     sunset_vision_blend_weight: float = 1.0
@@ -128,7 +128,7 @@ class Settings:
         vision_target_hours = _hours_from_env(
             "VISION_TARGET_HOURS",
             legacy_name="VISION_TARGET_HOUR",
-            default=frozenset({16, 17, 18, 19}),
+            default=frozenset({15, 16, 17, 18, 19}),
         )
         sunset_cloud_offset_km = _non_negative_float_from_env(
             "SUNSET_CLOUD_OFFSET_KM", default=40.0

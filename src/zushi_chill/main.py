@@ -295,21 +295,15 @@ def _find_prior_sunset_prediction(
     mode: str,
     vision: VisionResult | None,
 ) -> SunsetPredictionReference | None:
-    """同日に送信済みの日没前予測を、夕方に近い順で取得する。"""
+    """同日に日没前に送信した最後の予測(夕方予測、なければ13:00)を取得する。"""
     if mode != "actual" or vision is None:
         return None
-    sunset_clock = summary.sunset_time.strftime("%H:%M")
     try:
-        for prediction_time in ("17:00", "13:00"):
-            if prediction_time >= sunset_clock:
-                continue
-            prediction = storage.find_sent_sunset_prediction(
-                date=summary.date,
-                run_time=prediction_time,
-                location_name=summary.location_name,
-            )
-            if prediction is not None:
-                return prediction
+        return storage.find_latest_sent_sunset_prediction(
+            date=summary.date,
+            location_name=summary.location_name,
+            before_time=summary.sunset_time.strftime("%H:%M"),
+        )
     except Exception as exc:
         logging.getLogger(__name__).warning(
             "Prior sunset prediction lookup failed; using current weather comparison: %s",

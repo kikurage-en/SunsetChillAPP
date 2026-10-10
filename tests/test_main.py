@@ -762,8 +762,8 @@ def test_after_sunset_message_compares_sent_17_prediction_with_camera_result(mon
     assert fake_storage.prediction_queries == [
         {
             "date": "2026-06-01",
-            "run_time": "17:00",
             "location_name": "逗子海岸",
+            "before_time": "18:51",
         }
     ]
 
@@ -838,7 +838,7 @@ class MemoryStorage:
         self.has_sent_queries.append(kwargs)
         return self.already_sent
 
-    def find_sent_sunset_prediction(self, **kwargs):
+    def find_latest_sent_sunset_prediction(self, **kwargs):
         self.prediction_queries.append(kwargs)
         return self.prior_prediction
 

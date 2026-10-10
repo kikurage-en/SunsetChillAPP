@@ -136,7 +136,7 @@ VisionブレンドはChill指数へ影響させない。
 ### 4.1 評価フェーズ
 
 永続スケジューラが `--observation-phase sunset|afterglow` を渡した実行は、そのフェーズで
-評価する。それ以外(13:00/17:00の固定時刻・手動実行)は、要求された `run_time` と
+評価する。それ以外(夕方予測・13:00の固定時刻・手動実行)は、要求された `run_time` と
 当日の日没時刻から次のフェーズを決める。スケジューラはAstralの日没時刻を分単位で
 切り捨てて撮影し、Open-Meteoの `daily.sunset` は分単位に丸めるため、時刻比較だけでは
 日没時の撮影が「日没前」と判定され得る(2026-07-28〜10-09で日没時観測75件中34件)。
@@ -168,7 +168,8 @@ VisionブレンドはChill指数へ影響させない。
 - 取得画像はContaboの永続spoolへ固定し、45KB以下のJPEGへ正規化する。
 - 固定画像をBase64形式のworkflow inputとしてSHA-256と一緒にGitHub Actionsへ渡し、
   Actions側でハッシュを照合してから使用する。
-- 13:00 / 17:00と手動ジョブはGitHub Actionsで1フレームを取得する。
+- 13:00と手動ジョブはGitHub Actionsで1フレームを取得する。日没連動の夕方予測は
+  Contaboで1フレームを取得し、日没時と同じくworkflow inputで渡す。
 - ストリーム解決に失敗した場合はYouTubeライブサムネイルへフォールバックする。
 - 取得画像を `pages-images` branchへ追記し、GitHub Pagesへ公開してLINE画像メッセージに
   使用する。同じ日付・時刻パスへ異なる画像を上書きしない。
@@ -185,16 +186,23 @@ VisionブレンドはChill指数へ影響させない。
 ## 5. 実行スケジュール
 
 GitHub Actions自身には `schedule` を持たせず、`workflow_dispatch` だけを公開する。
-13:00 / 17:00はContaboのcron、日没連動の2件はsystemd timerから起動する。
+13:00はContaboのcron、日没連動の3件はsystemd timerから起動する。
 
 | 時刻 | `manual_mode` | LINE | 用途 |
 |---|---|---|---|
 | 13:00 | `send_line` | 送信 | 昼時点の見込み |
-| 17:00 | `send_line` | 送信 | 夕方直前の見込み・カメラAI予測 |
+| 日没60分前 | `send_line` | 送信 | 夕方の見込み・カメラAI予測 |
 | 当日の日没時 | `dry_run` | 送信しない | 日没時画像の評価・保存 |
 | 日没+10〜+20分 | `send_line` | 窓終了後に送信 | ベスト残照画像の選定・評価・通知 |
 
-日没連動の2件はAstralによるネットワーク非依存の日没計算と、SQLiteの永続ジョブを使う。
+夕方予測は2026-10-10まで固定17:00だったが、17:00は2026-10-21〜2027-01-23に日没後になり、
+10月上旬でも日没15分前だった。`EVENING_FORECAST_LEAD_MINUTES`(既定60、0で無効)で
+日没の何分前かを、`EVENING_FORECAST_LATEST_TIME`(既定なし、例 `17:00`)で遅い側の上限を
+設定する。夕方予測の観測IDは固定時刻ジョブと同じ `YYYY-MM-DD:forecast:HHMM`。
+日没10分前までに撮影できなければ `capture_missed` とし、再試行が日没後にずれ込んだ場合は
+LINEを送らずログだけ保存する。
+
+日没連動の3件はAstralによるネットワーク非依存の日没計算と、SQLiteの永続ジョブを使う。
 systemd timerは毎分ジョブを確認し、残照だけ予定時刻を10分先読みして撮影窓を開始する。
 予定時刻を過ぎた未実行ジョブは1枚撮影で追いつき実行する。選定画像は最初の成功時に固定し、
 以後のOpen-Meteo・GitHub・Vision・保存失敗では同じ画像で
@@ -233,8 +241,8 @@ systemd timerは毎分ジョブを確認し、残照だけ予定時刻を10分�
 - Vision解析がある場合、1行目へ気象条件とカメラ評価を統合する。日没前は両方を
   予測材料として使うが、評価帯が同じなら結論だけを一文で伝え、異なる場合も最大二節の
   短い対比文にする。気象条件・カメラ所見・総合判断を3つ並べず、最終評価は一度だけ
-  表現する。日没時・残照時は、同日に実際に送信された日没前予測を夕方に近い順
-  （17:00、13:00）で内部的に取得する。コメントは事前の見込み（高い・定まらない・低い）と
+  表現する。日没時・残照時は、同日に日没前に実際に送信した最後の予測（夕方予測、
+  なければ13:00）を内部的に取得する。コメントは事前の見込み（高い・定まらない・低い）と
   実際の夕焼け（鮮やか・部分的・ほぼ見えない）の3×3で選ぶ。見込みが高く実際も良い場合は
   「期待どおりの夕焼け」、見込みが低く実際も低い場合は「やっぱり夕焼けは控えめ」
   のように、結果の意味に合う短い表現にする。悪い結果を「期待どおり」と表現しない。
@@ -408,7 +416,7 @@ log-only信号とし、Sunset期待度・Chill指数・表示値を変更しな�
 - Open-Meteoは最大3回リトライし、最終失敗時はLINEを送らず異常終了する。
 - Google Sheets保存は通信タイムアウトを設定し、タイムアウト・HTTP 429・5xxを最大3回リトライする。
 - 日没連動ジョブのOpen-Meteo・GitHub Actions・保存失敗は、固定済み画像を使って再試行する。
-- 13:00 / 17:00の固定実行は日付単位の観測IDとLINE再送キーを持ち、再試行で通知を重複させない。
+- 13:00と夕方予測は日付・時刻単位の観測IDとLINE再送キーを持ち、再試行で通知を重複させない。
 - LINE送信前の保存失敗時はLINEを送信しない。
 - LINE送信失敗時は `line_sent=false` とエラー内容を保存して異常終了する。
 - LINE送信後の保存更新失敗は送信済みであることをログへ出して異常終了する。
@@ -423,14 +431,15 @@ log-only信号とし、Sunset期待度・Chill指数・表示値を変更しな�
 環境変数へ渡し、Contaboではリポジトリ直下の `.env` を読み込む。
 
 Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要である。
-`VISION_TARGET_HOURS` の既定 `16,17,18,19` は、逗子の日没時と日没+20分を通年で
-カバーする。
+`VISION_TARGET_HOURS` の既定 `15,16,17,18,19` は、逗子の日没60分前（最早15:28頃）、
+日没時と日没+20分を通年でカバーする。
 
 永続観測スケジューラは `OBSERVATION_DB_PATH`、`OBSERVATION_SPOOL_DIR`、
 `AFTERGLOW_OFFSET_MINUTES`、`AFTERGLOW_WINDOW_MINUTES`、
 `AFTERGLOW_CAPTURE_INTERVAL_SECONDS`、`AFTERGLOW_PREFILTER_CANDIDATES`、
 `OBSERVATION_CAPTURE_MAX_DELAY_MINUTES`、
-`OBSERVATION_RUN_VISIBILITY_GRACE_SECONDS`、`OBSERVATION_RETRY_MAX_SECONDS` で設定する。
+`OBSERVATION_RUN_VISIBILITY_GRACE_SECONDS`、`OBSERVATION_RETRY_MAX_SECONDS`、
+`EVENING_FORECAST_LEAD_MINUTES`、`EVENING_FORECAST_LATEST_TIME` で設定する。
 
 ## 11. テスト・受け入れ条件
 

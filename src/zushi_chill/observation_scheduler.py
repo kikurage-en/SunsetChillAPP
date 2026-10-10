@@ -14,7 +14,7 @@ import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -29,11 +29,14 @@ from zushi_chill.live_camera import (
     capture_live_camera_image,
     capture_live_camera_sequence,
 )
-from zushi_chill.solar_schedule import observation_times
+from zushi_chill.solar_schedule import local_sunset_time, observation_times
 from zushi_chill.vision_client import select_best_afterglow_image
 
 LOGGER = logging.getLogger(__name__)
-ACTIVE_PHASES = frozenset({"sunset", "afterglow"})
+ACTIVE_PHASES = frozenset({"forecast", "sunset", "afterglow"})
+# 夕方予測は日没のこの時間前までに撮影できなければ見送る。日没後に撮影すると
+# mainが日没後モードで評価し、予測の観測IDで日没後の通知を送ってしまう。
+FORECAST_SUNSET_MARGIN = timedelta(minutes=10)
 LINE_RETRY_KEY_LIFETIME = timedelta(hours=24)
 LINE_RECOVERY_MARGIN = timedelta(hours=1)
 MAX_CAPTURE_BYTES = 45_000
@@ -59,6 +62,9 @@ class SchedulerSettings:
     capture_max_delay_minutes: int
     run_visibility_grace_seconds: int
     retry_max_seconds: int
+    # 日没連動の夕方予測(日没の何分前か)。None は無効で、固定時刻cronだけを使う。
+    evening_forecast_lead_minutes: int | None = None
+    evening_forecast_latest: time | None = None
 
     @classmethod
     def from_env(cls) -> SchedulerSettings:
@@ -120,6 +126,8 @@ class SchedulerSettings:
                 "OBSERVATION_RETRY_MAX_SECONDS",
                 default=1800,
             ),
+            evening_forecast_lead_minutes=_evening_forecast_lead_minutes(),
+            evening_forecast_latest=_optional_clock("EVENING_FORECAST_LATEST_TIME"),
         )
 
 
@@ -188,16 +196,19 @@ class ObservationJobStore:
     ) -> None:
         if phase not in ACTIVE_PHASES:
             raise ValueError(f"Unknown observation phase: {phase}")
-        observation_id = f"{target_date.isoformat()}:{phase}"
+        observation_id = observation_id_for(target_date, phase, scheduled_at)
         timestamp = _iso(now)
         with self._connect() as connection:
+            # 夕方予測のIDは予定時刻を含むため、設定変更で時刻が変わってもIDごと更新できる
+            # よう、日付×フェーズで重複を判定する(撮影前の planned のときだけ)。
             connection.execute(
                 """
                 INSERT INTO observation_jobs (
                     observation_id, target_date, phase, scheduled_at, manual_mode,
                     status, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)
-                ON CONFLICT(observation_id) DO UPDATE SET
+                ON CONFLICT(target_date, phase) DO UPDATE SET
+                    observation_id = excluded.observation_id,
                     scheduled_at = excluded.scheduled_at,
                     manual_mode = excluded.manual_mode,
                     updated_at = excluded.updated_at
@@ -213,6 +224,16 @@ class ObservationJobStore:
                     timestamp,
                 ),
             )
+
+    def get_by_phase(self, target_date: date, phase: str) -> ObservationJob:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM observation_jobs WHERE target_date = ? AND phase = ?",
+                (target_date.isoformat(), phase),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"{target_date.isoformat()}:{phase}")
+        return _job_from_row(row)
 
     def get(self, observation_id: str) -> ObservationJob:
         with self._connect() as connection:
@@ -335,7 +356,19 @@ class ObservationScheduler:
             longitude=self.app_settings.longitude,
             timezone=self.app_settings.timezone,
             afterglow_offset_minutes=self.scheduler_settings.afterglow_offset_minutes,
+            evening_forecast_lead_minutes=(
+                self.scheduler_settings.evening_forecast_lead_minutes
+            ),
+            evening_forecast_latest=self.scheduler_settings.evening_forecast_latest,
         )
+        if "forecast" in times:
+            self.store.ensure_job(
+                target_date=target_date,
+                phase="forecast",
+                scheduled_at=times["forecast"],
+                manual_mode="send_line",
+                now=current,
+            )
         self.store.ensure_job(
             target_date=target_date,
             phase="sunset",
@@ -390,9 +423,7 @@ class ObservationScheduler:
     def _advance(self, initial_job: ObservationJob, current: datetime) -> None:
         job = initial_job
         if job.status == "planned":
-            if current > job.scheduled_at + timedelta(
-                minutes=self.scheduler_settings.capture_max_delay_minutes
-            ):
+            if current > self._capture_deadline(job):
                 self.store.update(
                     job.observation_id,
                     now=current,
@@ -421,6 +452,22 @@ class ObservationScheduler:
 
         if job.status == "dispatched":
             self._reconcile_run(job, current)
+
+    def _sunset_time(self, job: ObservationJob) -> datetime:
+        return local_sunset_time(
+            target_date=date.fromisoformat(job.target_date),
+            latitude=self.app_settings.latitude,
+            longitude=self.app_settings.longitude,
+            timezone=self.app_settings.timezone,
+        )
+
+    def _capture_deadline(self, job: ObservationJob) -> datetime:
+        deadline = job.scheduled_at + timedelta(
+            minutes=self.scheduler_settings.capture_max_delay_minutes
+        )
+        if job.phase == "forecast":
+            deadline = min(deadline, self._sunset_time(job) - FORECAST_SUNSET_MARGIN)
+        return deadline
 
     def _capture_job(self, job: ObservationJob, current: datetime) -> None:
         target_directory = (
@@ -609,6 +656,17 @@ class ObservationScheduler:
                 "Recovering log for %s without a late LINE retry after 23 hours",
                 job.observation_id,
             )
+        if (
+            manual_mode == "send_line"
+            and job.phase == "forecast"
+            and current >= self._sunset_time(job)
+        ):
+            # 再試行が日没後にずれ込んだ予測は、ログだけ残して通知しない。
+            manual_mode = "dry_run"
+            LOGGER.warning(
+                "Recovering forecast log for %s without LINE after sunset",
+                job.observation_id,
+            )
         self.github.dispatch_observation(
             workflow=_env("GITHUB_WORKFLOW", "daily_chill.yml"),
             ref=_env("GITHUB_REF", "main"),
@@ -790,6 +848,13 @@ def _process_lock(path: Path) -> Iterator[bool]:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
+def observation_id_for(target_date: date, phase: str, scheduled_at: datetime) -> str:
+    """観測ID。夕方予測は固定時刻cronと同じ ``YYYY-MM-DD:forecast:HHMM`` 形式にする。"""
+    if phase == "forecast":
+        return f"{target_date.isoformat()}:forecast:{scheduled_at.strftime('%H%M')}"
+    return f"{target_date.isoformat()}:{phase}"
+
+
 def _job_from_row(row: sqlite3.Row) -> ObservationJob:
     return ObservationJob(
         observation_id=str(row["observation_id"]),
@@ -930,6 +995,27 @@ def _required_env(name: str) -> str:
     if not value:
         raise ConfigError(f"{name} is required")
     return value
+
+
+def _evening_forecast_lead_minutes() -> int | None:
+    value = _env("EVENING_FORECAST_LEAD_MINUTES", "60")
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError("EVENING_FORECAST_LEAD_MINUTES must be a non-negative integer") from exc
+    if parsed < 0:
+        raise ConfigError("EVENING_FORECAST_LEAD_MINUTES must be a non-negative integer")
+    return parsed or None
+
+
+def _optional_clock(name: str) -> time | None:
+    value = _env(name, "")
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be HH:MM") from exc
 
 
 def _positive_int(name: str, *, default: int) -> int:
