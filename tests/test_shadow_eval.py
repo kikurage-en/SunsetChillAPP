@@ -99,16 +99,42 @@ def _features(**values):
     return features
 
 
-def test_forecast_rows_prefer_the_17_00_run():
+def test_forecast_rows_take_the_latest_forecast_before_sunset():
     rows = [
         _forecast_row(run_time="13:00", sunset_score="60"),
         _forecast_row(run_time="17:00", sunset_score="80"),
-        _forecast_row(date="2026-10-09", run_time="13:00", sunset_score="70"),
-        _forecast_row(date="2026-10-09", run_time="17:16", sunset_score="10"),
+        _forecast_row(
+            date="2026-10-09",
+            run_time="13:00",
+            sunset_time="2026-10-09T17:14+09:00",
+            sunset_score="70",
+        ),
+        _forecast_row(
+            date="2026-10-09",
+            run_time="17:16",
+            sunset_time="2026-10-09T17:14+09:00",
+            observation_phase="sunset",
+            sunset_score="10",
+        ),
+        # 2026-10-10以降の夕方予測は日没60分前で、run_timeが日ごとに変わる。
+        _forecast_row(
+            date="2026-10-11",
+            run_time="13:00",
+            sunset_time="2026-10-11T17:11+09:00",
+            sunset_score="50",
+        ),
+        _forecast_row(
+            date="2026-10-11",
+            run_time="16:11",
+            sunset_time="2026-10-11T17:11+09:00",
+            observation_phase="forecast",
+            sunset_score="65",
+        ),
     ]
     chosen = forecast_rows(rows)
     assert chosen["2026-10-08"]["sunset_score"] == "80"
     assert chosen["2026-10-09"]["sunset_score"] == "70"
+    assert chosen["2026-10-11"]["sunset_score"] == "65"
 
 
 def test_day_signals_swap_only_the_cloud_inputs():

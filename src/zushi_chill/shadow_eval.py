@@ -145,13 +145,20 @@ def _number(row: dict[str, str], key: str) -> float | None:
 
 
 def forecast_rows(rows: Iterable[dict[str, str]]) -> dict[str, dict[str, str]]:
-    """日付ごとの比較相手の予測行。17:00、無ければ13:00。"""
+    """日付ごとの比較相手の予測行 = 日没前の予測枠で最も遅い行。
+
+    2026-10-09までは17:00(無ければ13:00)、10-10以降は日没60分前の夕方予測になる。
+    """
     by_date: dict[str, dict[str, str]] = {}
-    rows = list(rows)
-    for run_time in ("13:00", "17:00"):
-        for row in rows:
-            if row.get("run_time") == run_time:
-                by_date[row["date"]] = row
+    for row in rows:
+        if slot_of(row) != "forecast":
+            continue
+        offset = minutes_from_sunset(row)
+        if offset is not None and offset >= 0:
+            continue
+        current = by_date.get(row["date"])
+        if current is None or row["run_time"] > current["run_time"]:
+            by_date[row["date"]] = row
     return by_date
 
 
