@@ -3,6 +3,8 @@
 本番のスコア・LINE通知・保存には一切触れない。前向きにしか集められない入力を記録し、
 後からオフラインで既存の予測と比較するために使う。
 
+- ``labels``: Pagesに保存した日没時・残照の画像から、空の領域の夕焼け色(``sky_color``)を
+  計算し、Geminiの採点と並べたCSVを作る。予測扱いで採点が欠けた日没時の画像も含む。
 - ``log``: 当日の日没窓について、ECMWF/GFS/ICONのアンサンブル予報と、気象庁・ECMWF・
   GFS・ICONの決定論予報を本番と同じ地点(逗子、日没方位の20/40km、50〜100km)で取得し、
   JSONで保存する。Open-Meteoの過去予報APIは各ランの初期時刻付近をつないだ値で、
@@ -29,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 from zushi_chill.config import Settings
 from zushi_chill.main import SUNSET_CLOUD_PATH_DISTANCES_KM
+from zushi_chill.shadow_eval import build_labels, load_rows, write_csv
 from zushi_chill.solar_schedule import local_sunset_time
 from zushi_chill.sunset_geometry import sunset_azimuth_deg, sunset_cloud_point
 
@@ -182,7 +185,24 @@ def main(argv: list[str] | None = None) -> int:
         default=os.getenv("SHADOW_DIR", DEFAULT_SHADOW_DIR),
         help="Directory for shadow logs.",
     )
+    labels_parser = subcommands.add_parser(
+        "labels", help="Score archived camera images with the sky-colour label."
+    )
+    labels_parser.add_argument("--predictions", required=True, help="Prediction log CSV.")
+    labels_parser.add_argument(
+        "--images-dir",
+        required=True,
+        help="Checkout of the pages-images branch (contains live-camera/).",
+    )
+    labels_parser.add_argument("--out", required=True, help="Output CSV path.")
     args = parser.parse_args(argv)
+
+    if args.command == "labels":
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+        labels = build_labels(load_rows(Path(args.predictions)), Path(args.images_dir))
+        write_csv(Path(args.out), labels)
+        LOGGER.info("Wrote %d image labels to %s", len(labels), args.out)
+        return 0
 
     settings = Settings.from_env()
     logging.basicConfig(
