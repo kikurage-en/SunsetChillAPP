@@ -286,6 +286,23 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 ログには `sunsethue_quality`（0〜100、Sunsethue の `quality` 0〜1 を 100 倍）/ `sunsethue_cloud_cover`（%、`cloud_cover` 0〜1 を 100 倍）/ `sunsethue_quality_text`（Poor/Fair/Good/Great）の 3 カラムが追加されます（Google Sheets は自動移行）。認証は API キーを `key` クエリパラメータで渡します。Sunsethue は Cloudflare 配下でブラウザ以外の User-Agent を拒否するため、クライアントはブラウザ相当の User-Agent を送ります。無料枠は 1000 credits/日・**非商用**です。
 
+## 影の検証（shadow、log-only）
+
+本番の予測・LINE・保存には触れずに、別の予測入力やAIに依存しない真値を並行して集め、後からオフラインで既存の予測と比べるためのコマンドです（`zushi-chill-shadow`、`python -m zushi_chill.shadow` でも同じ）。
+
+- `log`: 当日の日没窓について、ECMWF（51メンバー）・GFS・ICONのアンサンブル予報と、気象庁・ECMWF・GFS・ICONの決定論予報の層別雲量を、本番と同じ地点（逗子、日没方位の20/40km、50/60/80/100km）で取得し、取得時刻つきで `SHADOW_DIR`（既定 `/var/lib/zushi-chill/shadow`）の `YYYY-MM-DD/{ensemble,deterministic}-HHMM.json.gz` に保存します。アンサンブルは過去日を取得できず、過去予報APIも「その時点に使えた予報」とは一致しないため、比較用の入力はこの記録でしか残りません。1日2リクエスト・約50KBです。データは [Open-Meteo](https://open-meteo.com/)（CC BY 4.0、無料枠は非商用）です。
+- `labels`: Pagesに保存した日没時・残照の画像から、空の領域だけの夕焼け色スコア（`sky_color_score`、0〜100）を計算し、Geminiの採点と並べたCSVを作ります。Geminiとは独立の第2の真値で、空の領域に限ると順位相関は日没時0.90・残照0.92でした（2026-10-10、N=46/72）。
+
+```cron
+30 14 * * * cd /opt/SunsetChillAPP && /opt/SunsetChillAPP/.venv/bin/python -m zushi_chill.shadow log >> /var/log/zushi-chill-shadow.log 2>&1
+```
+
+```bash
+# ラベル作成（pages-images ブランチを別ディレクトリに展開し、予測ログをCSVで書き出しておく）
+git worktree add ../pages-images origin/pages-images
+zushi-chill-shadow labels --predictions predictions.csv --images-dir ../pages-images --out labels.csv
+```
+
 ## 前向き検証運用
 
 1. 13:00 JST に昼時点の見込みを確認
