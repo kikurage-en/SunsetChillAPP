@@ -154,8 +154,8 @@ def test_settings_rejects_invalid_google_sheets_worksheet_name(monkeypatch):
 
 
 def test_sunset_vision_blend_weight_defaults_and_bounds(monkeypatch):
-    # 既定は 0.8
-    assert Settings.from_env().sunset_vision_blend_weight == 0.8
+    # 既定は 1.0(上方修正なしと合わせて表示=min(Vision, 式))
+    assert Settings.from_env().sunset_vision_blend_weight == 1.0
 
     monkeypatch.setenv("SUNSET_VISION_BLEND_WEIGHT", "0")
     assert Settings.from_env().sunset_vision_blend_weight == 0.0

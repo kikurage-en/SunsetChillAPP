@@ -99,10 +99,12 @@ def calculate_sunset_score(
 
 # Vision による上方修正の上限幅。17:00 のカメラは「これから西から来る雲の壁」を
 # 見られない(7/17: 式10=西40kmの低層雲97.7%を捕捉・旧画像代理値15に対し
-# Visionは70)ため、
-# 式からの持ち上げは +30 までに制限する。下方修正は制限しない(目の前の悪い空を
-# 写しているカメラは信頼できる)。
-VISION_UPLIFT_CAP = 30
+# Visionは70)。2026-07-18に+30を導入したが、2026-10-09の再評価(7/26〜10/09)では
+# +30でも上方修正が大きすぎ、上方修正なし(重み1.0と合わせて表示=min(Vision, 式))で
+# 17:00表示の発色MAE 19.4→15.2(〜8/15で選び8/16〜で検証: 17.7→13.5、21日改善/5日悪化)、
+# 残照MAE 12.4→10.5となった。下方修正は制限しない(目の前の悪い空を写している
+# カメラは信頼できる)。根拠と覆り条件は STATUS.md「2026-10-09 再評価」参照。
+VISION_UPLIFT_CAP = 0
 
 # 2026-06-12 / 2026-07-21型: アンサンブルの降水確率だけが80%以上でも、
 # 決定論的な雨量・天気コード・西空の雲が晴天側なら、一律-60は過小評価になった。
@@ -161,7 +163,8 @@ def blend_sunset_score(sunset_score: int, vision_sunset_score: int, vision_weigh
     式は単一時刻の雲スカラー値しか使えず「雲が光を遮る/夕日を受ける」を分離できない
     ため、実際の空を見る Vision の方が精度が高い。表示用の Sunset期待度をこの合成値
     にする一方、純式 ``sunset_score`` は検証継続のためログにそのまま残す(呼び出し側)。
-    Vision が式を上回る方向へは ``VISION_UPLIFT_CAP`` までしか持ち上げない。
+    Vision が式を上回る方向へは ``VISION_UPLIFT_CAP`` までしか持ち上げない(現行0=
+    上方修正なし。重み1.0では表示値は ``min(Vision, 式)`` になる)。
     """
     blended = (1.0 - vision_weight) * sunset_score + vision_weight * vision_sunset_score
     blended = min(blended, sunset_score + VISION_UPLIFT_CAP)

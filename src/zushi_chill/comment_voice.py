@@ -4,7 +4,7 @@ import re
 
 _STANDALONE_INTERJECTION = re.compile(
     r"(?:^|(?<=[。！？!?]))(?P<space>\s*)"
-    r"(?P<word>わ[ぁあ]っ|あ+っ|やった|うわっ|ひええ|あれれ|えっ|おおっ|うーん|わくわく)"
+    r"(?P<word>わ[ぁあ]っ|あ+っ|やった|うわっ|ひええ|あれれ|えっ|おおっ|うーん|うん|わくわく)"
     r"(?:っ?ピ)?"
     r"(?P<punct>[！!？?、,]+|…{2,}[。.]?)"
 )
@@ -45,6 +45,14 @@ def apply_comment_voice(text: str) -> str:
         "っピ！",
         comment,
     )
+    # 「っピね……」「っピよ！」のように終助詞を挟むと、後段で語尾がもう一度付いて
+    # 「っピねっピ……」になる(2026-08-26〜09-26の残照で5通)。終助詞だけを落とし、
+    # 元の句読点(低評価の「……」など)は残す。
+    comment = re.sub(
+        r"っピ(?:かな|ね|よ|な)[ぁあぇえ]?(?:っピ)?(?=…{2,}|[。！？!?])",
+        "っピ",
+        comment,
+    )
     has_terminal_punctuation = bool(re.search(r"(?:[。！？!?]|…{2,})$", comment))
 
     protected: list[str] = []
@@ -58,8 +66,13 @@ def apply_comment_voice(text: str) -> str:
     comment = _STANDALONE_INTERJECTION.sub(protect_interjection, comment)
 
     # Put the suffix before an ellipsis so low-energy comments read as
-    # 「むずかしいっピ……。」rather than「むずかしい……っピ。」.
-    comment = re.sub(r"(?<!っピ)(…{2,})([。！？!?]?)", r"っピ\1\2", comment)
+    # 「むずかしいっピ……。」rather than「むずかしい……っピ。」. Only a sentence-final
+    # ellipsis gets the suffix; a pause after a particle (「水平線は……少し」) does not.
+    comment = re.sub(
+        r"(?<!っピ)(?<![はがをにでとのもへや、,])(…{2,})([。！？!?]?)(?=$|\s|[」』）)\ue000])",
+        r"っピ\1\2",
+        comment,
+    )
     comment = re.sub(r"(?<!っピ)(?<!…)([。！？!?]+)", r"っピ\1", comment)
     if not has_terminal_punctuation:
         comment = f"{comment}っピ。"

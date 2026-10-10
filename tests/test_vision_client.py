@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -260,6 +260,34 @@ def test_vision_evaluation_phase_boundaries():
     )
 
 
+def test_explicit_observation_phase_overrides_sunset_time_comparison():
+    # 2026-10-09: Astral日没17:14:55を切り捨てた17:14に撮影し、Open-Meteoの
+    # daily.sunsetは17:15だった。時刻比較だけでは日没時観測が予測扱いになる。
+    sunset = datetime(2026, 10, 9, 17, 15, tzinfo=ZoneInfo("Asia/Tokyo"))
+    captured = datetime(2026, 10, 9, 17, 14, 2, tzinfo=ZoneInfo("Asia/Tokyo"))
+    afterglow_captured = datetime(2026, 10, 9, 17, 24, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+    assert vision_client.resolve_evaluation_phase(captured, sunset) == "predict"
+    assert (
+        vision_client.resolve_evaluation_phase(captured, sunset, "sunset") == "sunset"
+    )
+    assert (
+        vision_client.resolve_evaluation_phase(afterglow_captured, sunset, "afterglow")
+        == "afterglow"
+    )
+    # 固定時刻の予測ジョブは従来どおり撮影時刻と日没時刻で判定する。
+    assert (
+        vision_client.resolve_evaluation_phase(captured, sunset, "forecast")
+        == "predict"
+    )
+
+    prompt = vision_client.build_prompt(
+        capture_time=captured, sunset_time=sunset, evaluation_phase="sunset"
+    )
+    assert "sunset_color_score" in prompt
+    assert "予測して採点" not in prompt
+
+
 def test_build_prompt_predicts_sunset_from_pre_sunset_sky():
     prompt = vision_client.build_prompt(
         capture_time=_RUN_1700_0610, sunset_time=_SUNSET_1855
@@ -356,6 +384,29 @@ def test_analyze_image_records_separate_sunset_metrics(monkeypatch, tmp_path):
     assert result.sun_disk_visibility == 68
     assert result.sunset_color_score == 84
     assert result.afterglow_score is None
+
+
+def test_analyze_image_records_explicit_afterglow_phase(monkeypatch, tmp_path):
+    image = tmp_path / "afterglow.jpg"
+    image.write_bytes(b"fakejpeg")
+    monkeypatch.setattr(
+        vision_client,
+        "urlopen",
+        _fake_urlopen([FakeResponse(body=_gemini_body(score=58))], []),
+    )
+    nine_minutes_after = _SUNSET_1855 + timedelta(minutes=9)
+
+    result = analyze_image(
+        image_path=image,
+        api_key="key",
+        capture_time=nine_minutes_after,
+        sunset_time=_SUNSET_1855,
+        evaluation_phase="afterglow",
+    )
+
+    assert result.evaluation_phase == "afterglow"
+    assert result.afterglow_score == 58
+    assert result.sunset_color_score is None
 
 
 def test_analyze_image_uses_legacy_score_as_afterglow_fallback(monkeypatch, tmp_path):

@@ -66,7 +66,7 @@ VISION_TIMEOUT_SECONDS=30
 VISION_TARGET_HOURS=16,17,18,19
 SUNSET_CLOUD_OFFSET_KM=40
 SUNSET_CLOUD_NEAR_OFFSET_KM=20
-SUNSET_VISION_BLEND_WEIGHT=0.8
+SUNSET_VISION_BLEND_WEIGHT=1.0
 SUNSETHUE_ENABLED=false
 SUNSETHUE_API_KEY=
 SUNSETHUE_TIMEOUT_SECONDS=20
@@ -83,7 +83,7 @@ Sunset期待度には後者を維持し、両方をログへ分けて保存し�
 
 `SUNSET_CLOUD_NEAR_OFFSET_KM` は、**発色源の雲**（中・高層雲＝日没後も日照が届く観測者寄りの「キャンバス」）を取得する近距離側の地点（km）です。既定は 20。`0` を指定すると中・高層雲は逗子海岸の値を使います。
 
-`SUNSET_VISION_BLEND_WEIGHT` は、日没前のVisionカメラAI予測を Sunset期待度の表示値へブレンドする際の Vision の重み（0〜1）です。既定は 0.8（Vision 8 割・式 2 割）。`0` を指定するとブレンドを無効化し、式スコアをそのまま表示します。ブレンドは日没前（予測モード）でVision解析が成功した実行にのみ適用され、純式スコア `sunset_score` はログにそのまま残します。17:00 のカメラは「これから西から来る雲の壁」を写せないため、Vision による**上方修正は式スコア+30 までに制限**します（下方修正は無制限。詳細は「スコア計算」節）。
+`SUNSET_VISION_BLEND_WEIGHT` は、日没前のVisionカメラAI予測を Sunset期待度の表示値へブレンドする際の Vision の重み（0〜1）です。既定は 1.0。`0` を指定するとブレンドを無効化し、式スコアをそのまま表示します。ブレンドは日没前（予測モード）でVision解析が成功した実行にのみ適用され、純式スコア `sunset_score` はログにそのまま残します。17:00 のカメラは「これから西から来る雲の壁」を写せないため、Vision による**上方修正は行いません**（既定重みでは表示値＝`min(Vision, 式)`。下方修正は無制限。詳細は「スコア計算」節）。
 
 ## LINE Messaging API
 
@@ -271,7 +271,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 `VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。日没時ジョブを予約しても、この2設定がなければ画像の保存だけでVision評価値は記録されません。解析は3フェーズです。日没前は雲の構造から今夜の夕焼けを**予測**、日没時〜+10分は**太陽ディスクの見えやすさ**と**日没時の発色**を別々に評価、+10分より後は**残照**を評価します。残照窓では、Contabo側の同設定を候補比較にも使用します。候補比較と、選定後にActionsで行う残照評価は別リクエストです。解析結果はLINE本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開URLをダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE送信・保存は継続します。
 
-日没前（予測フェーズ）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 Vision 8 割）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没時・残照フェーズは予測へのブレンドに使わず、観測画像の代理指標として記録します。`Chill指数` は Vision の影響を受けません。
+日没前（予測フェーズ）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 1.0。Visionは式を下げる方向にだけ効きます）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没時・残照フェーズは予測へのブレンドに使わず、観測画像の代理指標として記録します。`Chill指数` は Vision の影響を受けません。
 
 従来の `vision_sunset_score` / `vision_sky_condition` / `vision_comment` / `vision_model` に加え、`vision_evaluation_phase` / `vision_sun_disk_visibility` / `vision_sunset_color_score` / `vision_afterglow_score` を記録します。`vision_sunset_score` は後方互換の総合値として残します。同じAIによる画像採点は独立した真値ではなく**画像代理指標**ですが、元画像をArtifactに保存するため、将来モデルや評価基準を変えて再採点できます。
 
@@ -314,7 +314,7 @@ final_sunset_score = round(
 )
 ```
 
-`SUNSET_VISION_BLEND_WEIGHT`（既定 0.8）が 0、Vision が無効・欠測、または日没時・残照フェーズの実行では、ブレンドせず `final_sunset_score = sunset_score` とします。またブレンド結果には**上方キャップ `final_sunset_score ≤ sunset_score + 30`** を適用します。17:00 のカメラは逗子上空の見かけしか写せず「これから西から来る雲の壁」（式が西地点の予報で捕捉するもの）を見えないため、Vision の楽観による持ち上げ幅を制限します。加えて雨シグナル（前節の判定）の実行では上方修正そのものを無効化し、`final_sunset_score ≤ sunset_score` とします（2026-07-25: 窓内4.7mm・雨コードの予報下でVision 65が表示を45→61へ持ち上げ、実際の日没時発色は0だった）。下方修正は制限しません（目の前の悪い空を写しているカメラは信頼できるため）。**純式スコア `sunset_score` はブレンドで上書きせず別カラムで保持**し、同一日の `vision_sunset_color_score` と `vision_afterglow_score` に対する誤差を別々に検証します。表示ラベル（S〜D）は `final_sunset_score` を基準にします。
+`SUNSET_VISION_BLEND_WEIGHT`（既定 1.0）が 0、Vision が無効・欠測、または日没時・残照フェーズの実行では、ブレンドせず `final_sunset_score = sunset_score` とします。またブレンド結果には**上方キャップ `final_sunset_score ≤ sunset_score`**（`VISION_UPLIFT_CAP=0`）を適用し、既定重みでは表示値は `min(vision_sunset_score, sunset_score)` になります。17:00 のカメラは逗子上空の見かけしか写せず「これから西から来る雲の壁」（式が西地点の予報で捕捉するもの）を見えないためです。2026-07-18〜10-09 は重み0.8・上方修正は式+30までとしていましたが、10-09 の再評価（7/26〜10/09）では上方修正なしの方が 17:00 表示の誤差が小さく（日没時発色 MAE 19.4→15.2、残照 12.4→10.5）、〜8/15 で選んだ設定を 8/16〜 で検証しても改善しました。雨シグナル（前節の判定）の実行でも `final_sunset_score ≤ sunset_score` です（2026-07-25: 窓内4.7mm・雨コードの予報下でVision 65が表示を45→61へ持ち上げ、実際の日没時発色は0だった）。下方修正は制限しません（目の前の悪い空を写しているカメラは信頼できるため）。**純式スコア `sunset_score` はブレンドで上書きせず別カラムで保持**し、同一日の `vision_sunset_color_score` と `vision_afterglow_score` に対する誤差を別々に検証します。表示ラベル（S〜D）は `final_sunset_score` を基準にします。
 
 `Chill指数` は体感温度、湿度、風、降水リスク、Sunset期待度（純式 `sunset_score`）を重み付きで合成し、Vision ブレンドの影響は受けません。13:00・17:00は対象時間帯の集計値を使い、降水リスクには気象庁の6時間降水確率を優先します。日没時・残照時は、実行時刻に最も近いOpen-Meteo hourly行の体感温度・湿度・風・降水・天気コード・雲量を一式で使います。保存列 `chill_weather_basis` は前者を `target_window`、後者を `run_time` と記録します。降水確率、降水量、平均風速、突風、雨・雷雨系の天気コード、肌寒く感じやすい体感温度、雲が厚く滞在感が重くなりやすい条件に応じて上限を制限します。
 

@@ -86,6 +86,27 @@ def vision_evaluation_phase(capture_time: datetime, sunset_time: datetime) -> st
     return "afterglow"
 
 
+# 永続スケジューラが明示した観測フェーズ。撮影時刻とOpen-Meteo日没時刻の比較より優先する。
+OBSERVATION_EVALUATION_PHASES = frozenset({"sunset", "afterglow"})
+
+
+def resolve_evaluation_phase(
+    capture_time: datetime,
+    sunset_time: datetime,
+    observation_phase: str = "",
+) -> str:
+    """観測フェーズが明示されていればそれを、なければ時刻比較の評価フェーズを返す。
+
+    スケジューラはAstralの日没時刻を分単位で切り捨てて撮影し、Open-Meteoの
+    ``daily.sunset`` は分単位に丸めた値を返す。両者が1分ずれると日没時の撮影が
+    「日没前」と判定され、日没時観測75件中34件が予測として採点されていた
+    (2026-07-28〜10-09)。日没+10分付近の残照撮影も同じ理由で日没時と判定された。
+    """
+    if observation_phase in OBSERVATION_EVALUATION_PHASES:
+        return observation_phase
+    return vision_evaluation_phase(capture_time, sunset_time)
+
+
 def _comment_voice(capture_time: datetime) -> str:
     tone = select_comment_variant(
         capture_time.date().isoformat(),
@@ -103,6 +124,7 @@ def build_prompt(
     *,
     capture_time: datetime | None = None,
     sunset_time: datetime | None = None,
+    evaluation_phase: str = "",
 ) -> str:
     if capture_time is None or sunset_time is None:
         return _PROMPT
@@ -112,7 +134,7 @@ def build_prompt(
         f"以下は逗子海岸のライブカメラ画像です。"
         f"撮影時刻は{capture_label}、本日の日没時刻は{sunset_label}です。"
     )
-    phase = vision_evaluation_phase(capture_time, sunset_time)
+    phase = resolve_evaluation_phase(capture_time, sunset_time, evaluation_phase)
     if phase == "predict":
         return (
             f"{header}\n"
@@ -159,12 +181,15 @@ def analyze_image(
     timeout_seconds: int = 30,
     capture_time: datetime | None = None,
     sunset_time: datetime | None = None,
+    evaluation_phase: str = "",
 ) -> VisionResult:
     """Analyze a live-camera image with the Gemini vision API.
 
     When both ``capture_time`` and ``sunset_time`` are given, the prompt
     switches between sunset prediction (before sunset) and live evaluation
-    (at or after sunset). Without them the legacy generic prompt is used.
+    (at or after sunset). An explicit ``evaluation_phase`` of ``sunset`` or
+    ``afterglow`` from the observation scheduler overrides the time comparison.
+    Without the times the legacy generic prompt is used.
 
     Prefers a locally saved image (sent inline as base64) over the public URL,
     because the saved file is guaranteed to exist on the same runner and does
@@ -184,7 +209,13 @@ def analyze_image(
     raw = _generate_content(
         parts=[
             {"inline_data": {"mime_type": "image/jpeg", "data": encoded}},
-            {"text": build_prompt(capture_time=capture_time, sunset_time=sunset_time)},
+            {
+                "text": build_prompt(
+                    capture_time=capture_time,
+                    sunset_time=sunset_time,
+                    evaluation_phase=evaluation_phase,
+                )
+            },
         ],
         api_key=api_key,
         model=model,
@@ -192,7 +223,7 @@ def analyze_image(
     )
 
     phase = (
-        vision_evaluation_phase(capture_time, sunset_time)
+        resolve_evaluation_phase(capture_time, sunset_time, evaluation_phase)
         if capture_time is not None and sunset_time is not None
         else ""
     )

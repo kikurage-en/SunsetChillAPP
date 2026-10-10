@@ -34,7 +34,7 @@ from zushi_chill.scoring import (
 from zushi_chill.storage import Storage, storage_from_settings
 from zushi_chill.sunset_geometry import sunset_cloud_point
 from zushi_chill.sunsethue_client import fetch_sunset_quality
-from zushi_chill.vision_client import analyze_image, vision_mode
+from zushi_chill.vision_client import analyze_image, resolve_evaluation_phase
 from zushi_chill.weather_client import OpenMeteoClient, parse_forecast
 
 
@@ -100,7 +100,10 @@ def main(argv: list[str] | None = None) -> int:
             summary,
             offline=bool(args.input_json),
         )
-        mode = vision_mode(run_time, summary.sunset_time)
+        evaluation_phase = resolve_evaluation_phase(
+            run_time, summary.sunset_time, args.observation_phase
+        )
+        mode = "predict" if evaluation_phase == "predict" else "actual"
         scores_without_comment = calculate_scores(
             summary,
             sunset_cloud,
@@ -114,7 +117,11 @@ def main(argv: list[str] | None = None) -> int:
             build_capture_relative_path(run_time),
         )
         vision_result = _analyze_live_camera(
-            settings, run_time, live_camera_image_url, summary.sunset_time
+            settings,
+            run_time,
+            live_camera_image_url,
+            summary.sunset_time,
+            evaluation_phase,
         )
         final_sunset_score, final_sunset_label = _blend_final_sunset(
             scores_without_comment,
@@ -486,7 +493,11 @@ def _should_run_vision(run_time: datetime, settings: Settings) -> bool:
 
 
 def _analyze_live_camera(
-    settings: Settings, run_time: datetime, image_url: str, sunset_time: datetime
+    settings: Settings,
+    run_time: datetime,
+    image_url: str,
+    sunset_time: datetime,
+    evaluation_phase: str,
 ) -> VisionResult | None:
     if not _should_run_vision(run_time, settings):
         return None
@@ -500,6 +511,7 @@ def _analyze_live_camera(
             timeout_seconds=settings.vision_timeout_seconds,
             capture_time=run_time,
             sunset_time=sunset_time,
+            evaluation_phase=evaluation_phase,
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("Vision analysis failed; continuing: %s", exc)

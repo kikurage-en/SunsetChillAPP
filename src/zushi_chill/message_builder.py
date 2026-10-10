@@ -21,7 +21,9 @@ from zushi_chill.prediction_uncertainty import (
     detect_prediction_uncertainty,
 )
 from zushi_chill.scoring import (
+    CLEAR_SKY_MAX_CLOUD_COVER,
     has_dry_high_precipitation_conflict,
+    has_rain_signal,
     normalize_prediction_vision_score,
     score_label,
 )
@@ -364,8 +366,13 @@ def build_comment(
                 ),
             )
         )
+    # 高層雲の楽観補足は見出しも good のときだけ付ける。low/medium の見出しや雨の日に
+    # 付けると「おやすみ気分っピ……。高い雲がちょうどいいっピ！」と1行で矛盾する
+    # (2026-09-25・09-28・10-04 の13:00)。
     if (
         uncertainty is None
+        and sunset_band == "good"
+        and not has_rain_signal(summary)
         and 20 <= cloud.cloud_cover_high <= 70
         and cloud.cloud_cover_low < 50
     ):
@@ -456,7 +463,15 @@ def build_comment(
     comfort_comment = (
         _concise_after_sunset_comfort_comment(summary)
         if highlight_after_sunset
-        else _comfort_comment(summary, prediction=prediction)
+        else _comfort_comment(
+            summary,
+            prediction=prediction,
+            precipitation_probability=(
+                jma_precipitation.probability
+                if prediction and jma_precipitation is not None
+                else None
+            ),
+        )
     )
 
     # 1行目は夕焼けだけ、2行目は過ごしやすさの特記事項だけに分ける。
@@ -609,10 +624,14 @@ def _prediction_with_camera_comment(
         relation = "camera-more-optimistic"
     else:
         relation = "camera-more-pessimistic"
+    variants = _PREDICTION_CAMERA_COMMENT_VARIANTS[(relation, displayed_band)]
+    # 西空の雲がほとんどない日に「色づきそうな雲がいて」と書かない(2026-10-01・10-08)。
+    if sunset_cloud.cloud_cover < CLEAR_SKY_MAX_CLOUD_COVER:
+        variants = tuple(text for text in variants if "雲" not in text) or variants
     return _comment_variant(
         summary,
         f"camera-prediction-{relation}-{displayed_band}",
-        _PREDICTION_CAMERA_COMMENT_VARIANTS[(relation, displayed_band)],
+        variants,
     )
 
 
@@ -622,11 +641,10 @@ def _actual_with_camera_comment(
     vision: VisionResult,
     prior_sunset_prediction: SunsetPredictionReference | None,
 ) -> str:
-    observation = _vision_observation_comment(vision)
     if not vision.comment.strip():
         return _actual_camera_summary(summary, vision.sunset_score)
     if prior_sunset_prediction is None:
-        return observation
+        return _vision_observation_comment(vision)
 
     outlook = _prior_outlook_band(prior_sunset_prediction.score)
     result = _actual_result_band(vision.sunset_score)
@@ -636,13 +654,20 @@ def _actual_with_camera_comment(
         "pessimistic": "absent",
     }[outlook]
     if result == expected_result:
-        return observation
+        return _vision_observation_comment(vision)
 
+    result_order = {"absent": 0, "visible": 1, "vivid": 2}
+    direction = (
+        "positive"
+        if result_order[result] > result_order[expected_result]
+        else "negative"
+    )
     comparison = _comment_variant(
         summary,
         f"actual-{outlook}-{result}",
         _ACTUAL_COMPARISON_VARIANTS[(outlook, result)],
     )
+    observation = _vision_observation_comment(vision, direction=direction)
     return place_interjection_at_comment_start(f"{comparison} {observation}")
 
 
@@ -655,7 +680,19 @@ def _actual_camera_summary(summary: WeatherSummary, sunset_score: int) -> str:
     )
 
 
-def _vision_observation_comment(vision: VisionResult) -> str:
+_NEGATIVE_INTERJECTION = re.compile(r"^(?:うーん|あれれ)(?:…+[。.]?)?[、,！!]?\s*")
+_POSITIVE_INTERJECTION = re.compile(r"^(?:わ[ぁあ]っ|やった|わくわく|おおっ)[！!、,]+\s*")
+
+
+def _vision_observation_comment(
+    vision: VisionResult, *, direction: str | None = None
+) -> str:
+    """Vision所見を表示用に整える。
+
+    スコア帯と合わない感嘆詞を落とす。``direction`` は事前予測との比較文の向きで、
+    その向きと逆の感嘆詞も落とす(2026-08-21・08-24・09-17: 「わあっ！期待したほどは
+    色が伸びなかったっピ。」)。
+    """
     raw_comment = vision.comment.strip()
     raw_comment = re.sub(
         r"((?:橙|赤|紫|ピンク|オレンジ)(?:色)?(?:・(?:橙|赤|紫)(?:色)?)*)の残照",
@@ -663,10 +700,13 @@ def _vision_observation_comment(vision: VisionResult) -> str:
         raw_comment,
     )
     raw_comment = raw_comment.replace("残照", "夕焼け色")
-    if vision.sunset_score >= 60:
-        raw_comment = re.sub(r"^うーん(?:……[。.]?|[、,])?\s*", "", raw_comment)
-    elif vision.sunset_score < 40:
-        raw_comment = re.sub(r"^(?:わ[ぁあ]っ|やった)[！!]+\s*", "", raw_comment)
+    strip_negative = vision.sunset_score >= 60 or direction == "positive"
+    strip_positive = vision.sunset_score < 40 or direction == "negative"
+    if strip_negative:
+        raw_comment = _NEGATIVE_INTERJECTION.sub("", raw_comment)
+    if strip_positive:
+        raw_comment = _POSITIVE_INTERJECTION.sub("", raw_comment)
+    raw_comment = re.sub(r"^[、,。\s]+", "", raw_comment)
     voiced = apply_comment_voice(raw_comment)
     if voiced:
         return voiced
@@ -674,11 +714,13 @@ def _vision_observation_comment(vision: VisionResult) -> str:
 
 
 def _prior_outlook_band(score: int) -> str:
-    if score >= 70:
-        return "favorable"
-    if score >= 40:
-        return "uncertain"
-    return "pessimistic"
+    # 日没前の見出しと同じ帯(70/55)で比べる。40〜54点は「むずかしそう」と伝えて
+    # いるため、日没後に「思っていたより静か」と書くと前の通知と食い違う。
+    return {
+        "good": "favorable",
+        "medium": "uncertain",
+        "low": "pessimistic",
+    }[_comment_band(score)]
 
 
 def _actual_result_band(score: int) -> str:
@@ -689,7 +731,12 @@ def _actual_result_band(score: int) -> str:
     return "absent"
 
 
-def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None:
+def _comfort_comment(
+    summary: WeatherSummary,
+    *,
+    prediction: bool,
+    precipitation_probability: float | None = None,
+) -> str | None:
     conditions = summary if prediction else summary.with_run_time_weather()
     wind_speed = (
         max(
@@ -726,9 +773,25 @@ def _comfort_comment(summary: WeatherSummary, *, prediction: bool) -> str | None
             wind_gusts=wind_gusts,
         )
     if conditions.apparent_temperature < 28:
+        # 雨はChillの上限(40/45)が風(50/55)より低いため、日没後の簡潔文と同じく
+        # 雨→風の順で1つだけ伝える。降水確率だけの雨は風より後にする。
+        rain_kind = _rain_comfort_kind(
+            conditions,
+            precipitation_probability=(
+                conditions.precipitation_probability
+                if precipitation_probability is None
+                else precipitation_probability
+            ),
+        )
+        if rain_kind == "rain":
+            return _rain_comfort_comment(conditions, kind=rain_kind, prediction=prediction)
         if not prediction and wind_gusts >= 12:
             return _gust_comment(conditions)
-        return _strong_wind_comment(summary, prediction=prediction) if wind_speed >= 8 else None
+        if wind_speed >= 8:
+            return _strong_wind_comment(summary, prediction=prediction)
+        if rain_kind is not None:
+            return _rain_comfort_comment(conditions, kind=rain_kind, prediction=prediction)
+        return None
 
     heat_level = "high" if conditions.apparent_temperature >= 32 else "moderate"
     humid = humidity >= 75
@@ -797,6 +860,10 @@ def _concise_after_sunset_comfort_comment(summary: WeatherSummary) -> str | None
             "海風が強めだから、無理はしないでっピ。",
             "風が急に強まることがあるから、気をつけてっピ。",
         )
+    elif _comfort_temperature(summary, prediction=False) < 27:
+        # 通常経路と同じく、気温27℃未満では体感が高くても「暑い」と書かない
+        # (2026-09-24 17:48: 24.6℃で「海辺はまだ少し暑いっピ。」)。
+        return None
     elif conditions.apparent_temperature >= 32:
         category = "high-heat"
         variants = (
@@ -1189,6 +1256,57 @@ def _comfort_modifier(
     return _comment_variant(
         summary,
         f"comfort-{modifier}-{'prediction' if prediction else 'actual'}",
+        variants,
+    )
+
+
+def _rain_comfort_kind(
+    summary: WeatherSummary, *, precipitation_probability: float
+) -> str | None:
+    """Chill式の雨上限と同じ条件(雨コード・雨量1mm以上・降水確率70%以上)を分類する。"""
+    if summary.weather_code in RAIN_WEATHER_CODES or summary.precipitation >= 1.0:
+        return "rain"
+    if precipitation_probability >= 70:
+        return "rain-chance"
+    return None
+
+
+def _rain_comfort_comment(
+    summary: WeatherSummary,
+    *,
+    kind: str,
+    prediction: bool,
+) -> str:
+    """暑くない日でも、Chill指数を雨で抑えた理由を1行で伝える。
+
+    暑さの補足(``_comfort_modifier``)にしか雨の文がなく、雨でChillがD/Cでも
+    雨に触れない通知が2026-08-26〜10-09に36通あった。
+    """
+    variants = {
+        ("rain", True): (
+            "雨がありそうで、海辺では過ごしにくそうっピ。",
+            "雨の予報で、のんびりするには手ごわそうっピ。",
+            "雨が降りそうだから、海辺の快適さは下がりそうっピ。",
+        ),
+        ("rain", False): (
+            "雨があって、海辺では過ごしにくい状態っピ。",
+            "雨で、のんびりするには手ごわいっピ。",
+            "雨のせいで、海辺の快適さは下がってるっピ。",
+        ),
+        ("rain-chance", True): (
+            "雨が降るかもしれないから、海辺ののんびり度は控えめっピ。",
+            "降水確率が高めだから、雨の準備もしておくと安心っピ。",
+            "雨の可能性が高めで、海辺の快適さは下がりそうっピ。",
+        ),
+        ("rain-chance", False): (
+            "雨が降りやすい空模様で、海辺ののんびり度は控えめっピ。",
+            "降水確率が高めだから、雨には気をつけてっピ。",
+            "雨の可能性が高めで、海辺の快適さは下がってるっピ。",
+        ),
+    }[(kind, prediction)]
+    return _comment_variant(
+        summary,
+        f"comfort-only-{kind}-{'prediction' if prediction else 'actual'}",
         variants,
     )
 
