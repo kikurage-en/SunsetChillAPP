@@ -150,6 +150,8 @@ class SunsetCloud:
     cloud_cover_low_at_sunset: float | None = None
     cloud_cover_mid_at_sunset: float | None = None
     cloud_cover_high_at_sunset: float | None = None
+    # log-only: 日没方位上40〜100kmの総雲量(窓平均)の最大値。スコアには使わない。
+    cloud_cover_path_max: float | None = None
 
     @classmethod
     def from_summary(cls, summary: WeatherSummary) -> SunsetCloud:
@@ -235,6 +237,7 @@ class PredictionRecord:
     observation_phase: str = ""
     scheduled_at: datetime | None = None
     captured_at: datetime | None = None
+    sunset_score_path_max_shadow: int | None = None
 
     def to_row(self) -> dict[str, str | int | float | bool]:
         data = asdict(self.summary)
@@ -395,6 +398,16 @@ class PredictionRecord:
                 "observation_data_quality": _observation_data_quality(
                     self.scheduled_at,
                     self.captured_at,
+                ),
+                "sunset_cloud_cover_path_max": (
+                    sunset_cloud.cloud_cover_path_max
+                    if sunset_cloud and sunset_cloud.cloud_cover_path_max is not None
+                    else ""
+                ),
+                "sunset_score_path_max_shadow": (
+                    self.sunset_score_path_max_shadow
+                    if self.sunset_score_path_max_shadow is not None
+                    else ""
                 ),
             }
         )

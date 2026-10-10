@@ -310,7 +310,7 @@ Google Sheetsは旧ヘッダーが新ヘッダーのprefixと一致する場合�
 
 ### 7.2 保存カラム
 
-保存スキーマは次の90列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
+保存スキーマは次の92列とし、順序は `src/zushi_chill/storage.py` の `CSV_COLUMNS` を正とする。
 
 ```txt
 date
@@ -403,7 +403,14 @@ visibility_at_run_time
 wind_speed_10m_at_run_time
 wind_direction_10m_at_run_time
 wind_gusts_10m_at_run_time
+sunset_cloud_cover_path_max
+sunset_score_path_max_shadow
 ```
+
+末尾2列は log-only の前向き検証用で、表示・Chill指数・コメントには使わない。
+`sunset_cloud_cover_path_max` は日没方位上の遠地点(既定40km)と50/60/80/100km
+(`SUNSET_CLOUD_PATH_MAX_KM` 以下、既定100、0で無効)の総雲量(窓平均)の最大値、
+`sunset_score_path_max_shadow` は総雲量だけをその値に替えた純式である。取得失敗時は空欄。
 
 ## 8. Sunsethueベンチマーク
 
@@ -447,7 +454,7 @@ Vision画像評価には `VISION_ENABLED=true` と `VISION_API_KEY` が必要で
 - `pytest` が成功する。
 - スコア境界、強制上限、層別雲量、Visionブレンド上限を回帰テストする。
 - Visionの3フェーズ、個別画像評価値、旧形式応答の互換性をテストする。
-- CSVの90列出力とGoogle Sheetsの旧ヘッダー・列幅移行をテストする。
+- CSVの92列出力とGoogle Sheetsの旧ヘッダー・列幅移行をテストする。
 - 気象庁6時間降水確率の期間選択、LINE表示、Chill優先利用、Sunset非利用をテストする。
 - 日没前のLINE予測が日没時刻に最も近いhourly気温・湿度・風・層別雲量・視程を表示し、
   Sunset期待度・Chill指数は対象時間帯集計のまま変わらないことをテストする。

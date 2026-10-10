@@ -127,8 +127,10 @@ def test_csv_columns_append_sunset_diagnostics_jma_and_display_snapshot():
         "wind_speed_10m_at_run_time",
         "wind_direction_10m_at_run_time",
         "wind_gusts_10m_at_run_time",
+        "sunset_cloud_cover_path_max",
+        "sunset_score_path_max_shadow",
     ]
-    assert len(CSV_COLUMNS) == 90
+    assert len(CSV_COLUMNS) == 92
 
 
 def test_csv_storage_writes_jma_precipitation_forecast(tmp_path, sample_summary):
@@ -628,7 +630,7 @@ def test_google_sheets_storage_replaces_existing_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A2:CL2"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A2:CN2"
     assert fake_service.updates[-1]["body"]["values"][0][CSV_COLUMNS.index("line_sent")] is True
     assert fake_service.appends == []
 
@@ -652,7 +654,7 @@ def test_google_sheets_storage_replaces_last_matching_row(sample_summary):
 
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
-    assert fake_service.updates[-1]["range"] == "'predictions'!A3:CL3"
+    assert fake_service.updates[-1]["range"] == "'predictions'!A3:CN3"
     assert fake_service.appends == []
 
 
@@ -708,7 +710,7 @@ def test_google_sheets_storage_detects_sent_record():
         )
         is True
     )
-    assert fake_service.last_get["range"] == "'predictions'!A:CL"
+    assert fake_service.last_get["range"] == "'predictions'!A:CN"
 
 
 def test_google_sheets_storage_ignores_unsent_record():
@@ -755,7 +757,7 @@ def test_google_sheets_storage_quotes_worksheet_name_in_ranges(sample_summary):
     storage.replace_latest(PredictionRecord(summary=sample_summary, scores=scores, line_sent=True))
 
     assert fake_service.last_get["range"] == "'June''s predictions'!A:C"
-    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:CL2"
+    assert fake_service.updates[-1]["range"] == "'June''s predictions'!A2:CN2"
 
 
 def test_google_sheets_storage_requires_spreadsheet_id(sample_summary):
