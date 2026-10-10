@@ -303,6 +303,7 @@ jobs:
           VISION_TARGET_HOURS: ${{ secrets.VISION_TARGET_HOURS || secrets.VISION_TARGET_HOUR || '15,16,17,18,19' }}
           SUNSET_CLOUD_OFFSET_KM: ${{ secrets.SUNSET_CLOUD_OFFSET_KM || '40' }}
           SUNSET_CLOUD_NEAR_OFFSET_KM: ${{ secrets.SUNSET_CLOUD_NEAR_OFFSET_KM || '20' }}
+          SUNSET_CLOUD_PATH_MAX_KM: ${{ secrets.SUNSET_CLOUD_PATH_MAX_KM || '100' }}
           SUNSET_VISION_BLEND_WEIGHT: ${{ secrets.SUNSET_VISION_BLEND_WEIGHT || '1.0' }}
           SUNSETHUE_ENABLED: ${{ secrets.SUNSETHUE_ENABLED || 'false' }}
           SUNSETHUE_API_KEY: ${{ secrets.SUNSETHUE_API_KEY }}

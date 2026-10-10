@@ -27,6 +27,7 @@ from zushi_chill.models import (
 from zushi_chill.scoring import (
     blend_sunset_score,
     calculate_scores,
+    calculate_sunset_score,
     has_rain_signal,
     normalize_prediction_vision_score,
     score_label,
@@ -95,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_missing_fields=settings.allow_missing_hourly_fields,
         )
         sunset_cloud = _resolve_sunset_cloud(args, settings, summary, run_time)
+        path_max_shadow_score = _path_max_shadow_score(summary, sunset_cloud)
         jma_precipitation = _collect_jma_precipitation(
             settings,
             summary,
@@ -183,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                 observation_phase=args.observation_phase,
                 scheduled_at=scheduled_at,
                 captured_at=captured_at,
+                sunset_score_path_max_shadow=path_max_shadow_score,
             )
             _save_initial_record(storage, record)
             print(message)
@@ -202,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             observation_phase=args.observation_phase,
             scheduled_at=scheduled_at,
             captured_at=captured_at,
+            sunset_score_path_max_shadow=path_max_shadow_score,
         )
         _save_initial_record(storage, pending_record)
         try:
@@ -252,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
                 observation_phase=args.observation_phase,
                 scheduled_at=scheduled_at,
                 captured_at=captured_at,
+                sunset_score_path_max_shadow=path_max_shadow_score,
             )
             try:
                 storage.replace_latest(failed_record)
@@ -276,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
             observation_phase=args.observation_phase,
             scheduled_at=scheduled_at,
             captured_at=captured_at,
+            sunset_score_path_max_shadow=path_max_shadow_score,
         )
         try:
             storage.replace_latest(sent_record)
@@ -475,6 +481,52 @@ def _resolve_sunset_cloud(
         cloud_cover_low_at_sunset=far.cloud_cover_low_at_sunset,
         cloud_cover_mid_at_sunset=near.cloud_cover_mid_at_sunset,
         cloud_cover_high_at_sunset=near.cloud_cover_high_at_sunset,
+        cloud_cover_path_max=_fetch_path_max_cloud_cover(args, settings, run_time, far),
+    )
+
+
+# 遠地点(SUNSET_CLOUD_OFFSET_KM)より先で総雲量を取る距離。2026-10-09の検証で、総雲量を
+# 日没方位上40〜100kmの最大値にすると全期間で改善したが、効く日が134日中24日と少なく、
+# 見つけたのは全データを見た後だった。表示へは使わず、前向き検証用に記録する。
+SUNSET_CLOUD_PATH_DISTANCES_KM = (50.0, 60.0, 80.0, 100.0)
+
+
+def _fetch_path_max_cloud_cover(
+    args: argparse.Namespace,
+    settings: Settings,
+    run_time: datetime,
+    far: WeatherSummary,
+) -> float | None:
+    """日没方位上の総雲量(窓平均)の最大値を返す。log-onlyなので失敗時は None。"""
+    distances = [
+        distance
+        for distance in SUNSET_CLOUD_PATH_DISTANCES_KM
+        if settings.sunset_cloud_offset_km < distance <= settings.sunset_cloud_path_max_km
+    ]
+    if not distances:
+        return None
+    try:
+        return max(
+            far.cloud_cover,
+            *(
+                _fetch_west_summary(args, settings, run_time, distance).cloud_cover
+                for distance in distances
+            ),
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Sunset-path cloud fetch failed; leaving the shadow column blank: %s", exc
+        )
+        return None
+
+
+def _path_max_shadow_score(summary: WeatherSummary, sunset_cloud: SunsetCloud) -> int | None:
+    """総雲量だけを経路最大値に替えた影の純式。表示・Chill・コメントには使わない。"""
+    if sunset_cloud.cloud_cover_path_max is None:
+        return None
+    return calculate_sunset_score(
+        summary,
+        replace(sunset_cloud, cloud_cover=sunset_cloud.cloud_cover_path_max),
     )
 
 

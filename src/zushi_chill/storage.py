@@ -105,6 +105,9 @@ CSV_COLUMNS = [
     "wind_speed_10m_at_run_time",
     "wind_direction_10m_at_run_time",
     "wind_gusts_10m_at_run_time",
+    # 2026-10-10: 総雲量の日没方位上40〜100km最大値と、それを使った影の純式(log-only)。
+    "sunset_cloud_cover_path_max",
+    "sunset_score_path_max_shadow",
 ]
 
 

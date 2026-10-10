@@ -1253,3 +1253,70 @@ def test_near_point_fetch_failure_falls_back_to_far_values(tmp_path, monkeypatch
     assert float(row["sunset_cloud_cover_mid"]) == 10
     assert float(row["sunset_cloud_cover_high"]) == 20
     assert float(row["sunset_cloud_cover_low"]) == 90
+
+
+class FarPathCloudWeatherClient:
+    """日没方位の100km地点(経度<138.65)だけ厚い雲を返す。それ以外は同じ快晴。"""
+
+    def __init__(self, clear_payload: dict, far_payload: dict, *, fail_far: bool = False):
+        self.clear_payload = clear_payload
+        self.far_payload = far_payload
+        self.fail_far = fail_far
+        self.calls: list[tuple[float, float]] = []
+
+    def fetch_forecast(self, *, latitude, longitude, timezone, target_date=None):
+        self.calls.append((round(latitude, 3), round(longitude, 3)))
+        if longitude < 138.65:
+            if self.fail_far:
+                raise WeatherDataError("path fetch failed")
+            return self.far_payload
+        return self.clear_payload
+
+
+def test_path_max_cloud_is_logged_as_shadow_without_changing_display(tmp_path, monkeypatch):
+    csv_path = tmp_path / "path_max.csv"
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+    monkeypatch.setenv("CSV_PATH", str(csv_path))
+    clear = _fixture_payload_with_clouds(low=0, mid=30, high=40, total=30)
+    cloudy_far = _fixture_payload_with_clouds(low=20, mid=30, high=40, total=90)
+    client = FarPathCloudWeatherClient(clear, cloudy_far)
+    monkeypatch.setattr(main_module, "OpenMeteoClient", lambda: client)
+
+    assert main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"]) == 0
+
+    row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+    # 逗子・20km・40km・50/60/80/100kmの7地点
+    assert len(client.calls) == 7
+    assert float(row["sunset_cloud_cover"]) == 30
+    assert float(row["sunset_cloud_cover_path_max"]) == 90
+    # 総雲量85%以上の上限30が影の純式にだけ効き、表示値と純式は変わらない
+    assert int(row["sunset_score_path_max_shadow"]) <= 30
+    assert int(row["sunset_score"]) > 30
+    assert row["final_sunset_score"] == row["sunset_score"]
+
+
+def test_path_max_shadow_can_be_disabled_or_fail_without_stopping(tmp_path, monkeypatch):
+    clear = _fixture_payload_with_clouds(low=0, mid=30, high=40, total=30)
+    cloudy_far = _fixture_payload_with_clouds(low=20, mid=30, high=40, total=90)
+    monkeypatch.setenv("STORAGE_BACKEND", "csv")
+
+    for name, env_value, fail_far, expected_calls in (
+        ("disabled", "0", False, 3),
+        ("failed", "100", True, 7),
+    ):
+        csv_path = tmp_path / f"{name}.csv"
+        monkeypatch.setenv("CSV_PATH", str(csv_path))
+        monkeypatch.setenv("SUNSET_CLOUD_PATH_MAX_KM", env_value)
+        client = FarPathCloudWeatherClient(clear, cloudy_far, fail_far=fail_far)
+        monkeypatch.setattr(main_module, "OpenMeteoClient", lambda client=client: client)
+
+        assert (
+            main_module.main(["--dry-run", "--date", "2026-06-01", "--run-time", "13:00"])
+            == 0
+        ), name
+
+        row = list(csv.DictReader(csv_path.open(encoding="utf-8")))[0]
+        assert len(client.calls) == expected_calls, name
+        assert row["sunset_cloud_cover_path_max"] == "", name
+        assert row["sunset_score_path_max_shadow"] == "", name
+        assert float(row["sunset_cloud_cover"]) == 30, name

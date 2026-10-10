@@ -98,10 +98,12 @@ def test_prediction_log_columns_match_requirements():
         "wind_speed_10m_at_run_time",
         "wind_direction_10m_at_run_time",
         "wind_gusts_10m_at_run_time",
+        "sunset_cloud_cover_path_max",
+        "sunset_score_path_max_shadow",
     ]
     assert expected_columns == CSV_COLUMNS
     requirements = Path("REQUIREMENTS.md").read_text(encoding="utf-8")
-    assert "保存スキーマは次の90列" in requirements
+    assert "保存スキーマは次の92列" in requirements
     for column in expected_columns:
         assert column in requirements
 

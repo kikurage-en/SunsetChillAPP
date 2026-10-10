@@ -66,6 +66,7 @@ VISION_TIMEOUT_SECONDS=30
 VISION_TARGET_HOURS=15,16,17,18,19
 SUNSET_CLOUD_OFFSET_KM=40
 SUNSET_CLOUD_NEAR_OFFSET_KM=20
+SUNSET_CLOUD_PATH_MAX_KM=100
 SUNSET_VISION_BLEND_WEIGHT=1.0
 SUNSETHUE_ENABLED=false
 SUNSETHUE_API_KEY=
@@ -82,6 +83,8 @@ Sunset期待度には後者を維持し、両方をログへ分けて保存し�
 `SUNSET_CLOUD_OFFSET_KM` は、Sunset期待度の**遮蔽側の雲**（低層雲・総雲量）をどれだけ西(日没方位)へ離れた地点から取得するかの距離（km）です。既定は 40。`0` を指定すると西地点分離を全て無効化し、Chill指数と同じ逗子海岸の雲量で Sunset期待度を算出します。
 
 `SUNSET_CLOUD_NEAR_OFFSET_KM` は、**発色源の雲**（中・高層雲＝日没後も日照が届く観測者寄りの「キャンバス」）を取得する近距離側の地点（km）です。既定は 20。`0` を指定すると中・高層雲は逗子海岸の値を使います。
+
+`SUNSET_CLOUD_PATH_MAX_KM` は log-only の前向き検証用です（既定 100、`0` で無効）。遠地点に加えて日没方位上の 50/60/80/100km（この値以下）の総雲量を取得し、その最大値を `sunset_cloud_cover_path_max`、総雲量だけをその値に替えた純式を `sunset_score_path_max_shadow` として記録します。表示・Chill指数・コメントには使いません。2026-10-09 の検証で全期間の誤差は改善しましたが、効く日が少なく全データを見た後に見つけた候補のため、予測が変わった日が10日以上たまってから総雲量キャップの閾値下げ案と比較します。
 
 `SUNSET_VISION_BLEND_WEIGHT` は、日没前のVisionカメラAI予測を Sunset期待度の表示値へブレンドする際の Vision の重み（0〜1）です。既定は 1.0。`0` を指定するとブレンドを無効化し、式スコアをそのまま表示します。ブレンドは日没前（予測モード）でVision解析が成功した実行にのみ適用され、純式スコア `sunset_score` はログにそのまま残します。17:00 のカメラは「これから西から来る雲の壁」を写せないため、Vision による**上方修正は行いません**（既定重みでは表示値＝`min(Vision, 式)`。下方修正は無制限。詳細は「スコア計算」節）。
 
