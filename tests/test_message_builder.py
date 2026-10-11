@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 
+from zushi_chill import message_builder
 from zushi_chill.message_builder import (
+    _join_sentences,
     _uncertain_prediction_comment,
+    _with_uncertainty_caveat,
     build_comment,
     build_line_message,
     wind_direction_label,
@@ -1898,3 +1902,31 @@ def test_clear_western_sky_camera_comment_does_not_mention_clouds(sample_summary
             summary, scores, cloud, vision=vision, formula_sunset_score=90
         ).splitlines()[0]
         assert "雲" not in comment, comment
+
+
+def test_comment_templates_do_not_treat_the_sky_as_an_opponent():
+    # 空模様を対戦相手・味方のように書かない(2026-09-29「目の前の空は手ごわくて」)。
+    source = Path(message_builder.__file__).read_text(encoding="utf-8")
+    for word in ("手ごわ", "味方", "油断", "しぶと", "邪魔"):
+        assert word not in source
+
+
+def test_sentences_join_without_a_space_after_the_japanese_full_stop():
+    assert _join_sentences("期待は小さめっピ……。", "ただ、変わるかもっピ。") == (
+        "期待は小さめっピ……。ただ、変わるかもっピ。"
+    )
+    assert _join_sentences("楽しみっピ！", "でも、少し慎重っピ。") == (
+        "楽しみっピ！ でも、少し慎重っピ。"
+    )
+
+
+def test_uncertainty_caveat_does_not_repeat_the_hedge_word(sample_summary):
+    # 2026-09-29 17:00: 「期待は控えめっピ……。ただ、…自信は少し控えめっピ。」
+    comment = "目の前の空は暗めで、期待は控えめっピ……。"
+    for day in range(1, 31):
+        summary = replace(sample_summary, date=f"2026-09-{day:02d}")
+        text = _with_uncertainty_caveat(
+            comment, "rain_timing_shift", summary, sunset_band="low"
+        )
+        assert text.startswith(f"{comment}ただ、")
+        assert text.count("控えめ") == 1
