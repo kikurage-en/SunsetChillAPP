@@ -222,11 +222,11 @@ _PREDICTION_CAMERA_COMMENT_VARIANTS = {
     ),
     ("aligned", "low"): (
         "今の雲だと、夕焼けはむずかしそうっピ……。",
-        "目の前の空は手ごわくて、期待は控えめっピ……。",
+        "目の前の空はどんよりしていて、色づきは期待しにくいっピ……。",
         "いま見える雲では、きれいな色はむずかしそうっピ……。",
         "空がちょっぴり元気不足で、夕焼けは慎重っピ……。",
         "目の前の雲が厚く、色づきは期待薄っピ……。",
-        "今の空はおとなしくて、夕焼けは手ごわそうっピ……。",
+        "今の空はおとなしくて、夕焼けはむずかしそうっピ……。",
         "雲が夕陽の道をふさいで、期待は小さめっピ……。",
     ),
     ("camera-more-pessimistic", "good"): (
@@ -234,7 +234,7 @@ _PREDICTION_CAMERA_COMMENT_VARIANTS = {
         "目の前の雲は気になるけど、きれいな色は楽しみっピ！",
         "空は少し迷ってるけど、夕焼けは期待寄りっピ！",
         "今の空はおとなしいけど、色づくチャンスはありそうっピ！",
-        "雲は少し手ごわいけど、夕焼けはまだ楽しみっピ！",
+        "雲は少し気になるけど、夕焼けはまだ楽しみっピ！",
         "目の前の空は控えめでも、きれいな色に期待したいっピ！",
         "今の雲には迷うけど、夕焼けの望みは大きめっピ！",
     ),
@@ -242,22 +242,22 @@ _PREDICTION_CAMERA_COMMENT_VARIANTS = {
         "天気の条件はよさそうだけど、今の空だと夕焼けは五分五分っピ。",
         "条件は期待寄りだけど、目の前の空はもう少し様子見っピ。",
         "染まりそうな条件だけど、今の空ではまだ半々っピ。",
-        "天気は味方しそうだけど、目の前の雲には少し慎重っピ。",
+        "天気はよさそうだけど、目の前の雲には少し慎重っピ。",
         "条件は悪くないけど、今の空だと色づきはまだ微妙っピ。",
         "きれいに染まる条件はあるけど、今の空はもうひと声っピ。",
         "天気の条件はよくても、目の前の空では五分五分っピ。",
     ),
     ("camera-more-pessimistic", "low"): (
         "条件は悪くないけど、今の雲だと夕焼けはむずかしそうっピ……。",
-        "天気は味方してても、目の前の空だと夕焼けは手ごわそうっピ……。",
+        "天気はよさそうでも、目の前の空だと夕焼けはむずかしそうっピ……。",
         "染まりそうな条件でも、今の雲だと夕焼けは期待控えめっピ……。",
         "条件はよさそうだけど、目の前の空だと夕焼けは元気不足っピ……。",
         "天気の条件は悪くなくても、夕焼けはむずかしそうっピ……。",
         "条件はあるけど、今の空だと夕焼けは慎重に待ちたいっピ……。",
-        "条件より目の前の雲が手ごわくて、夕焼けの期待は小さめっピ……。",
+        "条件はよくても目の前の雲が多くて、夕焼けの期待は小さめっピ……。",
     ),
     ("camera-more-optimistic", "good"): (
-        "条件は手ごわそうだけど、今の空には夕焼けのチャンスがあるっピ！",
+        "天気の条件はいまひとつだけど、今の空には夕焼けのチャンスがあるっピ！",
         "天気の条件は控えめでも、目の前の空には期待できそうっピ！",
         "条件は厳しそうだけど、今の空ならきれいに染まりそうっピ！",
         "天気は心配でも、目の前の雲は夕焼け向きっピ！",
@@ -267,7 +267,7 @@ _PREDICTION_CAMERA_COMMENT_VARIANTS = {
     ),
     ("camera-more-optimistic", "medium"): (
         "条件は控えめだけど、今の空なら夕焼けを少し期待できそうっピ。",
-        "天気の条件は手ごわいけど、目の前の空には少し望みがあるっピ。",
+        "天気の条件はいまひとつだけど、目の前の空には少し望みがあるっピ。",
         "条件は厳しそうでも、今の空なら夕焼けは五分五分っピ。",
         "天気は心配だけど、目の前の雲には色づく余地があるっピ。",
         "条件はもうひと声でも、今の空には小さなチャンスがあるっピ。",
@@ -275,11 +275,11 @@ _PREDICTION_CAMERA_COMMENT_VARIANTS = {
         "条件は気がかりだけど、目の前の空はもう少し見守りたいっピ。",
     ),
     ("camera-more-optimistic", "low"): (
-        "今の空に少し望みはあるけど、夕焼けはまだ手ごわそうっピ……。",
+        "今の空に少し望みはあるけど、夕焼けはまだむずかしそうっピ……。",
         "目の前の空は少し明るいけど、色づきは慎重に待ちたいっピ……。",
         "空に小さなチャンスはあるけど、期待はまだ控えめっピ……。",
         "今の雲は少しよさそうでも、夕焼けはむずかしそうっピ……。",
-        "目の前の空には望みがあるけど、まだ油断できないっピ……。",
+        "目の前の空には望みがあるけど、まだどうなるかわからないっピ……。",
         "空は少し元気でも、きれいな色にはもうひと声っピ……。",
         "今の空は明るめだけど、夕焼けはそっと待ちたいっピ……。",
     ),
@@ -328,9 +328,9 @@ def build_comment(
         else None
     )
     if uncertainty is not None and vision is None:
-        caveat = _uncertain_prediction_comment(uncertainty, summary)
-        connector = "でも、" if sunset_band == "good" else "ただ、"
-        sunset_comment = f"{sunset_comment} {connector}{caveat}"
+        sunset_comment = _with_uncertainty_caveat(
+            sunset_comment, uncertainty, summary, sunset_band=sunset_band
+        )
 
     sunset_details: list[str] = []
     if uncertainty is None and cloud.cloud_cover_low >= 70:
@@ -349,7 +349,7 @@ def build_comment(
                     ),
                     (
                         "夕陽の通り道に低い雲がいるっピ。"
-                        "今日はちょっと手ごわそうっピ……。"
+                        "今日は夕陽が見えにくそうっピ……。"
                     ),
                 )
                 if prediction
@@ -361,7 +361,7 @@ def build_comment(
                     ),
                     (
                         "夕陽の通り道を低い雲がふさいでるっピ。"
-                        "ちょっと手ごわい空っピ……。"
+                        "今日は夕陽が見えにくい空っピ……。"
                     ),
                 ),
             )
@@ -477,7 +477,7 @@ def build_comment(
     # 1行目は夕焼けだけ、2行目は過ごしやすさの特記事項だけに分ける。
     # 夕焼け側の補足は改行せず、過ごしやすさに特記事項がなければ1行で終える。
     if sunset_details:
-        sunset_comment = f"{sunset_comment} {sunset_details[0]}"
+        sunset_comment = _join_sentences(sunset_comment, sunset_details[0])
     if vision is not None:
         if prediction:
             sunset_comment = _prediction_with_camera_comment(
@@ -495,10 +495,8 @@ def build_comment(
                 "vision_more_optimistic",
                 "vision_more_pessimistic",
             }:
-                connector = "でも、" if sunset_band == "good" else "ただ、"
-                sunset_comment = (
-                    f"{sunset_comment} {connector}"
-                    f"{_uncertain_prediction_comment(uncertainty, summary)}"
+                sunset_comment = _with_uncertainty_caveat(
+                    sunset_comment, uncertainty, summary, sunset_band=sunset_band
                 )
         else:
             sunset_comment = _actual_with_camera_comment(
@@ -522,6 +520,28 @@ def build_comment(
             ]
         )
     return "\n".join(comment_lines)
+
+
+def _join_sentences(first: str, second: str) -> str:
+    """2文をつなぐ。和文の句点「。」の後には空白を入れない(「！」の後は従来どおり)。"""
+    return f"{first}{second}" if first.endswith("。") else f"{first} {second}"
+
+
+# 予報の不確かさの補足で、本文と同じ言い回しを重ねない(2026-09-29 17:00:
+# 「期待は控えめっピ……。ただ、…自信は少し控えめっピ。」)。
+_HEDGE_WORDS = ("控えめ", "慎重", "小さめ", "わからない")
+
+
+def _with_uncertainty_caveat(
+    sunset_comment: str,
+    uncertainty: PredictionUncertainty,
+    summary: WeatherSummary,
+    *,
+    sunset_band: str,
+) -> str:
+    connector = "でも、" if sunset_band == "good" else "ただ、"
+    caveat = _uncertain_prediction_comment(uncertainty, summary, avoid=sunset_comment)
+    return _join_sentences(sunset_comment, f"{connector}{caveat}")
 
 
 def _comment_variant(
@@ -668,7 +688,7 @@ def _actual_with_camera_comment(
         _ACTUAL_COMPARISON_VARIANTS[(outlook, result)],
     )
     observation = _vision_observation_comment(vision, direction=direction)
-    return place_interjection_at_comment_start(f"{comparison} {observation}")
+    return place_interjection_at_comment_start(_join_sentences(comparison, observation))
 
 
 def _actual_camera_summary(summary: WeatherSummary, sunset_score: int) -> str:
@@ -1030,17 +1050,17 @@ def _heat_comment(
         ("high", False, True): (
             "気温が高く、海辺でもかなり暑くなりそうっピ。",
             "夕方も気温が高く、暑さがしっかり残りそうっピ。",
-            "海辺でも気温の高さが手ごわそうっピ。",
+            "海辺でも気温が高くて、暑さがこたえそうっピ。",
             "ひええ、夕方になっても暑さは本気っピ！",
-            "高い気温がしぶとく残りそうっピ……。",
+            "高い気温がなかなか下がらなそうっピ……。",
             "海辺でも熱気が残って、かなり暑く感じそうっピ。",
         ),
         ("high", False, False): (
             "気温が高く、海辺でもかなり暑い状態っピ。",
             "夕方も気温が高く、暑さがしっかり残ってるっピ。",
-            "海辺でも気温の高さが手ごわいっピ。",
+            "海辺でも気温が高くて、暑さがこたえるっピ。",
             "ひええ、夕方になっても暑さは本気っピ！",
-            "高い気温がしぶとく残ってるっピ……。",
+            "高い気温がなかなか下がらないっピ……。",
             "海辺でも熱気が残って、かなり暑く感じるっピ。",
         ),
         ("moderate", True, True): (
@@ -1214,12 +1234,12 @@ def _comfort_modifier(
         ),
         ("rain", True): (
             "それに、雨の気配もあって、海辺では過ごしにくそうっピ。",
-            "さらに雨もありそうで、のんびりするには手ごわそうっピ。",
+            "さらに雨もありそうで、のんびりしにくそうっピ。",
             "雨の心配も重なって、海辺の快適さは下がりそうっピ。",
         ),
         ("rain", False): (
             "それに、雨の気配もあって、海辺では過ごしにくい状態っピ。",
-            "さらに雨もあって、のんびりするには手ごわいっピ。",
+            "さらに雨もあって、のんびりしにくい状態っピ。",
             "雨も重なって、海辺の快適さは下がってるっピ。",
         ),
         ("cooling-breeze", True): (
@@ -1285,12 +1305,12 @@ def _rain_comfort_comment(
     variants = {
         ("rain", True): (
             "雨がありそうで、海辺では過ごしにくそうっピ。",
-            "雨の予報で、のんびりするには手ごわそうっピ。",
+            "雨の予報で、海辺でのんびりするのはむずかしそうっピ。",
             "雨が降りそうだから、海辺の快適さは下がりそうっピ。",
         ),
         ("rain", False): (
             "雨があって、海辺では過ごしにくい状態っピ。",
-            "雨で、のんびりするには手ごわいっピ。",
+            "雨で、海辺でのんびりするのはむずかしい状態っピ。",
             "雨のせいで、海辺の快適さは下がってるっピ。",
         ),
         ("rain-chance", True): (
@@ -1350,6 +1370,8 @@ def _strong_wind_comment(summary: WeatherSummary, *, prediction: bool) -> str:
 def _uncertain_prediction_comment(
     uncertainty: PredictionUncertainty,
     summary: WeatherSummary,
+    *,
+    avoid: str = "",
 ) -> str:
     details = {
         "missing_values": (
@@ -1383,7 +1405,7 @@ def _uncertain_prediction_comment(
         "precipitation_forecast_disagreement": (
             "空模様は変わりやすそうで、自信は少し控えめっピ。",
             "天気が急に変わるかもしれなくて、ちょっぴり慎重っピ。",
-            "不安定な空模様になりそうで、まだ油断はできないっピ。",
+            "不安定な空模様になりそうで、まだどう転ぶかわからないっピ。",
             "空が落ち着きにくそうだから、自信は少しだけ控えめっピ。",
             "夕方の天気が揺れやすそうで、そーっと見守るっピ。",
         ),
@@ -1391,15 +1413,15 @@ def _uncertain_prediction_comment(
             "今の空と周りの条件がかみ合わなくて、少し慎重っピ。",
             "目の前の空はよさそうだけど、急に変わるかもしれないっピ。",
             "空は明るく見えるけど、このあと変わりやすそうっピ。",
-            "見えている空は元気だけど、まだ油断はできないっピ。",
+            "見えている空は明るいけど、このあとどうなるかはわからないっピ。",
             "今の空は期待寄りだけど、先の変化には少し慎重っピ。",
         ),
         "vision_more_pessimistic": (
-            "目の前の雲が少し手ごわそうっピ。",
+            "目の前の雲が少し気になるっピ。",
             "今の空は思ったより静かで、自信は少し控えめっピ。",
             "空がしょんぼりしていて、期待しすぎないほうがよさそうっピ。",
             "目の前の空が暗めで、ちょっぴり慎重っピ。",
-            "雲が元気すぎて、夕焼けの邪魔をするかもしれないっピ。",
+            "雲が多くて、夕陽をさえぎるかもしれないっピ。",
         ),
         "borderline_precipitation": (
             "雨になるかはっきりしない空で、少し慎重っピ。",
@@ -1409,12 +1431,14 @@ def _uncertain_prediction_comment(
             "空模様がどちらにも転びそうで、そーっと見てるっピ。",
         ),
     }
-    detail = _comment_variant(
-        summary,
-        f"uncertainty-detail-{uncertainty}",
-        details[uncertainty],
-    )
-    return detail
+    variants = details[uncertainty]
+    repeated = [word for word in _HEDGE_WORDS if word in avoid]
+    if repeated:
+        variants = (
+            tuple(text for text in variants if not any(word in text for word in repeated))
+            or variants
+        )
+    return _comment_variant(summary, f"uncertainty-detail-{uncertainty}", variants)
 
 
 def _comment_headline(
