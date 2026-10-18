@@ -60,7 +60,7 @@ class Settings:
     webhook_port: int = 8080
     vision_enabled: bool = False
     vision_api_key: str = ""
-    vision_model: str = "gemini-2.5-flash"
+    vision_model: str = "gemini-3.8-flash"
     vision_timeout_seconds: int = 30
     vision_target_hours: frozenset[int] = frozenset({15, 16, 17, 18, 19})
     sunset_cloud_offset_km: float = 40.0
@@ -175,7 +175,7 @@ class Settings:
             webhook_port=webhook_port,
             vision_enabled=_bool_from_env(_env("VISION_ENABLED", "")),
             vision_api_key=_env("VISION_API_KEY", ""),
-            vision_model=_env("VISION_MODEL", "gemini-2.5-flash"),
+            vision_model=_env("VISION_MODEL", "gemini-3.8-flash"),
             vision_timeout_seconds=vision_timeout_seconds,
             vision_target_hours=vision_target_hours,
             sunset_cloud_offset_km=sunset_cloud_offset_km,

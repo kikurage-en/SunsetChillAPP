@@ -298,7 +298,7 @@ jobs:
           LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
           VISION_ENABLED: ${{ secrets.VISION_ENABLED || 'false' }}
           VISION_API_KEY: ${{ secrets.VISION_API_KEY }}
-          VISION_MODEL: ${{ secrets.VISION_MODEL || 'gemini-2.5-flash' }}
+          VISION_MODEL: ${{ secrets.VISION_MODEL || 'gemini-3.8-flash' }}
           VISION_TIMEOUT_SECONDS: ${{ secrets.VISION_TIMEOUT_SECONDS || '30' }}
           VISION_TARGET_HOURS: ${{ secrets.VISION_TARGET_HOURS || secrets.VISION_TARGET_HOUR || '15,16,17,18,19' }}
           SUNSET_CLOUD_OFFSET_KM: ${{ secrets.SUNSET_CLOUD_OFFSET_KM || '40' }}

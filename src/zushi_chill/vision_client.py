@@ -177,7 +177,7 @@ def analyze_image(
     image_path: Path | None = None,
     image_url: str = "",
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.8-flash",
     timeout_seconds: int = 30,
     capture_time: datetime | None = None,
     sunset_time: datetime | None = None,
@@ -235,7 +235,7 @@ def select_best_afterglow_image(
     image_paths: Sequence[Path],
     capture_times: Sequence[datetime],
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.8-flash",
     timeout_seconds: int = 30,
 ) -> int:
     """Return the zero-based index of the most beautiful afterglow candidate."""

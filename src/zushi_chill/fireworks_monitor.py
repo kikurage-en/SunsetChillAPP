@@ -258,7 +258,7 @@ def analyze_fireworks_image(
     image_path: Path,
     captured_at: datetime,
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.8-flash",
     timeout_seconds: int = 30,
 ) -> FireworksAnalysis:
     if not api_key.strip():
@@ -939,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
                 pages_dir=Path(args.pages_dir),
                 image_base_url=image_base_url,
                 api_key=api_key,
-                vision_model=os.getenv("VISION_MODEL", "gemini-2.5-flash"),
+                vision_model=os.getenv("VISION_MODEL", "gemini-3.8-flash"),
                 line_client=line_client,
                 dry_run=args.dry_run,
                 max_images=args.max_images,
