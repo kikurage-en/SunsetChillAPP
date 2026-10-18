@@ -61,7 +61,7 @@ AFTERGLOW_THUMBNAIL_INTERVAL_SECONDS=60
 AFTERGLOW_PREFILTER_CANDIDATES=3
 VISION_ENABLED=false
 VISION_API_KEY=
-VISION_MODEL=gemini-2.5-flash
+VISION_MODEL=gemini-3.8-flash
 VISION_TIMEOUT_SECONDS=30
 VISION_TARGET_HOURS=15,16,17,18,19
 SUNSET_CLOUD_OFFSET_KM=40
@@ -270,7 +270,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 
 ## ライブカメラ画像の Vision 解析
 
-`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `15,16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-2.5-flash`）で解析します。日没時ジョブを予約しても、この2設定がなければ画像の保存だけでVision評価値は記録されません。解析は3フェーズです。日没前は雲の構造から今夜の夕焼けを**予測**、日没時〜+10分は**太陽ディスクの見えやすさ**と**日没時の発色**を別々に評価、+10分より後は**残照**を評価します。残照窓では、Contabo側の同設定を候補比較にも使用します。候補比較と、選定後にActionsで行う残照評価は別リクエストです。解析結果はLINE本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開URLをダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE送信・保存は継続します。
+`VISION_ENABLED=true` かつ `VISION_API_KEY` が設定されている場合、`VISION_TARGET_HOURS`（カンマ区切り、既定 `15,16,17,18,19`。旧 `VISION_TARGET_HOUR` も単一時刻として後方互換）に含まれる時刻の実行でのみ、保存済みのライブカメラ画像を Vision LLM（既定 `gemini-3.8-flash`）で解析します。日没時ジョブを予約しても、この2設定がなければ画像の保存だけでVision評価値は記録されません。解析は3フェーズです。日没前は雲の構造から今夜の夕焼けを**予測**、日没時〜+10分は**太陽ディスクの見えやすさ**と**日没時の発色**を別々に評価、+10分より後は**残照**を評価します。残照窓では、Contabo側の同設定を候補比較にも使用します。候補比較と、選定後にActionsで行う残照評価は別リクエストです。解析結果はLINE本文とログ（`vision_*` カラム）に記録します。画像はローカル保存ファイルを優先して送信し、無い場合のみ公開URLをダウンロードして送信します。解析が失敗してもメインのスコア算出・LINE送信・保存は継続します。
 
 日没前（予測フェーズ）のVisionカメラAI予測は、`Sunset期待度` の**表示値**へブレンドされます（`SUNSET_VISION_BLEND_WEIGHT`、既定 1.0。Visionは式を下げる方向にだけ効きます）。ただし式単体の精度を前向きに検証し続けられるよう、**純式スコア `sunset_score` はログにそのまま残し**、ブレンド値は別カラム `final_sunset_score` に記録します（詳細は「スコア計算」節）。日没時・残照フェーズは予測へのブレンドに使わず、観測画像の代理指標として記録します。`Chill指数` は Vision の影響を受けません。
 
