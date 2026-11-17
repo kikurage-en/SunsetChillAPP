@@ -178,6 +178,14 @@ def test_github_actions_manual_dispatch_is_configured():
     assert 'ACTUAL_CAPTURE_SHA256="$(sha256sum "$IMAGE_PATH"' in workflow
     assert "Archived observation image checksum does not match" in workflow
     assert "yt-dlp --js-runtimes node --no-playlist" in workflow
+    reuse_published_image = (
+        'git -C public show "HEAD:$LIVE_CAMERA_IMAGE_RELATIVE_PATH" > "$IMAGE_PATH"'
+    )
+    assert reuse_published_image in workflow
+    assert "Reusing published image" in workflow
+    assert workflow.index(reuse_published_image) < workflow.index(
+        "yt-dlp --js-runtimes node --no-playlist"
+    )
     assert "ffmpeg -hide_banner" in workflow
     assert "Falling back to YouTube live thumbnail" in workflow
     assert "maxresdefault_live.jpg" in workflow

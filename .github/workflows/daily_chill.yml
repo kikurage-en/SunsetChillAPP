@@ -195,6 +195,17 @@ jobs:
             echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
             exit 0
           fi
+          # A re-run of a live capture must reuse the image an earlier attempt
+          # already published; a fresh frame would differ and break immutability.
+          if git -C public cat-file -e "HEAD:$LIVE_CAMERA_IMAGE_RELATIVE_PATH" 2>/dev/null; then
+            git -C public show "HEAD:$LIVE_CAMERA_IMAGE_RELATIVE_PATH" > "$IMAGE_PATH"
+            if [ -s "$IMAGE_PATH" ]; then
+              echo "Reusing published image: pages-images:$LIVE_CAMERA_IMAGE_RELATIVE_PATH"
+              echo "LIVE_CAMERA_IMAGE_URL=$LIVE_CAMERA_IMAGE_BASE_URL/$LIVE_CAMERA_IMAGE_RELATIVE_PATH" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "::warning::Published image is empty; capturing a fresh frame"
+          fi
           set +e
           STREAM_URL="$(yt-dlp --js-runtimes node --no-playlist --format "best[protocol^=m3u8]/best" --get-url "$LIVE_CAMERA_URL" 2>yt-dlp-error.log | head -n 1)"
           YT_DLP_STATUS=$?
